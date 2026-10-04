@@ -1,0 +1,98 @@
+# dsh-browser-kit
+
+> DSH 内置浏览器增强工具集：**元素批注 · 截图回传 · 视觉反馈闭环**
+> 状态：**调研完成，未开工实施**（2026-10-04）· 本 README 是实施会话的入口文件
+
+## 1. 项目定位
+
+让 DeepSeek Harness（DSH，本机 Electron 桌面应用）的内置浏览器具备与 agent 协作的交互能力：
+
+1. **元素批注（核心差异点）**：批注态下连续点选多个元素，每个元素就地钉编号标记并输入修改意见（可留空），意见与元素一一绑定；一键提交后 agent 收到的每条批注都是「意见 → 元素信息」的明确配对——弥补 ZCode「元素→会话附件」多元素无法区分描述的短板；
+2. **截图回传**：一键截取当前页面，agent 拿截图做视觉识别——自动化测试与视觉验收的基础设施；
+3. **设备通讯观测 + 控制台调试（SDK 无关）**：hook 在 `navigator.hid / serial / usb` 平台 API 层，任意项目、任意 SDK 通用（当前 keysion WebHID，后续其它项目其它 SDK 直接复用）；agent 能获取收发报文、页面 console 流，并执行调试操作（CDP evaluate / 注入 mock）验证通讯链路；
+4. **（远期）agent 自动化**：agent 主动操作内置浏览器（navigate / click / type / snapshot / screenshot）。
+
+**明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
+
+## 2. 背景一页纸
+
+- DSH 内置浏览器 = GUI 文档里按 lease 挂载的 `<webview>` guest（sandbox/contextIsolation 强制开启，main 侧 `will-attach-webview` 白名单校验）。目前它只有「看」的能力：用户无法指元素、agent 拿不到视觉。
+- 对 DSH 的二进制级实测（调研文档 §4）确认：批注/截图所需能力（`executeJavaScript` / `capturePage` / `debugger`）是**宿主侧 API，不受浏览器 deny-all 权限策略影响**——与 WebHID 探测中发现的权限锁完全无关，本项目的实现不依赖也不触碰 DSH 权限配置。
+- 方案主体照抄 ZCode（Z.ai 官方开源 coding agent，Apache-2.0）：它的 element picker + Markdown 上下文协议 + CDP 截图管线已在生产验证，源码已克隆本地可精读。
+- **与 ZCode 的关键差异**：ZCode 把元素作为会话附件堆积，多元素时无法区分描述；本项目主形态是「点击元素 → 就地钉标 → 就地批注」，意见与元素一一绑定（交互原型：BugHerd / Marker.io 类设计协作工具；开源参照 pageflag、onlook）。
+
+## 3. 新会话开工指引
+
+**读单（按序）**：
+1. 本 README（全景 + 纪律）；
+2. [browser-annotation-and-screenshot-research.md](browser-annotation-and-screenshot-research.md)——**§0 摘要 → §4 DSH 实测事实 → §5 落地方案 → §6 路线与验收**；§2（ZCode 解剖）与 §8（文件索引）在写代码时对照查阅。
+
+**环境事实**：
+| 项 | 值 |
+|---|---|
+| 本项目目录 | `F:\My Code\dsh-browser-kit\` |
+| ZCode 源码克隆 | `F:\My Code\ZCode\`（github.com/zai-org/ZCode，main 分支，浅克隆） |
+| DSH 插件仓 | `F:\My Code\dsh-plugins\`（host plugin 范例：`zcode-dispatch\`、`bridge\`） |
+| DSH 应用 | `D:\DeepSeek\DeepSeek Harness.exe`（Electron 44 / Chromium 152；asar 于 `D:\DeepSeek\resources\app.asar`，**本项目不改 asar**） |
+| GUI | http://127.0.0.1:19387 ；client plugin HMR 接收器已激活，但插件产物重建需 `pnpm run dev:web` watcher 或手动重建 Web 产物后刷新页面 |
+
+**第一步（MVP-0，按序执行）**：
+1. 调 `cordis_inspect_list` 看现有 Inspect Provider / 插件形态（写任何插件配置前必做）；
+2. 读 `F:\My Code\dsh-plugins\zcode-dispatch\` 源码，确认 host plugin 与宿主进程的交互面；
+3. 写最小 client plugin 探测：GUI 文档内 `document.querySelectorAll('webview')` 是否可得 → 对 lease guest 试 `executeJavaScript('1+1')` 与 `capturePage()`；
+4. 按结果在「路径 A（client plugin）/ B（host plugin）/ C（外挂 Chrome 保底）」中定主路径，再进 MVP-1。
+
+**纪律**：踩坑即记 `pitfalls.md`（本项目根，自建）；DSH 升级后回归 MVP-0 清单；移植 ZCode 代码保留 Apache-2.0 版权与 NOTICE；改动落在本项目目录内，勿散落。
+
+## 4. 目录结构
+
+```
+dsh-browser-kit/
+├── README.md                                        # 项目入口
+├── NOTICE.md                                        # Apache-2.0 归属声明（ZCode 移植来源与修改说明）
+├── package.json                                     # 零 npm 依赖 · Node ≥22 · scripts.test = node --test
+├── .gitignore                                       # shots/ annotations/ node_modules/
+├── browser-annotation-and-screenshot-research.md    # 方案调研（自足交接件，含 DSH 实测证据）
+├── tasks/
+│   └── zcode-task-01-portable-layer.md              # ZCode 任务01：可移植资产层（任务书）
+├── docs/
+│   └── delivery-01.md                               # 任务01 交付说明（改动清单 + 验收证据 + 未决问题）
+├── src/
+│   ├── hid-observer.js                              # L1 通用设备观测（HID/Serial/USB，自包含 IIFE，零 DSH 依赖）
+│   ├── element-annotator.js                         # 网页批注层（picker 基座移植 + 批注模式，自包含 IIFE）
+│   ├── annotations-protocol.js                      # 批注协议 v2 build/parse（纯函数 ESM）
+│   ├── virtual-hid-device.js                        # mock 设备（ESM + 可注入 IIFE 双形态）
+│   └── cdp/
+│       └── drive.mjs                                # CDP 驱动（launch/connect/inject/evalJs/console/screenshot）
+├── test/
+│   ├── helpers/                                     # vm 沙箱 + Chrome 冒烟公共工具
+│   ├── fixtures/                                    # hid-mock-page / hid-docstart-page / page
+│   ├── annotations-protocol.test.js                 # 协议 round-trip 全分支
+│   ├── virtual-hid-device.test.js                   # mock 设备双形态
+│   ├── hid-observer.test.js                         # observer 沙箱单测（HID/Serial/USB + detach/重注入）
+│   ├── annotator-protocol-parity.test.js            # 批注层内嵌 builder ↔ ESM 协议逐字对拍
+│   ├── cdp-smoke.test.js                            # CDP 五项冒烟（真实 Chrome）
+│   ├── hid-fixture-smoke.test.js                    # 无硬件配对帧冒烟（evaluate 兜底注入）
+│   └── annotator-smoke.test.js                      # 批注流全链路冒烟 + 协议对拍
+├── pitfalls.md                                      # 踩坑记录（实施期自建）
+└── shots/ annotations/                              # （运行期产物，已 gitignore）
+```
+
+## 5. 参考资料
+
+| 资料 | 位置 |
+|---|---|
+| ZCode 源码（Apache-2.0） | `F:\My Code\ZCode\` · github.com/zai-org/ZCode |
+| chrome-devtools-mcp | github.com/ChromeDevTools/chrome-devtools-mcp |
+| playwright-mcp | github.com/microsoft/playwright-mcp |
+| browser-use | github.com/browser-use/browser-use |
+| pageflag（开源 BugHerd 替代，批注模式交互参照） | github.com/Laaaaksh/pageflag |
+| onlook（AI 可视化编辑：点选元素→AI 检查/编辑，26.8k★） | github.com/onlook-dev/onlook |
+| DSH 宿主实测证据 | 调研文档 §4（版本/fuse/权限/lease 机制，2026-10-04 探测） |
+
+## 6. 当前状态与下一步
+
+- ✅ 调研完成：ZCode 方案解剖 + 业界对比 + DSH 宿主实测 + 落地草案 + MVP 路线（见调研文档）。
+- ⏭️ 下一步：**MVP-0 接入路径验证**（上表四步），产出 A/B/C 选型结论后进 MVP-1（截图）、MVP-2（批注模式——本项目核心差异点，交互规格与协议 v2 见调研文档 §5.2）。
+- 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——**L1 通用 wrapper + CDP 驱动全落本项目**（零 keysion 改动），产出为可复用资产（`hid-observer.js` 覆盖 HID/Serial/USB，SDK 无关）；仅 L2 语义标注（可选增强，解码器注册表）才涉及具体项目仓库。
+- 关键预判：批注/截图零权限障碍；唯一不确定点是 plugin 隔离边界，半天的探测即可定案。

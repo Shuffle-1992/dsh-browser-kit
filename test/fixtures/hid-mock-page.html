@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>HID mock 冒烟页</title>
+</head>
+<body>
+  <p>状态: <span id="status">idle</span></p>
+  <button id="connect">连接</button>
+  <button id="send">发送</button>
+  <button id="disconnect">断开</button>
+
+  <!--
+    加载 observer 之前内联伪造 navigator.hid（任务书 §3.6-3：无硬件、无手势）。
+    Fake 类方法全部挂在 prototype 上——hid-observer 依赖 prototype wrap 捕获调用。
+  -->
+  <script>
+    (function () {
+      class FakeHIDDevice extends EventTarget {
+        constructor() {
+          super();
+          this.vendorId = 0x1a2b;
+          this.productId = 0x3c4d;
+          this.opened = false;
+        }
+        async open() { this.opened = true; }
+        async close() { this.opened = false; }
+        async sendReport(reportId, data) {
+          if (!this.opened) { throw new Error("fake hid: not opened"); }
+          this.__lastSent = Array.from(new Uint8Array(data.buffer.slice(data.byteOffset, data.byteLength)));
+        }
+      }
+      class FakeHID extends EventTarget {
+        async requestDevice() { return window.__fakeHidDevice; }
+        async getDevices() { return [window.__fakeHidDevice]; }
+      }
+      const device = new FakeHIDDevice();
+      const hid = new FakeHID();
+      Object.defineProperty(navigator, "hid", {
+        value: hid, configurable: true, enumerable: true, writable: true,
+      });
+      window.__fakeHidDevice = device;
+      window.__fakeHid = hid;
+    })();
+  </script>
+
+  <script>
+    var device = null;
+    document.getElementById("connect").addEventListener("click", async function () {
+      device = await navigator.hid.requestDevice();
+      await device.open();
+      document.getElementById("status").textContent = "connected";
+    });
+    document.getElementById("send").addEventListener("click", async function () {
+      if (!device) { return; }
+      // READ_PRESET #12 风格的下行帧
+      await device.sendReport(0x00, new Uint8Array([0xa1, 0x0c, 0x00, 0x0c, 0x00, 0x00]));
+      // 模拟设备 60ms 后应答一帧
+      setTimeout(function () {
+        var event = new Event("inputreport");
+        event.reportId = 0x00;
+        event.data = new DataView(new Uint8Array([0x0c, 0x4b, 0x45, 0x59, 0x53, 0x00]).buffer);
+        event.device = window.__fakeHidDevice;
+        window.__fakeHidDevice.dispatchEvent(event);
+      }, 60);
+    });
+    document.getElementById("disconnect").addEventListener("click", async function () {
+      if (!device) { return; }
+      await device.close();
+      document.getElementById("status").textContent = "disconnected";
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "dsh-browser-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 内置浏览器增强工具集：元素批注 / 截图回传 / 设备通讯观测 / CDP 驱动（零 npm 依赖）",
+  "type": "module",
+  "license": "SEE LICENSE-IN-NOTICE.md",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
