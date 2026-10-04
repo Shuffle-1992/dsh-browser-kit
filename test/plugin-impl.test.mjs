@@ -21,6 +21,7 @@ import { FACE_NAME, TYPERT } from "../plugin/wire.host.mjs";
 const {
   slugify,
   tsStamp,
+  dedupeFile,
   saveShotImpl,
   saveAnnotationsImpl,
   takeCommandImpl,
@@ -298,7 +299,26 @@ test("shapeOf/extractApi：jiti 互操作形状与候选链", async (t) => {
   });
 });
 
-/* ─────────────── 3.8 wire.host.mjs TYPERT ─────────────── */
+/* ─────────────── 3.7b dedupeFile ─────────────── */
+
+test("dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩展名", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "dshbk-dedupe-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const first = dedupeFile(dir, "20260101-010101-页.png");
+  assert.equal(first, join(dir, "20260101-010101-页.png"));
+  writeFileSync(first, "x");
+  const second = dedupeFile(dir, "20260101-010101-页.png");
+  assert.equal(second, join(dir, "20260101-010101-页-2.png"));
+  writeFileSync(second, "x");
+  const third = dedupeFile(dir, "20260101-010101-页.png");
+  assert.equal(third, join(dir, "20260101-010101-页-3.png"));
+  // 无扩展名文件同样适用
+  const a = dedupeFile(dir, "notes");
+  writeFileSync(a, "x");
+  assert.equal(dedupeFile(dir, "notes"), join(dir, "notes-2"));
+});
+
+/* ─────────────── 3.7 wire.host.mjs TYPERT ─────────────── */
 
 test("wire TYPERT 清单形状（不触网）", async (t) => {
   await t.test("package/service 固定，invocations 恰 6 个且 id 形如 pkg#face/method", () => {

@@ -13,7 +13,7 @@
  *
  * 激活安全：任何异常只记录不抛（绝不阻塞 cordis 激活；同 zcode-dispatch 纪律）。零 npm 依赖。
  */
-import { appendFileSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -310,6 +310,20 @@ function tsStamp(d = new Date()) {
  * saveShot 实现：dataURL → PNG 文件 + index.jsonl 元数据行。
  * 1×1 假成功防线（调研文档 §5.3 / ZCode 坑）：PNG < 500 字节视为失败如实返回。
  */
+/** 同名去重：文件已存在则追加 -2/-3… 序号（同秒同标题连拍不互相覆盖；ZCode 任务02 观察项落地）。 */
+function dedupeFile(dir, name) {
+  let file = join(dir, name);
+  let n = 2;
+  while (existsSync(file)) {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    file = join(dir, `${stem}-${n}${ext}`);
+    n += 1;
+  }
+  return file;
+}
+
 function saveShotImpl(paths, meta, dataUrl) {
   const m = meta && typeof meta === 'object' ? meta : {};
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
@@ -324,12 +338,13 @@ function saveShotImpl(paths, meta, dataUrl) {
   const dir = join(projectDirOf(paths), 'shots');
   mkdirSync(dir, { recursive: true });
   const name = `${tsStamp()}-${slugify(m.title || m.url || '')}.png`;
-  const file = join(dir, name);
+  const file = dedupeFile(dir, name);
+  const finalName = file.split(/[\\/]/).pop();
   writeFileSync(file, png);
   try {
     appendFileSync(
       join(dir, 'index.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), file: name, url: m.url ?? null, title: m.title ?? null, bytes: png.length })}\n`,
+      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? null, title: m.title ?? null, bytes: png.length })}\n`,
       'utf8',
     );
   } catch { /* 索引写失败不影响主交付 */ }
@@ -345,14 +360,15 @@ function saveAnnotationsImpl(paths, markdown, meta) {
   const dir = join(projectDirOf(paths), 'annotations');
   mkdirSync(dir, { recursive: true });
   const name = `${tsStamp()}.md`;
-  const file = join(dir, name);
+  const file = dedupeFile(dir, name);
+  const finalName = file.split(/[\\/]/).pop();
   writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
   try {
     const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
     const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || 0);
     appendFileSync(
       join(dir, 'index.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), file: name, url: m.url ?? null, title: m.title ?? null, count })}\n`,
+      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? null, title: m.title ?? null, count })}\n`,
       'utf8',
     );
   } catch { /* 索引写失败不影响主交付 */ }
@@ -516,6 +532,7 @@ export const _internals = {
   extractApi,
   slugify,
   tsStamp,
+  dedupeFile,
   saveShotImpl,
   saveAnnotationsImpl,
   takeCommandImpl,
