@@ -591,6 +591,9 @@ window.__ModuleLoader__.load({
           /* ─────────────── MVP-4 种子：命令通道（实施会话写 .data/command.json 驱动） ─────────────── */
 
           let cmdBusy = false;
+          /** guest 内取「自动化目标文档」：优先 kit 沙箱 iframe（page-open 建立），否则顶层。 */
+          const TARGET_DOC_SNIPPET =
+            'var DOC = (function () { var f = document.querySelector("iframe[data-dsh-kit-frame]"); try { return f && f.contentDocument ? f.contentDocument : document; } catch (e) { return document; } })();';
           const executeCommand = async (svc, command) => {
             const c = command && typeof command === 'object' ? command : {};
             const action = String(c.action || '');
@@ -616,10 +619,179 @@ window.__ModuleLoader__.load({
                   return { ok: true, ...st };
                 }
                 case 'guest-eval': {
-                  // MVP-4 骨架：agent 侧任意求值（executeJavaScript，awaitPromise）
+                  // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行。
+                  // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
+                  // 会因提升让全函数体的 document 变 undefined（cmd-72/73 实测自坑，P23）。
                   const target = pickGuestEl();
-                  const value = await target.executeJavaScript(String(c.code || ''), true);
+                  const docPre = c.frame ? TARGET_DOC_SNIPPET : '';
+                  const code = String(c.code || '');
+                  const value = await target.executeJavaScript(
+                    `(function () { ${docPre} return (function (document) {\n${code}\n})(DOC || document); })()`,
+                    true,
+                  );
                   return { ok: true, value };
+                }
+                case 'page-open': {
+                  // MVP-4：iframe srcdoc 沙箱——独立 document（免疫宿主 SPA 重渲染，cmd-70 教训）、
+                  // 不触发导航白名单（cmd-68 实测）、无 document.open 解析器悬挂（P22）。
+                  // 重复调用 = 换页；page-close 移除沙箱恢复原页面视图。
+                  const target = pickGuestEl();
+                  const html = String(c.html || '');
+                  if (!html) return { ok: false, error: '需要 html' };
+                  const value = await target.executeJavaScript(
+                    `(function () {\n` +
+                    `  var old = document.querySelector('iframe[data-dsh-kit-frame]');\n` +
+                    `  if (old) old.remove();\n` +
+                    `  var fi = document.createElement('iframe');\n` +
+                    `  fi.setAttribute('data-dsh-kit-frame', '');\n` +
+                    `  fi.setAttribute('title', 'dsh-browser-kit sandbox');\n` +
+                    `  fi.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2147483000;';\n` +
+                    `  fi.srcdoc = ${JSON.stringify(html)};\n` +
+                    `  (document.body || document.documentElement).appendChild(fi);\n` +
+                    `  return { opened: true };\n` +
+                    `})()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'page-close': {
+                  const target = pickGuestEl();
+                  const value = await target.executeJavaScript(
+                    `(function () { var old = document.querySelector('iframe[data-dsh-kit-frame]'); if (old) old.remove(); return { closed: true }; })()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'snapshot': {
+                  // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
+                  const target = pickGuestEl();
+                  const value = await target.executeJavaScript(
+                    '(function () {\n' +
+                    `  ${TARGET_DOC_SNIPPET}\n` +
+                    "  var SELS = 'a[href],button,input,textarea,select,[role=\"button\"],[role=\"link\"],[role=\"checkbox\"],[role=\"tab\"],h1,h2,h3,h4';\n" +
+                    '  var els = Array.prototype.slice.call(DOC.querySelectorAll(SELS));\n' +
+                    '  var out = [];\n' +
+                    '  for (var i = 0; i < els.length && out.length < 120; i++) {\n' +
+                    '    var el = els[i];\n' +
+                    '    var r = el.getBoundingClientRect();\n' +
+                    '    if (r.width === 0 && r.height === 0) continue;\n' +
+                    '    if (el.closest && el.closest("[data-dsh-kit-ui]")) continue;\n' +
+                    '    var ref = out.length + 1;\n' +
+                    '    el.setAttribute("data-dsh-kit-ref", String(ref));\n' +
+                    "    out.push({ ref: ref, tag: el.tagName.toLowerCase(), id: el.id || null,\n" +
+                    "      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 60),\n" +
+                    "      placeholder: el.getAttribute('placeholder') || null,\n" +
+                    "      type: el.getAttribute('type') || null,\n" +
+                    "      value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? String(el.value || '').slice(0, 60) : null });\n" +
+                    '  }\n' +
+                    '  return { url: location.href, title: document.title, count: out.length, items: out };\n' +
+                    '})()',
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'click': {
+                  const target = pickGuestEl();
+                  const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
+                  if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+                  const value = await target.executeJavaScript(
+                    `(function () { ${TARGET_DOC_SNIPPET} var el = DOC.querySelector(${JSON.stringify(sel)}); if (!el) return { ok: false, error: 'no element' }; el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 })); return { ok: true, tag: el.tagName.toLowerCase(), text: (el.textContent || '').trim().slice(0, 60) }; })()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'type': {
+                  const target = pickGuestEl();
+                  const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
+                  if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+                  const text = String(c.text ?? '');
+                  const value = await target.executeJavaScript(
+                    `(function () {\n` +
+                    `  ${TARGET_DOC_SNIPPET}\n` +
+                    `  var el = DOC.querySelector(${JSON.stringify(sel)});\n` +
+                    `  if (!el) return { ok: false, error: 'no element' };\n` +
+                    `  el.focus();\n` +
+                    `  var text = ${JSON.stringify(text)};\n` +
+                    `  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {\n` +
+                    `    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;\n` +
+                    `    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);\n` +
+                    `    el.dispatchEvent(new Event('input', { bubbles: true }));\n` +
+                    `    el.dispatchEvent(new Event('change', { bubbles: true }));\n` +
+                    `    return { ok: true, value: el.value };\n` +
+                    `  }\n` +
+                    `  if (el.isContentEditable) { el.textContent = text; el.dispatchEvent(new Event('input', { bubbles: true })); return { ok: true }; }\n` +
+                    `  return { ok: false, error: 'not editable' };\n` +
+                    `})()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'page-inject': {
+                  // MVP-4：整页 HTML 注入 guest。innerHTML 原语（同步赋值）替代 document.write——
+                  // 后者在页面资源未静止时 executeJavaScript 会永久悬挂（cmd-41/63 实测，P22）；
+                  // 页内 <script> 不经 innerHTML 执行，注入后单独 new Function 接线。
+                  const target = pickGuestEl();
+                  const html = String(c.html || '');
+                  if (!html) return { ok: false, error: '需要 html' };
+                  const value = await target.executeJavaScript(
+                    `(function () {\n` +
+                    `  var html = ${JSON.stringify(html)};\n` +
+                    `  var m = html.match(/<script>([\\s\\S]*?)<\\/script>/);\n` +
+                    `  var scriptCode = m ? m[1] : '';\n` +
+                    `  var htmlNoScript = html.replace(/<script>[\\s\\S]*?<\\/script>/, '');\n` +
+                    `  var inner = htmlNoScript.replace(/^[\\s\\S]*?<html[^>]*>/, '').replace(/<\\/html>\\s*$/, '');\n` +
+                    `  document.documentElement.innerHTML = inner;\n` +
+                    `  var wired = true, wireError = null;\n` +
+                    `  if (scriptCode) { try { (new Function(scriptCode))(); } catch (e) { wired = false; wireError = String(e); } }\n` +
+                    `  return { wired: wired, wireError: wireError, title: document.title };\n` +
+                    `})()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'page-inject': {
+                  // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）——
+                  // 实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；document.write 会在
+                  // 页面资源未静止时永久悬挂（P22）；iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
+                  // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（keysion.cn 实测一次），
+                  // 注入后应立即使用/截图。
+                  const target = pickGuestEl();
+                  const html = String(c.html || '');
+                  if (!html) return { ok: false, error: '需要 html' };
+                  const value = await target.executeJavaScript(
+                    `(function () {\n` +
+                    `  var html = ${JSON.stringify(html)};\n` +
+                    `  var m = html.match(/<script>([\\s\\S]*?)<\\/script>/);\n` +
+                    `  var scriptCode = m ? m[1] : '';\n` +
+                    `  var htmlNoScript = html.replace(/<script>[\\s\\S]*?<\\/script>/, '');\n` +
+                    `  var inner = htmlNoScript.replace(/^[\\s\\S]*?<html[^>]*>/, '').replace(/<\\/html>\\s*$/, '');\n` +
+                    `  document.documentElement.innerHTML = inner;\n` +
+                    `  var wired = true, wireError = null;\n` +
+                    `  if (scriptCode) { try { (new Function(scriptCode))(); } catch (e) { wired = false; wireError = String(e); } }\n` +
+                    `  return { wired: wired, wireError: wireError, hasInput: !!document.querySelector('.card'), title: document.title };\n` +
+                    `})()`,
+                    true,
+                  );
+                  return { ok: true, ...(value || {}) };
+                }
+                case 'reload': {
+                  // 同源刷新（不跨白名单）；不 await 完成事件（P19：跨导航的 Promise 永不决）
+                  const target = pickGuestEl();
+                  target.executeJavaScript('location.reload()', true).catch(() => {});
+                  return { ok: true, reloading: true };
+                }
+                case 'navigate': {
+                  // 白名单内的源才可能成功（实测跨源被宿主静默拒绝）；fire-and-forget，两秒后回报 href
+                  const url = String(c.url || '');
+                  if (!url) return { ok: false, error: '需要 url' };
+                  const target = pickGuestEl();
+                  target.executeJavaScript(`location.href = ${JSON.stringify(url)}`, true).catch(() => {});
+                  await sleep(2000);
+                  let href = null;
+                  try {
+                    href = await target.executeJavaScript('location.href', true);
+                  } catch { /* 导航成功时旧上下文已销毁，取不到属正常 */ }
+                  return { ok: true, requested: url, currentHref: href, note: '跨源导航受宿主白名单限制，可能被静默拒绝（须用户在 DSH UI 手动导航）' };
                 }
                 case 'screenshot': {
                   return await captureShot();
@@ -651,7 +823,12 @@ window.__ModuleLoader__.load({
             if (!svc || typeof svc.takeCommand !== 'function') return;
             cmdBusy = true;
             try {
-              const r = unwrap(await svc.takeCommand());
+              // takeCommand 自身也可能挂（P20），10s 竞速保底（watchdog 45s 兜底在更外层）
+              const taken = await Promise.race([
+                svc.takeCommand(),
+                sleep(10000).then(() => { throw new Error('takeCommand 超时(10s)'); }),
+              ]);
+              const r = unwrap(taken);
               const command = r && r.ok !== false ? r.command : null;
               if (r && r.ok === false) say('warn', `takeCommand 失败：${r.error}`);
               if (command && command.id != null) {

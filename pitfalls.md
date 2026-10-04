@@ -111,3 +111,21 @@
 - **现象**：ZCode 派发的自主会话（mode=build）里，`Edit`/`Write`/`node --test`/`npm test`/`node -e`/`node --check`/`AskUserQuestion` 一律报 `No permission client configured for <Tool>`；`ls`/`cat`/`grep`/`git status` 等只读白名单命令正常。日志（cli/log/zcode-*.jsonl）可见 `decision:"deny", mode:"build", reason:"No permission client configured for Bash"`；子代理（general-purpose）同因被拒，`dangerouslyDisableSandbox` 也无效（它在沙箱层，不解决许可客户端缺失）。
 - **根因**：执行类命令与写文件工具需要交互式许可客户端审批；headless 派发会话没有挂任何许可客户端，非白名单操作直接拒绝。任务书的「运行证据」类验收在该类会话里**结构性不可达成**。
 - **对策**：① 涉及落盘/跑测试的任务，派发时必须给会话配许可客户端，或改在交互式会话执行；② 本任务（02）交付物（_internals 追加块 + test/plugin-impl.test.mjs 全文 + 本条目）已按静态逐条对账备好，由可写会话应用后补跑 `node --test test/plugin-impl.test.mjs` 与 `npm test` 取证。
+- **补充（主会话落地实证）**：交付物经 `WriteAllText` 中转应用后 39/39 全绿（全量 83/83）；其中 1 处断言（`shapeOf({}).defaultKeys`）静态对账时误写 null、实现如实返回 `'undefined'` 字符串——按「不改逻辑」边界对齐测试。落地脚本要点：从 result.json 用 node 提取围栏块时，谓词不能只匹配特征词（_internals 注释里恰好含 "node:test" 导致误配），用「export const _internals / import { test }」等强特征。
+
+## MVP-4 实施期（2026-10-05）
+
+### P22 document.write 整页写入：页面未静止时 executeJavaScript 永久悬挂
+- **现象**：对 keysion.cn guest 执行含 `document.open(); document.write(html); document.close()` 的 guest-eval，命令被取走后**既无结果也无 30s 超时回报**（旧实例无超时防线时整个轮询饿死）；换时段重试又能成功（cmd-22b/51 ✓ vs cmd-41/63 ✗）。
+- **根因**：页面仍在加载/框架活跃时，`document.open` 触发的解析器重入让 executeJavaScript 的完成信号被吞（Electron 层面表现为 Promise 永不决）。
+- **对策**：① 页面注入一律用 **innerHTML 原语**（同步赋值，多次实测可靠；注意活跃 SPA 的响应式刷新可能在注入后重绘覆盖——注入后立即使用/截图）；② `document.write` 类操作永不进入命令集；③ 30s 超时竞速 + 45s 看门狗 + takeCommand 10s 竞速三重保险（本条落实后轮询自愈）。
+
+### P23 `var document = DOC` 包裹层：var 提升让函数体内 document 变 undefined
+- **现象**：guest-eval 的 frame 支持包裹层 `(function () { var DOC = document; var document = DOC; ... })()` 里任何脚本都报 "Script failed to execute"（cmd-72/73），且无具体错误位置。
+- **根因**：函数体内 `var document` 发生提升，整个作用域的 `document` 指向**局部未初始化变量**而非全局——`var DOC = document` 拿到的是 undefined，后续 `document.querySelector` 全部抛 undefined 错误。参数遮蔽才安全，var 遮蔽必炸。
+- **对策**：guest-eval 包装改为 `(function (document) { ${code} })(DOC || document)`——**document 经函数参数传入**（参数无提升问题）。此类错误的 "Script failed to execute" 文案不带位置信息，见此文案先查脚本内变量遮蔽。
+
+### P24 iframe srcdoc 沙箱：宿主页 CSP 拦截 + SPA 重绘覆盖，两道墙
+- **现象**：在 keysion.cn（公网 Vue 站）页面上建 `iframe srcdoc` 沙箱注入 demo 页：① srcdoc 被页面 CSP（frame-src/default-src）拦成空文档（contentDocument bodyLen=15，cmd-70/77）；② 顶层 innerHTML 注入的 demo DOM 在 Vue 响应式刷新窗口内被重绘清空（cmd-78→79 count 4→0）。
+- **根因**：公网页面自带 CSP 与框架生命周期，agent 对其 DOM 的「整页替换」是天然的对抗场景。
+- **对策**：整页注入/沙箱只用于**用户自有 dev 页面**（无 CSP 对抗、框架行为可控）；公网页面只做 snapshot/click/type/guest-eval（对既有 DOM 操作，实测稳定）。snapshot/click/type 已针对「顶层文档 + 可选 kit 沙箱文档」双目标实现（TARGET_DOC_SNIPPET）。
