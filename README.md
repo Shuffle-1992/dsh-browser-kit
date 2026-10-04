@@ -1,7 +1,7 @@
 # dsh-browser-kit
 
 > DSH 内置浏览器增强工具集：**元素批注 · 截图回传 · 视觉反馈闭环**
-> 状态：**调研完成，未开工实施**（2026-10-04）· 本 README 是实施会话的入口文件
+> 状态：**MVP-0 接入验证完成（2026-10-04），主路径 = client plugin（混合架构）** · 本 README 是实施会话的入口文件
 
 ## 1. 项目定位
 
@@ -32,15 +32,15 @@
 |---|---|
 | 本项目目录 | `F:\My Code\dsh-browser-kit\` |
 | ZCode 源码克隆 | `F:\My Code\ZCode\`（github.com/zai-org/ZCode，main 分支，浅克隆） |
-| DSH 插件仓 | `F:\My Code\dsh-plugins\`（host plugin 范例：`zcode-dispatch\`、`bridge\`） |
+| 插件范例仓 | `F:\My Code\zcode-dispatch\`（完整 host+client 范例 `zcode-dispatch\`；官方模板副本 `refs\templates\decoration\`） |
 | DSH 应用 | `D:\DeepSeek\DeepSeek Harness.exe`（Electron 44 / Chromium 152；asar 于 `D:\DeepSeek\resources\app.asar`，**本项目不改 asar**） |
 | GUI | http://127.0.0.1:19387 ；client plugin HMR 接收器已激活，但插件产物重建需 `pnpm run dev:web` watcher 或手动重建 Web 产物后刷新页面 |
 
-**第一步（MVP-0，按序执行）**：
-1. 调 `cordis_inspect_list` 看现有 Inspect Provider / 插件形态（写任何插件配置前必做）；
-2. 读 `F:\My Code\dsh-plugins\zcode-dispatch\` 源码，确认 host plugin 与宿主进程的交互面；
-3. 写最小 client plugin 探测：GUI 文档内 `document.querySelectorAll('webview')` 是否可得 → 对 lease guest 试 `executeJavaScript('1+1')` 与 `capturePage()`；
-4. 按结果在「路径 A（client plugin）/ B（host plugin）/ C（外挂 Chrome 保底）」中定主路径，再进 MVP-1。
+**第一步（MVP-0，✅ 已完成 2026-10-04，证据与结论见 [docs/delivery-02-mvp0.md](docs/delivery-02-mvp0.md)）**：
+1. ~~调 `cordis_inspect_list`~~ ✅（注意：本 harness 版本 `cordis_inspect_query` 的 `input` 参数有 bug，传对象即拒；host `Service.listService` 是静态声明目录，验证不了运行期 face 注册）；
+2. ~~读插件范例源码~~ ✅ 范例在 `F:\My Code\zcode-dispatch\`（早前记录的 `dsh-plugins\` 已不存在）；
+3. ~~写最小 client plugin 探测~~ ✅ 探测插件 `@local/dsh-browser-kit`（`plugin\`）已装进 desktop profile：GUI 主世界直得原生 WebViewElement，`executeJavaScript('1+1')=2`、`capturePage()` 真实 PNG、`getWebContentsId()` 全通；
+4. ~~定主路径~~ ✅ **A（client plugin）为主、host 插件做落盘+工具面的混合架构**：host 插件实测运行于 `ELECTRON_RUN_AS_NODE=1` 的 dsh-desktop-host runner 子进程，**不可触达 webContents/BrowserWindow**（Path B 否决）；Path C（外挂 Chrome）不需要。
 
 **纪律**：踩坑即记 `pitfalls.md`（本项目根，自建）；DSH 升级后回归 MVP-0 清单；移植 ZCode 代码保留 Apache-2.0 版权与 NOTICE；改动落在本项目目录内，勿散落。
 
@@ -56,7 +56,15 @@ dsh-browser-kit/
 ├── tasks/
 │   └── zcode-task-01-portable-layer.md              # ZCode 任务01：可移植资产层（任务书）
 ├── docs/
-│   └── delivery-01.md                               # 任务01 交付说明（改动清单 + 验收证据 + 未决问题）
+│   ├── delivery-01.md                               # 任务01 交付说明（改动清单 + 验收证据 + 未决问题）
+│   ├── delivery-02-mvp0.md                          # 任务02 交付说明：MVP-0 接入路径验证（A/B/C 定论）
+│   └── mvp0-probe-state.md                          # MVP-0 探测期交接件（历史留档）
+├── plugin/                                          # DSH 插件 @local/dsh-browser-kit（MVP-0 探测为首个增量）
+│   ├── package.json / cordis.patch.yml              # bundle 声明（exports["."] → entry.mjs；junction+install_bundle 安装）
+│   ├── entry.mjs                                    # host 入口永久薄壳（?ts=mtime-seq 击穿 ESM 缓存，pitfalls P13）
+│   ├── host.impl.mjs                                # host 业务（探测/face/落盘；改后 toggle 即生效，勿动薄壳）
+│   ├── wire.host.mjs                                # TYPERT 描述符 + createRemoteFace（zcode-dispatch 同款）
+│   └── client.js                                    # client 探测面板（webview 静态+实测，四路结果出口）
 ├── src/
 │   ├── hid-observer.js                              # L1 通用设备观测（HID/Serial/USB，自包含 IIFE，零 DSH 依赖）
 │   ├── element-annotator.js                         # 网页批注层（picker 基座移植 + 批注模式，自包含 IIFE）
@@ -93,6 +101,8 @@ dsh-browser-kit/
 ## 6. 当前状态与下一步
 
 - ✅ 调研完成：ZCode 方案解剖 + 业界对比 + DSH 宿主实测 + 落地草案 + MVP 路线（见调研文档）。
-- ⏭️ 下一步：**MVP-0 接入路径验证**（上表四步），产出 A/B/C 选型结论后进 MVP-1（截图）、MVP-2（批注模式——本项目核心差异点，交互规格与协议 v2 见调研文档 §5.2）。
-- 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——**L1 通用 wrapper + CDP 驱动全落本项目**（零 keysion 改动），产出为可复用资产（`hid-observer.js` 覆盖 HID/Serial/USB，SDK 无关）；仅 L2 语义标注（可选增强，解码器注册表）才涉及具体项目仓库。
-- 关键预判：批注/截图零权限障碍；唯一不确定点是 plugin 隔离边界，半天的探测即可定案。
+- ✅ 任务01（ZCode）：可移植资产层——45/45 测试全绿（docs/delivery-01.md）。
+- ✅ 任务02（主会话）：**MVP-0 接入验证**——主路径 A（client plugin）+ host 落盘/工具面的混合架构，Path B 否决（host 插件在 RUN_AS_NODE 子进程，pitfalls P14），Path C 不需要（docs/delivery-02-mvp0.md）。
+- ⏭️ 下一步：**MVP-1 截图管线**——client `capturePage()` → dataURL → host face 落盘 `<项目>/shots/<时间戳>-<标题>.png` → agent `read_image` 视觉识别；随后 MVP-2 批注模式（本项目核心差异点，`element-annotator.js` 经 client 注入，协议块经 face 落盘）。
+- 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——真实 Chrome 主路径已有 `cdp/drive.mjs` + `hid-observer.js` 全套资产；DSH 内置浏览器侧的注入走 client 插件（同 MVP-1 通道）。
+- 关键修正（推翻调研文档 §4.4 预判）：host plugin 无 main 进程能力；`browserUse`/`computerUse` 等自动化属 DSH 主进程自有服务，第三方插件无门（F3 远期需求届时再评估）。

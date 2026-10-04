@@ -178,7 +178,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /* ─────────────── host 上报（ctx.remote.$mount 后调用 face） ─────────────── */
+    /* ─────────────── host 上报（$mount + 子 fiber 取命名空间） ─────────────── */
 
     /** 官方信封 {ok,value}/{ok:false,error} 与进程域形状双兼容拆包。 */
     function unwrap(raw) {
@@ -188,24 +188,31 @@ window.__ModuleLoader__.load({
       return raw;
     }
 
-    async function reportToHost(ctx, findings) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    /**
+     * 上报实现。要点（zcode-dispatch 同款纪律）：**顶层 ctx 不许直取 ctx.remote.dshBrowserKit**
+     * —— cordis 守卫会抛 `cannot get property "remote.dshBrowserKit" without inject`（2026-10-04
+     * 实测）；必须在 apply 里声明 `remote.$mount`（挂载）+ 子 fiber `ctx.inject(['remote.<名>'])`
+     *（在子作用域内合法访问），把就绪的服务存进 stateRef.remoteSvc 后从这里拿。
+     */
+    async function reportToHost(stateRef, findings) {
       const result = { attempted: false, mounted: null, response: null, error: null };
       try {
-        const mount = ctx && ctx.remote && ctx.remote.$mount;
-        if (typeof mount !== 'function') {
-          result.error = 'ctx.remote.$mount 不可用';
-          return result;
-        }
         result.attempted = true;
-        const mounted = mount.call(ctx.remote, REMOTE_CONTRIBUTION);
-        const ready = mounted && typeof mounted.then === 'function' ? await Promise.race([
-          mounted.then(() => true, (e) => { throw e; }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('$mount 超时(5s)')), 5000)),
-        ]) : true;
-        result.mounted = ready === true ? 'ok' : String(ready);
-        const svc = ctx.remote[FACE_NAME] || ctx.remote['dsh-browser-kit'];
+        // $mount 未成功时不再重复挂载（apply 里已挂过）；这里只等服务就绪
+        let svc = stateRef.getRemote ? stateRef.getRemote() : null;
+        for (let i = 0; i < 27 && !svc; i++) {
+          await sleep(300);
+          svc = stateRef.getRemote ? stateRef.getRemote() : null;
+        }
+        result.mounted = stateRef.mountError
+          ? `mount失败:${stateRef.mountError}`
+          : stateRef.mountOk
+            ? 'ok'
+            : 'pending';
         if (!svc || typeof svc.reportClient !== 'function') {
-          result.error = `ctx.remote.${FACE_NAME}.reportClient 不存在`;
+          result.error = `remote.${FACE_NAME} 未就绪（mount=${result.mounted}）`;
           return result;
         }
         result.response = unwrap(await svc.reportClient(findings));
@@ -335,7 +342,59 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'remote', 'typert'],
       apply(ctx) {
         try {
-          const stateRef = { findings: null, report: null, autoLeft: MAX_AUTO_REPROBE, mounted: false };
+          const stateRef = {
+            findings: null,
+            report: null,
+            autoLeft: MAX_AUTO_REPROBE,
+            mountAttempted: false,
+            mountOk: false,
+            mountError: null,
+            remoteSvc: null,
+            getRemote: () => stateRef.remoteSvc,
+          };
+
+          /* ---- $mount：把 remote.dshBrowserKit 命名空间挂到本包（apply 时立即做，结果留痕） ---- */
+          try {
+            const mount = ctx?.remote && ctx.remote.$mount;
+            if (typeof mount === 'function') {
+              stateRef.mountAttempted = true;
+              const mounted = mount.call(ctx.remote, REMOTE_CONTRIBUTION);
+              Promise.resolve(mounted).then(
+                () => {
+                  stateRef.mountOk = true;
+                  say('info', `$mount 成功：remote.${FACE_NAME} 已本地挂载`);
+                },
+                (e) => {
+                  stateRef.mountError = msgOf(e);
+                  say('warn', `$mount 失败：${stateRef.mountError}`);
+                },
+              );
+            } else {
+              stateRef.mountError = 'ctx.remote.$mount 不可用';
+            }
+          } catch (e) {
+            stateRef.mountError = msgOf(e);
+          }
+
+          /* ---- 子 fiber 等命名空间就绪（顶层直取会被 cordis 守卫拒：without inject） ---- */
+          try {
+            if (typeof ctx?.inject === 'function') {
+              ctx.inject([`remote.${FACE_NAME}`], (scope) => {
+                try {
+                  const svc = scope && scope.remote && scope.remote[FACE_NAME];
+                  if (svc && typeof svc.reportClient === 'function') {
+                    stateRef.remoteSvc = svc;
+                    say('info', `remote.${FACE_NAME} 就绪（子 fiber）`);
+                    if (scope && typeof scope.effect === 'function') {
+                      scope.effect(() => () => {
+                        if (stateRef.remoteSvc === svc) stateRef.remoteSvc = null;
+                      }, 'dsh-browser-kit.namespace');
+                    }
+                  }
+                } catch { /* 就绪回调异常不影响条目 */ }
+              });
+            }
+          } catch { /* 子 fiber 建立失败：上报时按「未就绪」如实报告 */ }
 
           const probeAndPublish = async (trigger) => {
             const findings = await runProbe();
@@ -347,7 +406,7 @@ window.__ModuleLoader__.load({
 
           const reportNow = async () => {
             if (!stateRef.findings) await probeAndPublish('report');
-            stateRef.report = await reportToHost(ctx, stateRef.findings);
+            stateRef.report = await reportToHost(stateRef, stateRef.findings);
             say(stateRef.report.error ? 'warn' : 'info',
               `host 上报：${stateRef.report.error || JSON.stringify(stateRef.report.response)}`);
             return stateRef.report;

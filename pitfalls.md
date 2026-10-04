@@ -70,6 +70,12 @@
 - **对策**：双层结构——入口 `entry.mjs` 保持**永久薄壳**（只做动态 import 转发，改它 = 又要重启）；业务全放 `host.impl.mjs`，每次 apply 按「impl 文件 mtime + 激活序号」构造带查询参数的 import URL（`./host.impl.mjs?ts=<mtime>-<seq>`）——参数变 ⇒ Node 视为新模块 ⇒ 免重启热换。**引导成本**：薄壳首次生效前仍需一次 DSH 重启。
 - **附**：client 半边（client.js）无此问题——页面刷新即加载新代码。
 
-### P14 `import('electron')` 在 host 插件里可用但命名空间形状待验
-- **现象**：MVP-0 首测 `await import('electron')` 不抛错且 `process.versions.electron = 44.0.0`，但取 `webContents` 报 undefined（宿主 loader 对内建名的返回形状与预期不符）。
-- **对策**：`extractApi` 按 `[mod, mod.default, mod.default.default]` 依次找带 `webContents/app` 的对象；`shapeOf` 记录 namespace/default 键表入报告（impl 版）；ESM 结果校验失败自动降级 `createRequire(...)('electron')`。修正版结论以重启后报告为准。
+### P14 `import('electron')` 静默返回空壳——host 插件根本不在 Electron 主进程
+- **现象**：MVP-0 首测 `await import('electron')` 不抛错且 `process.versions.electron = 44.0.0`，但取 `webContents` 报 undefined；CJS require 从任何根都 `Cannot find module 'electron'`。
+- **根因（重启后进程身份鉴定一锤定音）**：host 插件运行在 **`ELECTRON_RUN_AS_NODE=1` 的 desktop-host runner 子进程**（argv 指向 `app.asar\dsh\...\dsh-desktop-host\lib\index.js`；`process.type=null`、`Module.builtinModules` 不含 `'electron'`）。RUN_AS_NODE 下 Electron 主进程 API（webContents/BrowserWindow）**架构性不可达**；`import('electron')` 被 loader 的互操作层吞成 `{default:{}, "module.exports":{}}` 空壳——**「不抛错」不等于「加载成功」，必须校验导出面**。
+- **对策**：`extractApi` 按 `[mod, mod.default, mod.default.default, mod['module.exports']]` 找带 `webContents/app` 的对象，找不到即判定不可达（本次即此结局）；`processIdentity` 记录 type/argv/execPath/builtinModules 入报告。**Path B（host 直触 guest）否决**；host 半边定位改为落盘 + agent 工具 + client→host face（docs/delivery-02-mvp0.md §2.2/§4）。
+
+### P15 client 顶层 ctx 直取自挂远端命名空间被 cordis 守卫拒
+- **现象**：client 插件 `$mount` 后直接 `ctx.remote.dshBrowserKit.reportClient(...)` 报 `cannot get property "remote.dshBrowserKit" without inject`，上报失败。
+- **根因**：cordis 对 ctx 属性访问按 `inject` 声明守卫；自挂命名空间不能写进顶层 `inject`（会等自己→web boot 死锁，zcode-dispatch client.js 头注警告过），顶层直取也不行。
+- **对策**：官方公开 API `ctx.remote.$mount({package, descriptors})` 在 apply 里立即挂载（结果留痕），另开**子 fiber** `ctx.inject(['remote.<名>'], (scope) => { svc = scope.remote.<名> })`——子作用域声明只影响该 fiber，缺席时 pending 不阻塞条目；上报代码只消费子 fiber 存下的 svc（等就绪轮询 300ms×27）。与 zcode-dispatch 的 live 数据通道同款。
