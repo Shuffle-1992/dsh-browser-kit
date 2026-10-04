@@ -258,6 +258,10 @@ window.__ModuleLoader__.load({
         {
           style: {
             pointerEvents: 'auto',
+            position: 'fixed', // 浮层默认从左上排布——钉到左下角（与 zcode-dispatch 右下角面板对称）
+            left: 16,
+            bottom: 16,
+            zIndex: 2000000000,
             background: T.bg,
             border: `1px solid ${T.border}`,
             borderRadius: 10,
