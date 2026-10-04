@@ -33,6 +33,9 @@ window.__ModuleLoader__.load({
         ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
         ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
         ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+        ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
+        ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
+        ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
       ].map(([method, parameters, , optionals]) => ({
         id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
@@ -299,6 +302,23 @@ window.__ModuleLoader__.load({
                     ),
                 f.error && h('div', { style: { color: T.danger } }, `探测错误：${f.error}`),
                 h('div', { style: { color: T.text3, borderTop: `1px solid ${T.border}`, paddingTop: 4 } },
+                  '批注：',
+                  h('span', { style: { color: s.annot && s.annot.active ? T.warn : T.text3 } },
+                    s.annot && s.annot.active
+                      ? `进行中 · ${s.annot.count} 条（页面点元素留意见，面板提交）`
+                      : (s.annot && s.annot.lastSaved ? `已保存 ↓` : '未开始')),
+                ),
+                s.annot && s.annot.lastSaved && h('div', {
+                  style: { color: T.text2, fontFamily: T.mono, fontSize: 10, wordBreak: 'break-all', cursor: 'pointer' },
+                  title: '点击复制路径',
+                  onClick: () => {
+                    try {
+                      navigator.clipboard.writeText(s.annot.lastSaved.path);
+                    } catch { /* 剪贴板不可用静默 */ }
+                  },
+                }, s.annot.lastSaved.path),
+                s.annot && s.annot.error && h('div', { style: { color: T.danger, fontSize: 11 } }, s.annot.error),
+                h('div', { style: { color: T.text3, borderTop: `1px solid ${T.border}`, paddingTop: 4 } },
                   '截图：',
                   h('span', { style: { color: s.lastShot ? (s.lastShot.ok ? T.ok : T.danger) : T.text3 } },
                     s.lastShot
@@ -327,14 +347,25 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { style: { padding: '8px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8 } },
+          { style: { padding: '8px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h(
+            'button',
+            {
+              onClick: actions.toggleAnnot,
+              style: {
+                border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
+                background: T.accent, color: T.onAccent, cursor: 'pointer', fontSize: 12,
+              },
+            },
+            s.annot && s.annot.active ? '结束批注' : '批注',
+          ),
           h(
             'button',
             {
               onClick: actions.captureShot,
               style: {
                 border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
-                background: T.accent, color: T.onAccent, cursor: 'pointer', fontSize: 12,
+                background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
               },
             },
             '截图',
@@ -348,7 +379,7 @@ window.__ModuleLoader__.load({
                 background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
               },
             },
-            '上报 host',
+            '上报',
           ),
           h(
             'button',
@@ -359,7 +390,7 @@ window.__ModuleLoader__.load({
                 background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
               },
             },
-            '重新探测',
+            '探测',
           ),
         ),
       );
@@ -375,6 +406,7 @@ window.__ModuleLoader__.load({
             findings: null,
             report: null,
             lastShot: null,
+            annot: null, // { active, count, startedAt, lastSaved, error }
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
             mountAttempted: false,
@@ -434,6 +466,159 @@ window.__ModuleLoader__.load({
             say('info', `探测(${trigger})：webview=${findings.webviewCount} guest=${findings.guest ? 'yes' : 'no'}`);
             return findings;
           };
+
+          /* ─────────────── MVP-2 批注模式（src/element-annotator.js 注入 guest） ─────────────── */
+
+          let annotSourceCache = null; // { mtime, source }
+
+          /** 取当前批注目标 guest（lease 优先；无 guest 抛可读错误）。 */
+          const pickGuestEl = () => {
+            const els = Array.from(document.querySelectorAll('webview'));
+            const target = pickProbeTarget(els);
+            if (!target) throw new Error('无 webview（先打开内置浏览器）');
+            return target;
+            };
+
+          /** 确保批注层已注入（重复注入会打断活动会话，故先查 API 存在性）。 */
+          const ensureAnnotator = async (svc) => {
+            const target = pickGuestEl();
+            const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
+            if (has === true) return target;
+            if (!annotSourceCache) {
+              const g = unwrap(await svc.getInjectScript());
+              if (!g || g.ok === false) throw new Error(`getInjectScript 失败：${(g && g.error) || '未知'}`);
+              annotSourceCache = { mtime: g.mtime, source: g.source };
+              say('info', `批注层源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
+            }
+            await target.executeJavaScript(annotSourceCache.source, true);
+            const ok = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined"', true);
+            if (ok !== true) throw new Error('批注层注入后 API 缺失');
+            return target;
+          };
+
+          /** 批注会话主流程：start 的 Promise 由 executeJavaScript await，提交后 payload 走全局暂存桥。 */
+          const startAnnotSession = async () => {
+            if (stateRef.annot && stateRef.annot.active) return { ok: false, error: '批注会话进行中' };
+            const svc = await waitSvc();
+            if (!svc) return { ok: false, error: 'host 远端面未就绪' };
+            const target = await ensureAnnotator(svc);
+            stateRef.annot = { active: true, count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            // 批注条数轮询（面板实时显示）
+            stateRef.annot.timer = setInterval(() => {
+              target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.list ? window.__dshKitAnnotator.list().length : -1)', true)
+                .then((n) => { if (stateRef.annot) stateRef.annot.count = n; })
+                .catch(() => {});
+            }, 1200);
+            say('info', '批注会话开始（在页面里点元素 → 留意见 → 面板提交 / Esc 取消）');
+            let how = 'cancelled';
+            try {
+              how = await target.executeJavaScript(
+                'window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; } })',
+                true,
+              );
+            } catch (e) {
+              how = `error:${msgOf(e)}`;
+            }
+            clearInterval(stateRef.annot.timer);
+            stateRef.annot.active = false;
+            let saved = null;
+            if (how === 'submitted') {
+              try {
+                const r = await target.executeJavaScript('window.__dshKitLastSubmit', true);
+                if (r && typeof r.markdown === 'string') {
+                  const sr = unwrap(await svc.saveAnnotations(r.markdown));
+                  saved = sr && sr.ok ? sr : null;
+                  stateRef.annot.lastSaved = saved;
+                  if (!saved) say('warn', `saveAnnotations 失败：${(sr && sr.error) || '未知'}`);
+                }
+              } catch (e) {
+                say('warn', `取回提交结果失败：${msgOf(e)}`);
+              }
+            }
+            say('info', `批注会话结束（${how}${saved ? `，已保存 ${saved.path}` : ''}）`);
+            return { ok: true, how, saved };
+          };
+
+          const stopAnnotSession = async () => {
+            const target = pickGuestEl();
+            await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
+            return { ok: true };
+          };
+
+          /* ─────────────── MVP-4 种子：命令通道（实施会话写 .data/command.json 驱动） ─────────────── */
+
+          let cmdBusy = false;
+          const executeCommand = async (svc, command) => {
+            const c = command && typeof command === 'object' ? command : {};
+            const action = String(c.action || '');
+            try {
+              switch (action) {
+                case 'inject-annotator': {
+                  await ensureAnnotator(svc);
+                  return { ok: true, injected: true };
+                }
+                case 'start-annotator': {
+                  // 不能 await：会话直到提交/Esc 才结束，await 会卡死命令轮询（cmdBusy）
+                  startAnnotSession().then((r) => {
+                    say('info', `批注会话（命令触发）收尾：${JSON.stringify(r).slice(0, 120)}`);
+                  }).catch(() => {});
+                  return { ok: true, started: true };
+                }
+                case 'stop-annotator': {
+                  return await stopAnnotSession();
+                }
+                case 'annotator-status': {
+                  const target = pickGuestEl();
+                  const st = await target.executeJavaScript('(function(){ if (typeof window.__dshKitAnnotator === "undefined") return { injected: false }; return { injected: true, count: window.__dshKitAnnotator.list().length, first: window.__dshKitAnnotator.list()[0] || null }; })()', true);
+                  return { ok: true, ...st };
+                }
+                case 'guest-eval': {
+                  // MVP-4 骨架：agent 侧任意求值（executeJavaScript，awaitPromise）
+                  const target = pickGuestEl();
+                  const value = await target.executeJavaScript(String(c.code || ''), true);
+                  return { ok: true, value };
+                }
+                case 'submit-annotations': {
+                  const target = await ensureAnnotator(svc);
+                  const r = await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.submit ? window.__dshKitAnnotator.submit() : null)', true);
+                  if (!r || typeof r.markdown !== 'string') return { ok: false, error: '无可打包批注' };
+                  const sr = unwrap(await svc.saveAnnotations(r.markdown));
+                  return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
+                }
+                default:
+                  return { ok: false, error: `未知命令 action=${action}` };
+              }
+            } catch (e) {
+              return { ok: false, error: msgOf(e) };
+            }
+          };
+
+          const pollCommands = async () => {
+            if (cmdBusy) return;
+            const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+            if (!svc || typeof svc.takeCommand !== 'function') return;
+            cmdBusy = true;
+            try {
+              const r = unwrap(await svc.takeCommand());
+              const command = r && r.ok !== false ? r.command : null;
+              if (r && r.ok === false) say('warn', `takeCommand 失败：${r.error}`);
+              if (command && command.id != null) {
+                say('info', `执行命令 ${command.id}（${command.action}）`);
+                const result = await executeCommand(svc, command);
+                try {
+                  await svc.commandResult(String(command.id), result);
+                  say('info', `命令 ${command.id} 完成：${JSON.stringify(result).slice(0, 160)}`);
+                } catch (e) {
+                  say('warn', `commandResult 失败：${msgOf(e)}`);
+                }
+              }
+            } catch (e) {
+              say('warn', `命令轮询异常：${msgOf(e)}`);
+            } finally {
+              cmdBusy = false;
+            }
+          };
+          setInterval(() => { pollCommands().catch(() => {}); }, 2500);
 
           const reportNow = async () => {
             if (!stateRef.findings) await probeAndPublish('report');
@@ -541,7 +726,7 @@ window.__ModuleLoader__.load({
             { name: SLOT, id: PANEL_ID, order: 30 },
             () => h(ProbePanel, {
               stateRef,
-              getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot }),
+              getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot, annot: stateRef.annot }),
               actions: {
                 reprobe: () => { probeAndPublish('manual').catch(() => {}); },
                 reportNow: () => { reportNow().catch(() => {}); },
@@ -550,6 +735,18 @@ window.__ModuleLoader__.load({
                     stateRef.lastShot = r;
                     say(r.ok ? 'info' : 'warn', `截图：${r.ok ? r.path : r.error}`);
                   }).catch(() => {});
+                },
+                toggleAnnot: () => {
+                  if (stateRef.annot && stateRef.annot.active) {
+                    stopAnnotSession().catch((e) => say('warn', `结束批注失败：${msgOf(e)}`));
+                  } else {
+                    startAnnotSession().then((r) => {
+                      if (r && r.ok === false) {
+                        if (stateRef.annot) stateRef.annot.error = r.error;
+                        say('warn', `批注启动失败：${r.error}`);
+                      }
+                    }).catch((e) => say('warn', `批注异常：${msgOf(e)}`));
+                  }
                 },
               },
             }),

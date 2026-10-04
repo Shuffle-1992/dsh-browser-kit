@@ -27,9 +27,12 @@ const JSON_ANY = Object.freeze({ parse: (value) => value });
  *   onReport: (findings: unknown) => Promise<{ok: boolean, savedAt?: string, error?: string}>,
  *   onSaveShot: (meta: unknown, dataUrl: string) => Promise<{ok: boolean, path?: string, bytes?: number, error?: string}>,
  *   onSaveAnnotations: (markdown: string) => Promise<{ok: boolean, path?: string, bytes?: number, error?: string}>,
+ *   onGetInjectScript: () => {ok: boolean, source?: string, mtime?: string, bytes?: number, error?: string},
+ *   onTakeCommand: () => {ok: boolean, command?: unknown, error?: string},
+ *   onCommandResult: (id: string, result: unknown) => {ok: boolean, error?: string},
  * }} hooks
  */
-export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations }) {
+export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onGetInjectScript, onTakeCommand, onCommandResult }) {
   /**
    * face 类：原型供方法标记与签名解析，实例带 typertRemote 绑定
    * （协议 bindTypertRemote 的落盘形状：冻结的 {service, serviceKey, namespace}）。
@@ -51,6 +54,12 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations }) {
     saveShot(meta, dataUrl) { return this.#guard(() => onSaveShot(meta, dataUrl)); }
     /** saveAnnotations(markdown) → {ok:true, path, bytes} | {ok:false, error}。 */
     saveAnnotations(markdown) { return this.#guard(() => onSaveAnnotations(markdown)); }
+    /** getInjectScript() → {ok:true, source, mtime, bytes} | {ok:false, error}（MVP-2：批注层注入源）。 */
+    getInjectScript() { return this.#guard(() => onGetInjectScript()); }
+    /** takeCommand() → {ok:true, command}|{ok:true, command:null}|{ok:false, error}（MVP-4 种子：取走即删）。 */
+    takeCommand() { return this.#guard(() => onTakeCommand()); }
+    /** commandResult(id, result) → {ok:true} | {ok:false, error}（命令执行结果回传）。 */
+    commandResult(id, result) { return this.#guard(() => onCommandResult(id, result)); }
   }
 
   // 方法标记写原型（协议 mark() 的落盘形状：版本化冻结描述符）。
@@ -73,6 +82,9 @@ const FACE_METHOD_TABLE = [
   ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
   ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
   ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+  ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
+  ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
+  ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
 ];
 
 /**

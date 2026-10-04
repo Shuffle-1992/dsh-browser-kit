@@ -88,3 +88,13 @@
 ### P17 capturePage 的 1×1 假成功要代码层设防
 - **现象**（ZCode 同款坑，调研文档 §5.3 已预警）：guest 隐藏/后台时 capturePage 可能假成功返回 1×1 图。
 - **对策**：host `saveShotImpl` 对解码后 PNG < 500 字节直接判失败并如实返回错误（`疑似 1×1 假成功`），不落盘。
+
+### P18 Windows PowerShell 5 的 UTF8 落盘带 BOM，毒杀 JSON 命令文件
+- **现象**：`Set-Content -Encoding UTF8` 写的 `.data/command.json` 被 client 取走但命令报「JSON 解析失败」（cmd-2…cmd-5 静默丢失）。
+- **根因**：PS5 的 UTF8 编码器写 BOM（EF BB BF），`JSON.parse` 首字符即 `\uFEFF` 抛错；且 impl 是「先删文件再解析」，失败后命令不可恢复。
+- **对策**：impl 解析前 `raw.replace(/^\uFEFF/, '')`；写命令用 `WriteAllText` + `UTF8Encoding($false)` 或先写无 BOM。另注：本仓 write 工具对「已被消费方删除的文件」拒绝重写（观察守卫），命令文件高频场景直接用 pwsh 落。
+
+### P19 命令通道 await 长生命周期动作 = 队列卡死
+- **现象**：`start-annotator` 在 executeCommand 里 await 批注会话 Promise（直到提交/Esc 才结束）→ cmdBusy 恒真 → 后续命令永远不被取走，且会话挂在用户页面上。
+- **根因**：轮询的串行化 busy 标记 + 单命令同步执行语义，遇上「分钟级」动作即饿死队列。
+- **对策**：命令按「立即返回」设计——长动作 fire-and-forget（`{ok:true, started:true}`），终态经批注文件/状态命令另行取证；契约上写明「命令不许阻塞」。

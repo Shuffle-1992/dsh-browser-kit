@@ -13,7 +13,7 @@
  *
  * 激活安全：任何异常只记录不抛（绝不阻塞 cordis 激活；同 zcode-dispatch 纪律）。零 npm 依赖。
  */
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -348,6 +348,49 @@ function saveAnnotationsImpl(paths, markdown) {
   return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8') };
 }
 
+/** getInjectScript 实现：按 mtime 供源（client 按 mtime 缓存；源文件改动即时生效）。 */
+function getInjectScriptImpl(paths) {
+  const file = join(projectDirOf(paths), 'src', 'element-annotator.js');
+  const st = statSync(file);
+  const source = readFileSync(file, 'utf8');
+  return { ok: true, source, mtime: String(st.mtimeMs), bytes: source.length };
+}
+
+/** takeCommand 实现：取走即删（.data/command.json；实施会话用本地工具直接落此文件驱动 client）。 */
+function takeCommandImpl(paths) {
+  const file = join(paths.pluginDir, '.data', 'command.json');
+  let raw;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { ok: true, command: null };
+    return { ok: false, error: msg(e) };
+  }
+  try {
+    unlinkSync(file);
+  } catch (e) {
+    return { ok: false, error: `命令文件删除失败：${msg(e)}` };
+  }
+  try {
+    // Windows PowerShell 5 的 Set-Content -Encoding UTF8 会带 BOM，先剥掉再 parse
+    return { ok: true, command: JSON.parse(raw.replace(/^\uFEFF/, '')) };
+  } catch (e) {
+    return { ok: false, error: `命令 JSON 解析失败：${msg(e)}` };
+  }
+}
+
+/** commandResult 实现：追加 .data/command-results.jsonl（实施会话读它收结果）。 */
+function commandResultImpl(paths, id, result) {
+  const dir = join(paths.pluginDir, '.data');
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(
+    join(dir, 'command-results.jsonl'),
+    `${JSON.stringify({ at: new Date().toISOString(), id, result: result === undefined ? null : result })}\n`,
+    'utf8',
+  );
+  return { ok: true };
+}
+
 /**
  * impl 入口（index.js 薄壳动态调用）。async：wire.host.mjs 需带 ?ts= 动态 import（见文件头）。
  * @param {object} ctx cordis Context
@@ -412,6 +455,9 @@ export async function apply(ctx, _config = {}, paths = {}) {
       log(r.ok ? 'info' : 'warn', `saveAnnotations → ${r.ok ? r.path : r.error}`);
       return Promise.resolve(r);
     },
+    onGetInjectScript: () => getInjectScriptImpl(paths),
+    onTakeCommand: () => takeCommandImpl(paths),
+    onCommandResult: (id, result) => commandResultImpl(paths, id, result),
   });
   try {
     if (ctx && typeof ctx.provide === 'function') {
