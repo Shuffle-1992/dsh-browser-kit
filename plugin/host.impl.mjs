@@ -443,6 +443,22 @@ export async function apply(ctx, _config = {}, paths = {}) {
 
   log('info', `MVP-1 impl 激活（${state.implLoadedAt}；wire ${wireCacheBust}；报告 → ${reportPath}）`);
 
+  /* ---- 通知 web 端热换本包 client 模块（client-hmr 消费 rebuilt 事件） ----
+   * 实测：仅靠文件改动/toggle，页面可能持续运行旧 client 模块（P20 系列症状：
+   * 命令无 30s 超时防线、面板位置修复不生效）。显式调 clientModules.rebuilt(packageId)
+   * 推送重建事件，让页面拉取最新 client.js。 */
+  try {
+    const clientModules = ctx && typeof ctx.get === 'function' ? ctx.get('clientModules') : null;
+    if (clientModules && typeof clientModules.rebuilt === 'function') {
+      clientModules.rebuilt('@local/dsh-browser-kit');
+      log('info', 'clientModules.rebuilt 已推送（client 模块热换通知）');
+    } else {
+      log('warn', 'clientModules.rebuilt 不可用（client 模块可能不热换，需页面刷新）');
+    }
+  } catch (e) {
+    log('warn', `clientModules.rebuilt 调用失败：${msg(e)}`);
+  }
+
   /* ---- face 注册（typertGateway SRC 兜底路径；typert-loader 路径靠 exports["./typert"] 自动发现） ---- */
   const face = wire.createRemoteFace({
     onReport: (findings) => {

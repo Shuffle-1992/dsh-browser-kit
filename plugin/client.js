@@ -351,17 +351,51 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { style: { padding: '8px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          { style: { padding: '8px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+          /* ZCode 式单图标开关：点击在当前页面开启批注，再点关闭；激活态实心底 + 批注数徽标 */
           h(
             'button',
             {
               onClick: actions.toggleAnnot,
+              title: (s.annot && s.annot.active)
+                ? '批注进行中——点击关闭（已收集批注保留，可再开启继续提交）'
+                : '在当前页面开启批注：点元素 → 就地留意见 → 页内面板提交',
               style: {
-                border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
-                background: T.accent, color: T.onAccent, cursor: 'pointer', fontSize: 12,
+                border: `1px solid ${T.border}`,
+                borderRadius: 6,
+                width: 30,
+                height: 26,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                padding: 0,
+                background: (s.annot && s.annot.active) ? T.accent : T.hover,
+                color: (s.annot && s.annot.active) ? T.onAccent : T.text,
+                cursor: 'pointer',
               },
             },
-            s.annot && s.annot.active ? '结束批注' : '批注',
+            h(
+              'svg',
+              { viewBox: '0 0 24 24', width: 15, height: 15, 'aria-hidden': true },
+              h('path', {
+                d: 'M4 4h16v12H9l-5 4V4z',
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeWidth: 2,
+                strokeLinejoin: 'round',
+              }),
+              h('path', {
+                d: 'M12 7.5v5M9.5 10h5',
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeWidth: 2,
+                strokeLinecap: 'round',
+              }),
+            ),
+            (s.annot && s.annot.active && s.annot.count > 0)
+              ? h('span', { style: { fontSize: 10, fontWeight: 700 } }, String(s.annot.count))
+              : null,
           ),
           h(
             'button',
@@ -641,6 +675,14 @@ window.__ModuleLoader__.load({
             }
           };
           setInterval(() => { pollCommands().catch(() => {}); }, 2500);
+          /* 看门狗：单条命令最长占用 30s（race 上限），45s 仍未释放视为卡死，强制复位
+           * cmdBusy，避免一次挂起饿死整条命令队列（P20）。 */
+          setInterval(() => {
+            if (cmdBusy) {
+              cmdBusy = false;
+              say('warn', '看门狗：命令轮询超 45s 未释放，已强制复位 cmdBusy');
+            }
+          }, 45000);
 
           const reportNow = async () => {
             if (!stateRef.findings) await probeAndPublish('report');
