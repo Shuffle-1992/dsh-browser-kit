@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
       package: '@local/dsh-browser-kit',
       descriptors: [
         ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
+        ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+        ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
       ].map(([method, parameters, , optionals]) => ({
         id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
@@ -269,7 +271,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { padding: '8px 10px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 } },
-          h('strong', { style: { fontSize: 12 } }, 'dsh-browser-kit 探测'),
+          h('strong', { style: { fontSize: 12 } }, 'dsh-browser-kit'),
           h('span', { style: { color: T.text3, marginLeft: 'auto' } }, f ? new Date(f.at).toLocaleTimeString() : '—'),
         ),
         h(
@@ -297,6 +299,22 @@ window.__ModuleLoader__.load({
                     ),
                 f.error && h('div', { style: { color: T.danger } }, `探测错误：${f.error}`),
                 h('div', { style: { color: T.text3, borderTop: `1px solid ${T.border}`, paddingTop: 4 } },
+                  '截图：',
+                  h('span', { style: { color: s.lastShot ? (s.lastShot.ok ? T.ok : T.danger) : T.text3 } },
+                    s.lastShot
+                      ? (s.lastShot.ok ? '已保存 ↓' : `失败 ${s.lastShot.error}`)
+                      : '未截'),
+                ),
+                s.lastShot && s.lastShot.ok && h('div', {
+                  style: { color: T.text2, fontFamily: T.mono, fontSize: 10, wordBreak: 'break-all' },
+                  title: '点击复制路径',
+                  onClick: () => {
+                    try {
+                      navigator.clipboard.writeText(s.lastShot.path);
+                    } catch { /* 剪贴板不可用静默 */ }
+                  },
+                }, s.lastShot.path),
+                h('div', { style: { color: T.text3, borderTop: `1px solid ${T.border}`, paddingTop: 4 } },
                   'host 上报：',
                   h('span', { style: { color: s.report && s.report.response && s.report.response.ok ? T.ok : (s.report && s.report.error ? T.danger : T.text3) } },
                     s.report
@@ -313,13 +331,13 @@ window.__ModuleLoader__.load({
           h(
             'button',
             {
-              onClick: actions.reprobe,
+              onClick: actions.captureShot,
               style: {
                 border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
-                background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
+                background: T.accent, color: T.onAccent, cursor: 'pointer', fontSize: 12,
               },
             },
-            '重新探测',
+            '截图',
           ),
           h(
             'button',
@@ -327,10 +345,21 @@ window.__ModuleLoader__.load({
               onClick: actions.reportNow,
               style: {
                 border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
-                background: T.accent, color: T.onAccent, cursor: 'pointer', fontSize: 12,
+                background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
               },
             },
             '上报 host',
+          ),
+          h(
+            'button',
+            {
+              onClick: actions.reprobe,
+              style: {
+                border: `1px solid ${T.border}`, borderRadius: 6, padding: '3px 10px',
+                background: T.hover, color: T.text, cursor: 'pointer', fontSize: 12,
+              },
+            },
+            '重新探测',
           ),
         ),
       );
@@ -345,7 +374,9 @@ window.__ModuleLoader__.load({
           const stateRef = {
             findings: null,
             report: null,
+            lastShot: null,
             autoLeft: MAX_AUTO_REPROBE,
+            autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
             mountAttempted: false,
             mountOk: false,
             mountError: null,
@@ -412,11 +443,74 @@ window.__ModuleLoader__.load({
             return stateRef.report;
           };
 
+          /** 等 svc 就绪（复用 reportToHost 的等待语义），返回 svc 或 null。 */
+          const waitSvc = async () => {
+            for (let i = 0; i < 27; i++) {
+              const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+              if (svc) return svc;
+              await sleep(300);
+            }
+            return null;
+          };
+
+          /**
+           * MVP-1 截图主通道：capturePage() → dataURL → face saveShot → shots/<ts>-<title>.png。
+           * 元数据（url/title）经 executeJavaScript 从 guest 页面自取。
+           */
+          const captureShot = async () => {
+            const out = { ok: false, error: null, path: null, bytes: null };
+            try {
+              const els = Array.from(document.querySelectorAll('webview'));
+              const target = pickProbeTarget(els);
+              if (!target) {
+                out.error = '无 webview（先打开内置浏览器）';
+                return out;
+              }
+              let meta = { url: null, title: null };
+              try {
+                const m = await target.executeJavaScript('({ href: location.href, title: document.title })', true);
+                if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+              } catch { /* 元数据失败不拦截图 */ }
+              const img = await target.capturePage();
+              const dataUrl = img.toDataURL();
+              const svc = await waitSvc();
+              if (!svc || typeof svc.saveShot !== 'function') {
+                out.error = `remote.${FACE_NAME}.saveShot 未就绪`;
+                return out;
+              }
+              const r = unwrap(await svc.saveShot(meta, dataUrl));
+              out.ok = !!(r && r.ok);
+              out.path = r && r.path ? r.path : null;
+              out.bytes = r && r.bytes ? r.bytes : null;
+              out.error = r && r.error ? r.error : null;
+            } catch (e) {
+              out.error = msgOf(e);
+            }
+            return out;
+          };
+
+          /** 首个 guest 出现后的一次性自动动作：上报探测 + 自动截一张（MVP-1 验收用）。 */
+          const maybeAutoActions = () => {
+            const f = stateRef.findings;
+            if (!f || f.webviewCount === 0) return;
+            if (!stateRef.report) reportNow().catch(() => {});
+            if (stateRef.autoShotLeft > 0) {
+              stateRef.autoShotLeft -= 1;
+              setTimeout(() => {
+                captureShot().then((r) => {
+                  stateRef.lastShot = r;
+                  say(r.ok ? 'info' : 'warn', `自动截图：${r.ok ? r.path : r.error}`);
+                }).catch(() => {});
+              }, 1200); // 给 face/远端面一点就绪余量
+            }
+          };
+
           /* 首测 + webview 挂载自动补测（MutationObserver） */
-          probeAndPublish('initial').catch((e) => say('warn', `首测失败：${msgOf(e)}`));
+          probeAndPublish('initial').then(() => maybeAutoActions()).catch((e) => say('warn', `首测失败：${msgOf(e)}`));
           /* 启动后 5s 自动上报一次：让实施会话无需任何用户操作即可验证 client→host 通道。 */
           setTimeout(() => {
             if (!stateRef.report) reportNow().catch(() => {});
+            maybeAutoActions();
           }, 5000);
           try {
             const mo = new MutationObserver(() => {
@@ -430,7 +524,7 @@ window.__ModuleLoader__.load({
               clearTimeout(stateRef._t);
               stateRef._t = setTimeout(() => {
                 probeAndPublish('mutation').then((f) => {
-                  if (f && f.webviewCount > 0 && !stateRef.report) reportNow().catch(() => {});
+                  if (f && f.webviewCount > 0) maybeAutoActions();
                 }).catch(() => {});
               }, 800);
             });
@@ -447,14 +541,20 @@ window.__ModuleLoader__.load({
             { name: SLOT, id: PANEL_ID, order: 30 },
             () => h(ProbePanel, {
               stateRef,
-              getState: () => ({ findings: stateRef.findings, report: stateRef.report }),
+              getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot }),
               actions: {
                 reprobe: () => { probeAndPublish('manual').catch(() => {}); },
                 reportNow: () => { reportNow().catch(() => {}); },
+                captureShot: () => {
+                  captureShot().then((r) => {
+                    stateRef.lastShot = r;
+                    say(r.ok ? 'info' : 'warn', `截图：${r.ok ? r.path : r.error}`);
+                  }).catch(() => {});
+                },
               },
             }),
           ));
-          say('info', 'MVP-0 探测已挂载（左下角面板）');
+          say('info', 'dsh-browser-kit 已挂载（左下角工具面板：截图 / 上报 / 探测）');
         } catch (e) {
           try {
             console.warn(`${LOG_PREFIX} apply 降级（不阻塞启动）:`, e && e.message);

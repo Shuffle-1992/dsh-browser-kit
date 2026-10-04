@@ -103,6 +103,7 @@ dsh-browser-kit/
 - ✅ 调研完成：ZCode 方案解剖 + 业界对比 + DSH 宿主实测 + 落地草案 + MVP 路线（见调研文档）。
 - ✅ 任务01（ZCode）：可移植资产层——45/45 测试全绿（docs/delivery-01.md）。
 - ✅ 任务02（主会话）：**MVP-0 接入验证**——主路径 A（client plugin）+ host 落盘/工具面的混合架构，Path B 否决（host 插件在 RUN_AS_NODE 子进程，pitfalls P14），Path C 不需要（docs/delivery-02-mvp0.md）。
-- ⏭️ 下一步：**MVP-1 截图管线**——client `capturePage()` → dataURL → host face 落盘 `<项目>/shots/<时间戳>-<标题>.png` → agent `read_image` 视觉识别；随后 MVP-2 批注模式（本项目核心差异点，`element-annotator.js` 经 client 注入，协议块经 face 落盘）。
+- ✅ 任务03（主会话）：**MVP-1 截图管线**——client `capturePage()` → face `saveShot` → `shots/*.png` + index.jsonl，agent `read_image` 正确识别页面（keysion.cn 实测）；face 加方法免重启（pitfalls P16）（docs/delivery-03-mvp1.md）。
+- ⏭️ 下一步：**MVP-2 批注模式**（本项目核心差异点）——`src/element-annotator.js` 经 client 注入 guest（`el.executeJavaScript`），批注态交互 + `# Web page annotations:` 协议块（调研文档 §5.2），提交走已备好的 `saveAnnotations` 落盘 `annotations/`；随后 MVP-3 体验（批注索引 + turn 末自动截图）。
 - 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——真实 Chrome 主路径已有 `cdp/drive.mjs` + `hid-observer.js` 全套资产；DSH 内置浏览器侧的注入走 client 插件（同 MVP-1 通道）。
 - 关键修正（推翻调研文档 §4.4 预判）：host plugin 无 main 进程能力；`browserUse`/`computerUse` 等自动化属 DSH 主进程自有服务，第三方插件无门（F3 远期需求届时再评估）。

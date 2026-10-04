@@ -1,18 +1,25 @@
 /**
  * @local/dsh-browser-kit —— Host 业务实现（由 index.js 薄壳按 mtime+seq 动态 import，见其头注）。
  *
- * MVP-0 探测（调研文档 §5.1 / README §3 第一步）：
- *  - Path B 验证：host 插件能否加载 `electron`、枚举 webContents、找到 webview guest，
- *    并对 guest 调 executeJavaScript / capturePage / debugger(Page.captureScreenshot fullPage)；
- *  - 结果落盘 probe-report.json（host 发现 + client 上报合并），供实施会话读取；
- *  - 注册最小远端面 `dshBrowserKit.reportClient`（wire.host.mjs），接收 client 半边的探测结果。
+ * MVP-0 探测 + MVP-1 截图管线（调研文档 §5.3 / docs/delivery-02-mvp0.md 定论的混合架构）：
+ *  - face `reportClient`：client 探测结果上报 → 落 .data/probe-report.json（诊断）；
+ *  - face `saveShot(meta, dataUrl)`：client capturePage() 的 PNG dataURL → <项目>/shots/<时间戳>-<标题>.png
+ *    + index.jsonl 一行元数据（MVP-1 主通道；agent 经文件路径 read_image）；
+ *  - face `saveAnnotations(markdown)`：批注协议块 → <项目>/annotations/<时间戳>.md（MVP-2 主通道，先备好）；
+ *  - Path B 鉴定结论保留在探测输出里（host 插件 = RUN_AS_NODE runner，不可触达 Electron 主进程）。
+ *
+ * 缓存要点：本 impl 以 ?ts=mtime-seq 动态加载；它对 wire.host.mjs 的引用**同样带 ?ts=**（相对导入
+ * 会丢查询参数，必须显式带上），否则 wire 里的 face 类被进程级缓存——新 face 方法永远不生效（P13 变体）。
  *
  * 激活安全：任何异常只记录不抛（绝不阻塞 cordis 激活；同 zcode-dispatch 纪律）。零 npm 依赖。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { createRemoteFace, FACE_NAME } from './wire.host.mjs';
+
+/** 同款 ?ts= 击穿 wire.host.mjs 缓存（由 apply 传入 mtime）。 */
+let wireCacheBust = 'init';
+const loadWire = async () => import(`./wire.host.mjs?ts=${wireCacheBust}`).then((m) => m);
 
 const msg = (e) => (e && e.message ? `${e.message}` : String(e));
 const safe = (fn) => {
@@ -239,7 +246,7 @@ function writeReport(reportPath, state, reason) {
           updatedAt: new Date().toISOString(),
           reason,
           probeRuns: state.probeRuns,
-          typertService: FACE_NAME,
+          shots: state.shots,
           host: state.host,
           client: state.client,
           clientReceivedAt: state.clientReceivedAt,
@@ -274,15 +281,85 @@ function makeLogger(ctx) {
   };
 }
 
+/* ─────────────── 落盘（MVP-1 截图 / MVP-2 批注） ─────────────── */
+
+/** 项目根 = plugin/ 的上一级（本仓）；shots/ 与 annotations/ 均已 gitignore。 */
+function projectDirOf(paths) {
+  return join(paths.pluginDir, '..');
+}
+
+/** Windows 安全 + 可读的文件名段：保留中英文/数字/点横线下划线，限 40 字。 */
+function slugify(s) {
+  const cleaned = String(s || '')
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\u4e00-\u9fa5.-]+/g, '')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 40);
+  return cleaned || 'page';
+}
+
+/** 本地时间戳：YYYYMMDD-HHmmss。 */
+function tsStamp(d = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 /**
- * impl 入口（index.js 薄壳动态调用）。
+ * saveShot 实现：dataURL → PNG 文件 + index.jsonl 元数据行。
+ * 1×1 假成功防线（调研文档 §5.3 / ZCode 坑）：PNG < 500 字节视为失败如实返回。
+ */
+function saveShotImpl(paths, meta, dataUrl) {
+  const m = meta && typeof meta === 'object' ? meta : {};
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
+    return { ok: false, error: 'dataUrl 不是 image/png 的 dataURL' };
+  }
+  const b64 = dataUrl.slice('data:image/png;base64,'.length).replace(/\s/g, '');
+  const png = Buffer.from(b64, 'base64');
+  if (png.length === 0) return { ok: false, error: 'PNG 解码为空' };
+  if (png.length < 500) {
+    return { ok: false, error: `PNG 仅 ${png.length} 字节——疑似 1×1 假成功（guest 不可见/已后台？）`, bytes: png.length };
+  }
+  const dir = join(projectDirOf(paths), 'shots');
+  mkdirSync(dir, { recursive: true });
+  const name = `${tsStamp()}-${slugify(m.title || m.url || '')}.png`;
+  const file = join(dir, name);
+  writeFileSync(file, png);
+  try {
+    appendFileSync(
+      join(dir, 'index.jsonl'),
+      `${JSON.stringify({ at: new Date().toISOString(), file: name, url: m.url ?? null, title: m.title ?? null, bytes: png.length })}\n`,
+      'utf8',
+    );
+  } catch { /* 索引写失败不影响主交付 */ }
+  return { ok: true, path: file, bytes: png.length };
+}
+
+/** saveAnnotations 实现：批注协议块 → annotations/<时间戳>.md。 */
+function saveAnnotationsImpl(paths, markdown) {
+  if (typeof markdown !== 'string' || markdown.trim().length === 0) {
+    return { ok: false, error: 'markdown 为空' };
+  }
+  const dir = join(projectDirOf(paths), 'annotations');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${tsStamp()}.md`);
+  writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
+  return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8') };
+}
+
+/**
+ * impl 入口（index.js 薄壳动态调用）。async：wire.host.mjs 需带 ?ts= 动态 import（见文件头）。
  * @param {object} ctx cordis Context
  * @param {object} _config 插件 config（本插件暂无字段）
  * @param {{ pluginDir: string, reportPath: string }} paths 薄壳解析的路径
  */
-export function apply(ctx, _config = {}, paths = {}) {
+export async function apply(ctx, _config = {}, paths = {}) {
   const log = makeLogger(ctx);
   const reportPath = paths.reportPath;
+  wireCacheBust = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const wire = await loadWire();
+  const FACE_NAME = wire.FACE_NAME;
   const state = {
     implLoadedAt: new Date().toISOString(),
     host: null,
@@ -290,6 +367,7 @@ export function apply(ctx, _config = {}, paths = {}) {
     clientReceivedAt: null,
     probeRuns: 0,
     probing: false,
+    shots: [],
   };
 
   /** 探测入口（激活时一次；client 上报到达时若 guest 已出现再补一轮）。 */
@@ -309,10 +387,10 @@ export function apply(ctx, _config = {}, paths = {}) {
     }
   };
 
-  log('info', `MVP-0 探测激活（impl ${state.implLoadedAt}；报告 → ${reportPath}）`);
+  log('info', `MVP-1 impl 激活（${state.implLoadedAt}；wire ${wireCacheBust}；报告 → ${reportPath}）`);
 
   /* ---- face 注册（typertGateway SRC 兜底路径；typert-loader 路径靠 exports["./typert"] 自动发现） ---- */
-  const face = createRemoteFace({
+  const face = wire.createRemoteFace({
     onReport: (findings) => {
       const hadGuests = Array.isArray(state.client?.webviews) && state.client.webviews.length > 0;
       state.client = findings && typeof findings === 'object' ? findings : { raw: String(findings) };
@@ -322,6 +400,17 @@ export function apply(ctx, _config = {}, paths = {}) {
       const nowHasGuests = Array.isArray(state.client?.webviews) && state.client.webviews.length > 0;
       if (nowHasGuests && !hadGuests) probe('client-report-guests').catch(() => {});
       return Promise.resolve({ ok: true, savedAt: state.clientReceivedAt });
+    },
+    onSaveShot: (meta, dataUrl) => {
+      const r = saveShotImpl(paths, meta, dataUrl);
+      state.shots.push({ at: new Date().toISOString(), ...r, meta: meta && typeof meta === 'object' ? { url: meta.url ?? null, title: meta.title ?? null } : null });
+      log(r.ok ? 'info' : 'warn', `saveShot → ${r.ok ? r.path : r.error}`);
+      return Promise.resolve(r);
+    },
+    onSaveAnnotations: (markdown) => {
+      const r = saveAnnotationsImpl(paths, markdown);
+      log(r.ok ? 'info' : 'warn', `saveAnnotations → ${r.ok ? r.path : r.error}`);
+      return Promise.resolve(r);
     },
   });
   try {

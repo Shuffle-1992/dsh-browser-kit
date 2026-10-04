@@ -1,8 +1,10 @@
 /**
  * @local/dsh-browser-kit —— 宿主 face 描述符（exports["./typert"]）。
  *
- * MVP-0 探测用最小面：只有一个 `reportClient(findings)`，client 半边把 webview 探测结果
- * 上报给 host 半边，host 落盘 `.data/probe-report.json` 供实施会话读取。
+ * MVP-1 face 契约（一次定全，含 MVP-2 要用的方法）：
+ *  - reportClient(findings)：client 探测结果上报（落 .data/probe-report.json，诊断用）；
+ *  - saveShot(meta, dataUrl)：截图 PNG（dataURL）落盘 <项目>/shots/，返回绝对路径（MVP-1 主通道）；
+ *  - saveAnnotations(markdown)：批注协议块落盘 <项目>/annotations/，返回绝对路径（MVP-2 主通道）。
  *
  * 形态完全照抄 @local/zcode-dispatch 的 wire.host.mjs（本机 DSH 上已验证可用的两条并存路径）：
  * A) dsh-typert-loader 自动发现：读包 exports["./typert"] → ctx.typert.register(TYPERT)；
@@ -21,9 +23,13 @@ const JSON_ANY = Object.freeze({ parse: (value) => value });
 
 /**
  * 创建宿主 face。
- * @param {{ onReport: (findings: unknown) => Promise<{ok: boolean, savedAt?: string, error?: string}> }} hooks
+ * @param {{
+ *   onReport: (findings: unknown) => Promise<{ok: boolean, savedAt?: string, error?: string}>,
+ *   onSaveShot: (meta: unknown, dataUrl: string) => Promise<{ok: boolean, path?: string, bytes?: number, error?: string}>,
+ *   onSaveAnnotations: (markdown: string) => Promise<{ok: boolean, path?: string, bytes?: number, error?: string}>,
+ * }} hooks
  */
-export function createRemoteFace({ onReport }) {
+export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations }) {
   /**
    * face 类：原型供方法标记与签名解析，实例带 typertRemote 绑定
    * （协议 bindTypertRemote 的落盘形状：冻结的 {service, serviceKey, namespace}）。
@@ -32,14 +38,19 @@ export function createRemoteFace({ onReport }) {
     constructor() {
       this.typertRemote = Object.freeze({ service: this, serviceKey: FACE_NAME, namespace: FACE_NAME });
     }
-    /** reportClient(findings) → {ok:true, savedAt} | {ok:false, error}。 */
-    async reportClient(findings) {
+    async #guard(fn) {
       try {
-        return await onReport(findings);
+        return await fn();
       } catch (e) {
         return { ok: false, error: (e && e.message) || String(e) };
       }
     }
+    /** reportClient(findings) → {ok:true, savedAt} | {ok:false, error}。 */
+    reportClient(findings) { return this.#guard(() => onReport(findings)); }
+    /** saveShot(meta, dataUrl) → {ok:true, path, bytes} | {ok:false, error}。 */
+    saveShot(meta, dataUrl) { return this.#guard(() => onSaveShot(meta, dataUrl)); }
+    /** saveAnnotations(markdown) → {ok:true, path, bytes} | {ok:false, error}。 */
+    saveAnnotations(markdown) { return this.#guard(() => onSaveAnnotations(markdown)); }
   }
 
   // 方法标记写原型（协议 mark() 的落盘形状：版本化冻结描述符）。
@@ -47,18 +58,21 @@ export function createRemoteFace({ onReport }) {
     configurable: true,
     value: Object.freeze({
       version: 1,
-      methods: Object.freeze([
-        Object.freeze({ method: 'reportClient', invocation: Object.freeze({ kind: 'direct' }) }),
-      ]),
+      methods: Object.freeze(FACE_METHOD_TABLE.map(([method]) => Object.freeze({
+        method,
+        invocation: Object.freeze({ kind: 'direct' }),
+      }))),
     }),
   });
 
   return new RemoteFace();
 }
 
-/** face 方法面（标记/描述符共用）：[方法名, 参数名数组, 签名]。 */
+/** face 方法面（标记/描述符共用）：[方法名, 参数名数组, 签名, 可选参数名数组]。 */
 const FACE_METHOD_TABLE = [
-  ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>'],
+  ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
+  ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+  ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
 ];
 
 /**
@@ -71,7 +85,7 @@ export const TYPERT = {
   generator: 'hand-written (MVP-0 probe)：无 zod/schemastery 依赖；strict codec 用透传校验器',
   service: FACE_NAME,
   schemas: [],
-  invocations: FACE_METHOD_TABLE.map(([method, parameters, ]) => ({
+  invocations: FACE_METHOD_TABLE.map(([method, parameters, , optionals]) => ({
     id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
     service: FACE_NAME,
     namespace: FACE_NAME,
@@ -81,6 +95,7 @@ export const TYPERT = {
       name,
       wire: name,
       source: 'json',
+      ...(optionals.includes(name) ? { acceptsUndefined: true } : {}),
       codec: {
         mode: 'strict',
         typeSymbol: `@local/dsh-browser-kit#${FACE_NAME}/${method}:${name}`,
@@ -96,8 +111,8 @@ export const TYPERT = {
   model: {
     services: [
       {
-        description: 'dsh-browser-kit MVP-0 探测远端面：client 半边把 webview 探测结果上报给 host 半边落盘。',
-        summary: 'dsh-browser-kit 探测上报面（MVP-0）。',
+        description: 'dsh-browser-kit 远端面：client 探测上报（reportClient）、截图落盘（saveShot）、批注落盘（saveAnnotations）。',
+        summary: 'dsh-browser-kit 探测/截图/批注的 client→host 通道。',
         tags: [],
         key: FACE_NAME,
         exportName: 'createRemoteFace',

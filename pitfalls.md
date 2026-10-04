@@ -79,3 +79,12 @@
 - **现象**：client 插件 `$mount` 后直接 `ctx.remote.dshBrowserKit.reportClient(...)` 报 `cannot get property "remote.dshBrowserKit" without inject`，上报失败。
 - **根因**：cordis 对 ctx 属性访问按 `inject` 声明守卫；自挂命名空间不能写进顶层 `inject`（会等自己→web boot 死锁，zcode-dispatch client.js 头注警告过），顶层直取也不行。
 - **对策**：官方公开 API `ctx.remote.$mount({package, descriptors})` 在 apply 里立即挂载（结果留痕），另开**子 fiber** `ctx.inject(['remote.<名>'], (scope) => { svc = scope.remote.<名> })`——子作用域声明只影响该 fiber，缺席时 pending 不阻塞条目；上报代码只消费子 fiber 存下的 svc（等就绪轮询 300ms×27）。与 zcode-dispatch 的 live 数据通道同款。
+
+### P16 相对导入丢查询参数——wire 也被缓存，face 新方法「看起来注册了却调不到」
+- **现象**：impl 用 `?ts=` 动态加载后，若 impl 顶部仍静态 `import './wire.host.mjs'`，该相对导入解析回**无参数的规范 URL** → 命中进程级缓存的旧 wire → face 类没有新方法（原型标记也不含）。
+- **根因**：URL 相对解析只保留路径段，base 的查询参数不继承（`'./x.mjs'` 相对 `'/d/impl.mjs?ts=1'` 解析为 `'/d/x.mjs'`）。
+- **对策**：impl 内改为 `import(\`./wire.host.mjs?ts=${随机}\`)` 动态加载。**正面结论（MVP-1 实测）**：face 新增方法（saveShot）经 typertGateway **SRC 原型标记路径**即时路由成功——typert-loader 的旧 manifest 不拦截；⇒ face 迭代也是纯热换，唯一要重启的场景只剩改 entry.mjs 薄壳本身。
+
+### P17 capturePage 的 1×1 假成功要代码层设防
+- **现象**（ZCode 同款坑，调研文档 §5.3 已预警）：guest 隐藏/后台时 capturePage 可能假成功返回 1×1 图。
+- **对策**：host `saveShotImpl` 对解码后 PNG < 500 字节直接判失败并如实返回错误（`疑似 1×1 假成功`），不落盘。
