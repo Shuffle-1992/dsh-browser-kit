@@ -98,3 +98,9 @@
 - **现象**：`start-annotator` 在 executeCommand 里 await 批注会话 Promise（直到提交/Esc 才结束）→ cmdBusy 恒真 → 后续命令永远不被取走，且会话挂在用户页面上。
 - **根因**：轮询的串行化 busy 标记 + 单命令同步执行语义，遇上「分钟级」动作即饿死队列。
 - **对策**：命令按「立即返回」设计——长动作 fire-and-forget（`{ok:true, started:true}`），终态经批注文件/状态命令另行取证；契约上写明「命令不许阻塞」。
+
+### P20 client 长轮询在 toggle/HMR 搅动下会卡死，命令静默滞留
+- **现象**：频繁 `set_plugin` toggle + client 模块热重载后，命令文件不再被消费（cmd-22/26/29/31 滞留或「被取走但 commandResult 永不回传」）；期间还出现双实例重复上报（cmd-27 结果两行）与跨实例竞态写页（v2 写入被旧实例迟到的 v1 写入覆盖的疑似现场）。
+- **根因**：client 半边无卸载通道，旧 apply 的 interval/sub-fiber 与新实例并存；旧实例的 `await svc.takeCommand()` 拿着已 dispose 的 face 远端引用永不决 → cmdBusy 恒真；HMR 重载时机与命令执行互相踩。
+- **对策（分三层）**：① 命令执行加 30s 超时竞速（已做，防单命令挂死队列）；② `takeCommand` 自身也该带超时/看门狗（待办：连续 N 次失败强制 `cmdBusy=false` 或提示刷新）；③ 开发期稳态纪律——**toggle 后如命令不消费，刷新一次 GUI 页面即复位**（重启 exe 是最后手段，非必需）。
+- **附**：本仓 write 工具对「已被消费的命令文件」拒绝重写（观察守卫），命令文件统一用 pwsh `WriteAllText` 落。

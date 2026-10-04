@@ -336,15 +336,26 @@ function saveShotImpl(paths, meta, dataUrl) {
   return { ok: true, path: file, bytes: png.length };
 }
 
-/** saveAnnotations 实现：批注协议块 → annotations/<时间戳>.md。 */
-function saveAnnotationsImpl(paths, markdown) {
+/** saveAnnotations 实现：批注协议块 → annotations/<时间戳>.md + index.jsonl 一行元数据。 */
+function saveAnnotationsImpl(paths, markdown, meta) {
   if (typeof markdown !== 'string' || markdown.trim().length === 0) {
     return { ok: false, error: 'markdown 为空' };
   }
+  const m = meta && typeof meta === 'object' ? meta : {};
   const dir = join(projectDirOf(paths), 'annotations');
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${tsStamp()}.md`);
+  const name = `${tsStamp()}.md`;
+  const file = join(dir, name);
   writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
+  try {
+    const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
+    const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || 0);
+    appendFileSync(
+      join(dir, 'index.jsonl'),
+      `${JSON.stringify({ at: new Date().toISOString(), file: name, url: m.url ?? null, title: m.title ?? null, count })}\n`,
+      'utf8',
+    );
+  } catch { /* 索引写失败不影响主交付 */ }
   return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8') };
 }
 
@@ -450,8 +461,8 @@ export async function apply(ctx, _config = {}, paths = {}) {
       log(r.ok ? 'info' : 'warn', `saveShot → ${r.ok ? r.path : r.error}`);
       return Promise.resolve(r);
     },
-    onSaveAnnotations: (markdown) => {
-      const r = saveAnnotationsImpl(paths, markdown);
+    onSaveAnnotations: (markdown, meta) => {
+      const r = saveAnnotationsImpl(paths, markdown, meta);
       log(r.ok ? 'info' : 'warn', `saveAnnotations → ${r.ok ? r.path : r.error}`);
       return Promise.resolve(r);
     },

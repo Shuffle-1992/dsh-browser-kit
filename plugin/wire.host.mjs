@@ -52,8 +52,8 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onGe
     reportClient(findings) { return this.#guard(() => onReport(findings)); }
     /** saveShot(meta, dataUrl) → {ok:true, path, bytes} | {ok:false, error}。 */
     saveShot(meta, dataUrl) { return this.#guard(() => onSaveShot(meta, dataUrl)); }
-    /** saveAnnotations(markdown) → {ok:true, path, bytes} | {ok:false, error}。 */
-    saveAnnotations(markdown) { return this.#guard(() => onSaveAnnotations(markdown)); }
+    /** saveAnnotations(markdown[, meta]) → {ok:true, path, bytes} | {ok:false, error}。 */
+    saveAnnotations(markdown, meta) { return this.#guard(() => onSaveAnnotations(markdown, meta)); }
     /** getInjectScript() → {ok:true, source, mtime, bytes} | {ok:false, error}（MVP-2：批注层注入源）。 */
     getInjectScript() { return this.#guard(() => onGetInjectScript()); }
     /** takeCommand() → {ok:true, command}|{ok:true, command:null}|{ok:false, error}（MVP-4 种子：取走即删）。 */
@@ -81,7 +81,7 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onGe
 const FACE_METHOD_TABLE = [
   ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
   ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
-  ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+  ['saveAnnotations', ['markdown', 'meta'], 'saveAnnotations(markdown, meta?): Promise<{ok:true, path, bytes}|{ok:false, error}>（meta={url,title} 可选，入索引）', ['meta']],
   ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
   ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
   ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],

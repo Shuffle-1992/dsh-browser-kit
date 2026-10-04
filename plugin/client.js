@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
       descriptors: [
         ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
         ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
-        ['saveAnnotations', ['markdown'], 'saveAnnotations(markdown): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
+        ['saveAnnotations', ['markdown', 'meta'], 'saveAnnotations(markdown, meta?): Promise<{ok:true, path, bytes}|{ok:false, error}>', ['meta']],
         ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
         ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
         ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
@@ -526,7 +526,12 @@ window.__ModuleLoader__.load({
               try {
                 const r = await target.executeJavaScript('window.__dshKitLastSubmit', true);
                 if (r && typeof r.markdown === 'string') {
-                  const sr = unwrap(await svc.saveAnnotations(r.markdown));
+                  let meta = null;
+                  try {
+                    const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
+                    if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+                  } catch { /* 元数据失败不拦保存 */ }
+                  const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
                   saved = sr && sr.ok ? sr : null;
                   stateRef.annot.lastSaved = saved;
                   if (!saved) say('warn', `saveAnnotations 失败：${(sr && sr.error) || '未知'}`);
@@ -578,11 +583,20 @@ window.__ModuleLoader__.load({
                   const value = await target.executeJavaScript(String(c.code || ''), true);
                   return { ok: true, value };
                 }
+                case 'screenshot': {
+                  return await captureShot();
+                }
                 case 'submit-annotations': {
                   const target = await ensureAnnotator(svc);
                   const r = await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.submit ? window.__dshKitAnnotator.submit() : null)', true);
                   if (!r || typeof r.markdown !== 'string') return { ok: false, error: '无可打包批注' };
-                  const sr = unwrap(await svc.saveAnnotations(r.markdown));
+                  if (!(r.annotations || []).length) return { ok: false, error: '无可打包批注（0 条）' };
+                  let meta = null;
+                  try {
+                    const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
+                    if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+                  } catch { /* 元数据失败不拦保存 */ }
+                  const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
                   return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
                 }
                 default:
@@ -604,7 +618,11 @@ window.__ModuleLoader__.load({
               if (r && r.ok === false) say('warn', `takeCommand 失败：${r.error}`);
               if (command && command.id != null) {
                 say('info', `执行命令 ${command.id}（${command.action}）`);
-                const result = await executeCommand(svc, command);
+                // 30s 保险：命令挂起（如跨导航的 executeJavaScript 永不 resolve）不饿死队列（P19 变体）
+                const result = await Promise.race([
+                  executeCommand(svc, command),
+                  sleep(30000).then(() => ({ ok: false, error: '命令超时(30s)，已放弃等待' })),
+                ]);
                 try {
                   await svc.commandResult(String(command.id), result);
                   say('info', `命令 ${command.id} 完成：${JSON.stringify(result).slice(0, 160)}`);
@@ -680,7 +698,19 @@ window.__ModuleLoader__.load({
             if (!f || f.webviewCount === 0) return;
             if (!stateRef.report) reportNow().catch(() => {});
             if (stateRef.autoShotLeft > 0) {
+              // 节流：client 每次重载都会跑这里，10 分钟内已自动截过就不再截（防 shots/ 刷屏）
+              let last = 0;
+              try {
+                last = Number(localStorage.getItem('dsh-browser-kit:auto-shot-at')) || 0;
+              } catch { /* ignore */ }
+              if (Date.now() - last < 10 * 60 * 1000) {
+                stateRef.autoShotLeft = 0;
+                return;
+              }
               stateRef.autoShotLeft -= 1;
+              try {
+                localStorage.setItem('dsh-browser-kit:auto-shot-at', String(Date.now()));
+              } catch { /* ignore */ }
               setTimeout(() => {
                 captureShot().then((r) => {
                   stateRef.lastShot = r;
