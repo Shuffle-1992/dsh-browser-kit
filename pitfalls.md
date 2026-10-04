@@ -104,3 +104,10 @@
 - **根因**：client 半边无卸载通道，旧 apply 的 interval/sub-fiber 与新实例并存；旧实例的 `await svc.takeCommand()` 拿着已 dispose 的 face 远端引用永不决 → cmdBusy 恒真；HMR 重载时机与命令执行互相踩。
 - **对策（分三层）**：① 命令执行加 30s 超时竞速（已做，防单命令挂死队列）；② `takeCommand` 自身也该带超时/看门狗（待办：连续 N 次失败强制 `cmdBusy=false` 或提示刷新）；③ 开发期稳态纪律——**toggle 后如命令不消费，刷新一次 GUI 页面即复位**（重启 exe 是最后手段，非必需）。
 - **附**：本仓 write 工具对「已被消费的命令文件」拒绝重写（观察守卫），命令文件统一用 pwsh `WriteAllText` 落。
+
+## 任务02 实施期（2026-10-05）
+
+### P21 headless 派发会话无许可客户端：Edit/Write/node --test 全被拒，任务无法落盘
+- **现象**：ZCode 派发的自主会话（mode=build）里，`Edit`/`Write`/`node --test`/`npm test`/`node -e`/`node --check`/`AskUserQuestion` 一律报 `No permission client configured for <Tool>`；`ls`/`cat`/`grep`/`git status` 等只读白名单命令正常。日志（cli/log/zcode-*.jsonl）可见 `decision:"deny", mode:"build", reason:"No permission client configured for Bash"`；子代理（general-purpose）同因被拒，`dangerouslyDisableSandbox` 也无效（它在沙箱层，不解决许可客户端缺失）。
+- **根因**：执行类命令与写文件工具需要交互式许可客户端审批；headless 派发会话没有挂任何许可客户端，非白名单操作直接拒绝。任务书的「运行证据」类验收在该类会话里**结构性不可达成**。
+- **对策**：① 涉及落盘/跑测试的任务，派发时必须给会话配许可客户端，或改在交互式会话执行；② 本任务（02）交付物（_internals 追加块 + test/plugin-impl.test.mjs 全文 + 本条目）已按静态逐条对账备好，由可写会话应用后补跑 `node --test test/plugin-impl.test.mjs` 与 `npm test` 取证。

@@ -567,7 +567,7 @@ window.__ModuleLoader__.load({
                   let meta = null;
                   try {
                     const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
-                    if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+                    if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
                   } catch { /* 元数据失败不拦保存 */ }
                   const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
                   saved = sr && sr.ok ? sr : null;
@@ -632,7 +632,7 @@ window.__ModuleLoader__.load({
                   let meta = null;
                   try {
                     const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
-                    if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+                    if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
                   } catch { /* 元数据失败不拦保存 */ }
                   const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
                   return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };

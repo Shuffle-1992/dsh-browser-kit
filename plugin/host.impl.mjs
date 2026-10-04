@@ -507,3 +507,18 @@ export async function apply(ctx, _config = {}, paths = {}) {
 
   return { face, reportPath };
 }
+
+/* ─────────────── 测试导出（任务02：仅汇总上方既有函数引用，零逻辑改动） ─────────────── */
+
+/** 内部纯函数助手汇总（node:test 单测专用面；单测经此取用既有实现，不复制不改写）。 */
+export const _internals = {
+  shapeOf,
+  extractApi,
+  slugify,
+  tsStamp,
+  saveShotImpl,
+  saveAnnotationsImpl,
+  takeCommandImpl,
+  commandResultImpl,
+};
+
