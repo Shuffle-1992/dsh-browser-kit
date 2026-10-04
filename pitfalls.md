@@ -61,3 +61,15 @@
 ### P12 ZCode 协议 v1 的两个解析缺陷（移植时的设计修正）
 - **现象**：v1 `parsePromptWebElementContexts` 丢弃 Rect/Attributes；`appendOptionalLine` 截断时在行字段内插入 `\n\n[truncated]` 会破坏行式解析（>8000 的 Selector 尾部丢失）。
 - **对策**：协议 v2 parse 无损还原 Rect/Attributes；行字段截断改为行内 `[truncated]`（围栏字段沿用 v1 的 `\n\n[truncated]`）。已在 `src/annotations-protocol.js` 头注登记。
+
+## MVP-0 实施期（2026-10-04）
+
+### P13 host 插件入口模块被 Node ESM 缓存，toggle 不换新代码
+- **现象**：`plugin_manager set_plugin`（disable→enable）后 `apply()` 确实重跑（探测报告时间戳更新），但跑的是**旧模块实例**——模块级 `startedAt` 不变、新加的字段不出现；换 `exports["."]` 指向新文件、重跑 `install_bundle` 都无效（后者报 `ambiguous-install`，已装的包须走 set_plugin）。
+- **根因**：入口模块由 loader 经 Node ESM 加载并缓存（按 resolved URL + 包 exports 解析缓存，进程内不失效）；disable/enable 只重跑缓存的 `apply()`，不重新 import。**entry 模块自身无法热换**。
+- **对策**：双层结构——入口 `entry.mjs` 保持**永久薄壳**（只做动态 import 转发，改它 = 又要重启）；业务全放 `host.impl.mjs`，每次 apply 按「impl 文件 mtime + 激活序号」构造带查询参数的 import URL（`./host.impl.mjs?ts=<mtime>-<seq>`）——参数变 ⇒ Node 视为新模块 ⇒ 免重启热换。**引导成本**：薄壳首次生效前仍需一次 DSH 重启。
+- **附**：client 半边（client.js）无此问题——页面刷新即加载新代码。
+
+### P14 `import('electron')` 在 host 插件里可用但命名空间形状待验
+- **现象**：MVP-0 首测 `await import('electron')` 不抛错且 `process.versions.electron = 44.0.0`，但取 `webContents` 报 undefined（宿主 loader 对内建名的返回形状与预期不符）。
+- **对策**：`extractApi` 按 `[mod, mod.default, mod.default.default]` 依次找带 `webContents/app` 的对象；`shapeOf` 记录 namespace/default 键表入报告（impl 版）；ESM 结果校验失败自动降级 `createRequire(...)('electron')`。修正版结论以重启后报告为准。

@@ -1,0 +1,19 @@
+{
+  "name": "@local/dsh-browser-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./entry.mjs", "./client": "./client.js", "./typert": "./wire.host.mjs" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  },
+  "meta": {
+    "title": "DSH Browser Kit",
+    "description": "dsh-browser-kit 插件半边：内置浏览器批注/截图/设备观测的宿主接入层（当前为 MVP-0 探测）"
+  }
+}
