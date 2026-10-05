@@ -31,6 +31,19 @@ window.__ModuleLoader__.load({
     // 切换走命令 panel-toggle（写 localStorage + 广播事件，面板监听后即时显隐，跨刷新持久）。
     const PANEL_HIDDEN_KEY = 'dsh-browser-kit:panel:hidden:v1';
     const PANEL_TOGGLE_EVENT = 'dsh-kit-panel-toggle';
+    const readPanelHidden = () => {
+      try { return localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { return true; }
+    };
+    // 工具条 accent（字面豁免见下方 TOOLBAR_ACCENT 注释）同级的共享资源：批注图标（C9，
+    // 工具条与菜单两份同款 24-viewBox 合一；面板用的是另一枚 16-viewBox 图钉，独立保留）
+    const ANNOT_ICON_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">'
+      + '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+      + '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+      + '</svg>';
+    // 工具条强调色——字面色豁免（C15）：主题令牌在工具条上下文可能解析成浅色 → 白底白标
+    // 隐形（真机修正）；两处引用（点击即时反馈 + 2s 同步循环）共用常量，勿回退令牌。
+    const TOOLBAR_ACCENT = '#2563eb';
+    const TOOLBAR_ACCENT_TEXT = '#ffffff';
     const REMOTE_CONTRIBUTION = {
       package: '@local/dsh-browser-kit',
       descriptors: [
@@ -39,6 +52,8 @@ window.__ModuleLoader__.load({
         ['saveAnnotations', ['markdown', 'meta'], 'saveAnnotations(markdown, meta?): Promise<{ok:true, path, bytes}|{ok:false, error}>', ['meta']],
         ['saveMerged', ['sets', 'meta'], 'saveMerged(sets, meta?): Promise<{ok:true, path, bytes, count}|{ok:false, error}>（多面板合并：sets=[{url,title,annotations[]}]，host 重编号构建单个协议文件）', ['meta']],
         ['deleteAnnotations', ['path'], 'deleteAnnotations(path): Promise<{ok:true, removedFile, removedIndexEntries}|{ok:false, error}>（撤回：仅限 annotations/ 目录内，删文件 + 清对应索引行）', []],
+        ['getStats', [], 'getStats(): Promise<{ok:true, annotations:{count,bytes}, shots:{count,bytes}}|{ok:false, error}>（批注/截图数量与字节统计，供插件管理面板）', []],
+        ['clearArtifacts', ['kind'], "clearArtifacts(kind): Promise<{ok:true, removed}|{ok:false, error}>（一键清空：kind='annotations'|'shots'|'all'）", []],
         ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
         ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
         ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
@@ -211,16 +226,22 @@ window.__ModuleLoader__.load({
      * 实测）；必须在 apply 里声明 `remote.$mount`（挂载）+ 子 fiber `ctx.inject(['remote.<名>'])`
      *（在子作用域内合法访问），把就绪的服务存进 stateRef.remoteSvc 后从这里拿。
      */
+    /** 等 remote svc 就绪（27×300ms）。C13：reportToHost 与 apply 内 waitSvc 共用同一实现。 */
+    async function waitForSvc(stateRef) {
+      for (let i = 0; i < 27; i++) {
+        const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+        if (svc) return svc;
+        await sleep(300);
+      }
+      return null;
+    }
+
     async function reportToHost(stateRef, findings) {
       const result = { attempted: false, mounted: null, response: null, error: null };
       try {
         result.attempted = true;
         // $mount 未成功时不再重复挂载（apply 里已挂过）；这里只等服务就绪
-        let svc = stateRef.getRemote ? stateRef.getRemote() : null;
-        for (let i = 0; i < 27 && !svc; i++) {
-          await sleep(300);
-          svc = stateRef.getRemote ? stateRef.getRemote() : null;
-        }
+        const svc = await waitForSvc(stateRef);
         result.mounted = stateRef.mountError
           ? `mount失败:${stateRef.mountError}`
           : stateRef.mountOk
@@ -282,13 +303,9 @@ window.__ModuleLoader__.load({
     function ProbePanel({ stateRef, getState, actions }) {
       const [, force] = useState(0);
       // 默认隐藏（用户要求），可经命令 panel-toggle 唤出/再隐藏；显隐持久化，跨刷新有效
-      const [hidden, setHidden] = useState(() => {
-        try { return localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { return true; }
-      });
+      const [hidden, setHidden] = useState(readPanelHidden);
       useEffect(() => {
-        const onToggle = () => {
-          try { setHidden(localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'); } catch { /* ignore */ }
-        };
+        const onToggle = () => setHidden(readPanelHidden());
         window.addEventListener(PANEL_TOGGLE_EVENT, onToggle);
         return () => window.removeEventListener(PANEL_TOGGLE_EVENT, onToggle);
       }, []);
@@ -436,24 +453,10 @@ window.__ModuleLoader__.load({
                 cursor: 'pointer',
               },
             },
-            h(
-              'svg',
-              { viewBox: '0 0 24 24', width: 15, height: 15, 'aria-hidden': true },
-              h('path', {
-                d: 'M4 4h16v12H9l-5 4V4z',
-                fill: 'none',
-                stroke: 'currentColor',
-                strokeWidth: 2,
-                strokeLinejoin: 'round',
-              }),
-              h('path', {
-                d: 'M12 7.5v5M9.5 10h5',
-                fill: 'none',
-                stroke: 'currentColor',
-                strokeWidth: 2,
-                strokeLinecap: 'round',
-              }),
-            ),
+            h('span', {
+              style: { display: 'inline-flex', alignItems: 'center' },
+              dangerouslySetInnerHTML: { __html: ANNOT_ICON_SVG }, // C9：共享图标常量
+            }),
             (s.annot && s.annot.active && s.annot.count > 0)
               ? h('span', { style: { fontSize: 10, fontWeight: 700 } }, String(s.annot.count))
               : null,
@@ -513,18 +516,31 @@ window.__ModuleLoader__.load({
             panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
-            mountAttempted: false,
             mountOk: false,
             mountError: null,
             remoteSvc: null,
             getRemote: () => stateRef.remoteSvc,
           };
 
+          /* ---- 常驻 interval 统一登记：卸载/toggle 时 clearInterval（C6；P20：旧实例
+           * interval 与新实例并存会造成双轮询/双写，两个 MutationObserver 已挂 effect，
+           * 五个 setInterval 此前漏挂） ---- */
+          const trackedIntervals = [];
+          const trackInterval = (id) => { trackedIntervals.push(id); return id; };
+          try {
+            if (typeof ctx?.effect === 'function') {
+              ctx.effect(() => {
+                for (const id of trackedIntervals.splice(0)) {
+                  try { clearInterval(id); } catch { /* ignore */ }
+                }
+              });
+            }
+          } catch { /* 清理注册失败不致命 */ }
+
           /* ---- $mount：把 remote.dshBrowserKit 命名空间挂到本包（apply 时立即做，结果留痕） ---- */
           try {
             const mount = ctx?.remote && ctx.remote.$mount;
             if (typeof mount === 'function') {
-              stateRef.mountAttempted = true;
               const mounted = mount.call(ctx.remote, REMOTE_CONTRIBUTION);
               Promise.resolve(mounted).then(
                 () => {
@@ -584,7 +600,9 @@ window.__ModuleLoader__.load({
 
           /* ─────────────── MVP-2 批注模式（src/element-annotator.js 注入 guest） ─────────────── */
 
-          let annotSourceCache = null; // { mtime, source }
+          // 源缓存按 client 生命周期失效；**版本号即失效机制**（EXPECTED_ANNOT_VERSION bump
+          // 触发整体重注入，P28 清场同款）——cache 里的 mtime 字段从不参与比对（C12），已删。
+          let annotSourceCache = null; // { source }
 
           /** 取当前批注目标 guest（lease 优先；无 guest 抛可读错误）。 */
           const pickGuestEl = () => {
@@ -664,7 +682,7 @@ window.__ModuleLoader__.load({
             if (!annotSourceCache) {
               const g = unwrap(await svc.getInjectScript());
               if (!g || g.ok === false) throw new Error(`getInjectScript 失败：${(g && g.error) || '未知'}`);
-              annotSourceCache = { mtime: g.mtime, source: g.source };
+              annotSourceCache = { source: g.source };
               say('info', `批注层源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
             }
             await target.executeJavaScript(annotSourceCache.source, true);
@@ -672,6 +690,14 @@ window.__ModuleLoader__.load({
             if (ok !== true) throw new Error('批注层注入后 API/版本不符');
             return target;
           };
+
+          /** 元素可见性判定（C7：checkVisibility 优先，旧环境退 getClientRects）——
+           *  primeSessionInput 与 findComposer 共用，勿再各写一份。 */
+          const isVisibleEl = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
+
+          /** guest 页元数据回读（C8：mergeAndSave / 单面板提交共用同一表达式与归一化）。 */
+          const GUEST_META_JS = '({ url: location.href, title: document.title })';
+          const metaOf = (m) => (m && typeof m === 'object' ? { url: m.url ?? m.href ?? null, title: m.title ?? null } : null);
 
           /** 提交后把提示写入会话输入框（不自动发送）：可见 textarea 优先（原生 value setter +
            *  input 事件），contenteditable 兜底（execCommand insertText——DSH 会话输入框实测为
@@ -682,8 +708,7 @@ window.__ModuleLoader__.load({
             const startedAt = new Date().toISOString();
             let r = null;
             try {
-              const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
-              const tas = Array.from(document.querySelectorAll('textarea')).filter((el) => visible(el) && !el.disabled && !el.readOnly);
+              const tas = Array.from(document.querySelectorAll('textarea')).filter((el) => isVisibleEl(el) && !el.disabled && !el.readOnly);
               const ta = tas[tas.length - 1] || null;
               if (ta) {
                 const cur = ta.value || '';
@@ -762,8 +787,7 @@ window.__ModuleLoader__.load({
           const CHIP_ID = 'dsh-kit-annot-chip';
           const convoTitle = () => (document.title || '').replace(/\s*[—–-]\s*DeepSeek Harness\s*$/, '').trim();
           const findComposer = () => {
-            const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
-            const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(visible);
+            const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(isVisibleEl);
             return ces[ces.length - 1] || null;
           };
           const removeAnnotChip = () => {
@@ -902,7 +926,7 @@ window.__ModuleLoader__.load({
             if (!st || !st.active) return;
             st.pending = (st.pending || []).filter((e) => e.pane !== winner.pane);
             if (winner.how === 'submitted') {
-              const r = await mergeAndSave(winner.pane);
+              const r = await mergeAndSave();
               st.active = false;
               st.lastSaved = r && r.ok ? r : null;
               if (r && r.ok === false) st.error = r.error;
@@ -952,7 +976,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 收集全部成员批注 → host saveMerged 合并落盘。 */
-          const mergeAndSave = async (submitterPane) => {
+          const mergeAndSave = async () => {
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
@@ -963,14 +987,12 @@ window.__ModuleLoader__.load({
                 if (!Array.isArray(lst)) continue;
                 let meta = null;
                 try {
-                  const m = await p.executeJavaScript('({ url: location.href, title: document.title })', true);
-                  if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
+                  meta = metaOf(await p.executeJavaScript(GUEST_META_JS, true));
                 } catch { /* 元数据失败不拦合并 */ }
                 if (lst.length > 0) sets.push({ url: (meta && meta.url) || null, title: (meta && meta.title) || null, annotations: lst });
               } catch { /* 成员不可达：跳过 */ }
             }
             if (sets.length === 0) return { ok: false, error: '无可提交批注' };
-            void submitterPane;
             return unwrap(await svc.saveMerged(sets, null));
           };
 
@@ -1051,7 +1073,9 @@ window.__ModuleLoader__.load({
             const st = stateRef.annot;
             if (!st || !st.active || syncBusy) return;
             refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
-            if (st.panes.length < 2) return;
+            if (st.panes.length < 1) return;
+            // 单面板也走完整同步：count/union 需要更新（C3——旧守卫 <2 使单窗口会话
+            // 恒 count=0，面板徽标与 live 胶囊永不出现）；<2 时仅跳过跨面板推送段
             syncBusy = true;
             try {
               const states = [];
@@ -1066,11 +1090,12 @@ window.__ModuleLoader__.load({
                   continue;
                 }
               }
-              // 登记新 gid 的来源面板与来源页 URL（首次出现处）
+              // 登记新 gid 的来源面板与来源页 URL（首次出现处）。C4：存 paneId 而非元素引用——
+              // 重渲染换节点后元素身份失配会使「来源排除/来源消失判定」静默失效
               for (const s of states) {
                 for (const a of s.list) {
                   if (a.gid && !(a.gid in st.origins)) {
-                    st.origins[a.gid] = s.pane;
+                    st.origins[a.gid] = paneIdOf(s.pane);
                     if (st.originUrls) st.originUrls[a.gid] = s.url;
                   }
                 }
@@ -1080,7 +1105,7 @@ window.__ModuleLoader__.load({
               for (const s of states) for (const g of s.deleted) removedGids[g] = true;
               for (const gid of Object.keys(st.origins)) {
                 const origin = st.origins[gid];
-                const originState = states.find((s) => s.pane === origin);
+                const originState = states.find((s) => paneIdOf(s.pane) === origin);
                 if (originState && !originState.dead && !originState.list.some((a) => a.gid === gid)) removedGids[gid] = true;
               }
               // 合并视图（未被删除的 gid）
@@ -1097,10 +1122,11 @@ window.__ModuleLoader__.load({
               // 推送缺失/落后项到各面板（addExternal 按 gid 幂等）；附 _originUrl 供
               // annotator 同页门控：非同页共享项只进共享板块列表，不渲染徽标（防串窗）
               for (const s of states) {
+                const sid = paneIdOf(s.pane);
                 const mine = {};
                 for (const a of s.list) if (a.gid) mine[a.gid] = true;
                 const toPush = union
-                  .filter((u) => u.origin !== s.pane && !mine[u.item.gid])
+                  .filter((u) => u.origin !== sid && !mine[u.item.gid])
                   .map((u) => ({ ...u.item, _originUrl: (st.originUrls && st.originUrls[u.item.gid]) || null }));
                 if (toPush.length) {
                   try {
@@ -1131,11 +1157,12 @@ window.__ModuleLoader__.load({
               syncBusy = false;
             }
           };
-          setInterval(() => { syncPanes().catch(() => {}); }, 1500);
+          trackInterval(setInterval(() => { syncPanes().catch(() => {}); }, 1500));
 
           /* ─────────────── MVP-4 种子：命令通道（实施会话写 .data/command.json 驱动） ─────────────── */
 
           let cmdBusy = false;
+          let cmdEpoch = 0; // 看门狗代际（C14）：强制复位推进代际，过期 finally 不清新 busy
           /** guest 内取「自动化目标文档」：优先 kit 沙箱 iframe（page-open 建立），否则顶层。 */
           const TARGET_DOC_SNIPPET =
             'var DOC = (function () { var f = document.querySelector("iframe[data-dsh-kit-frame]"); try { return f && f.contentDocument ? f.contentDocument : document; } catch (e) { return document; } })();';
@@ -1170,7 +1197,9 @@ window.__ModuleLoader__.load({
                   const target = pickGuestEl();
                   await leavePane(target);
                   if (stateRef.annot) {
-                    stateRef.annot.panes = stateRef.annot.panes.filter((p) => p !== target);
+                    // 按 webContentsId 比对（P27 同族：元素身份在重渲染换节点后会失配）
+                    const tid = paneIdOf(target);
+                    stateRef.annot.panes = stateRef.annot.panes.filter((p) => paneIdOf(p) !== tid);
                     if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
                   }
                   return { ok: true };
@@ -1237,7 +1266,7 @@ window.__ModuleLoader__.load({
                     lastToggleError: stateRef.lastToggleError || null,
                     lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
                     lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
-                    panelHidden: (() => { try { return localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { return true; } })(),
+                    panelHidden: readPanelHidden(),
                     toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
                     panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                     panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
@@ -1267,9 +1296,7 @@ window.__ModuleLoader__.load({
                 }
                 case 'panel-toggle': {
                   // 调试面板显隐切换（默认隐藏、功能保留；持久化跨刷新）
-                  let nowHidden = true;
-                  try { nowHidden = localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { /* 缺省隐藏 */ }
-                  const next = nowHidden ? '0' : '1';
+                  const next = readPanelHidden() ? '0' : '1';
                   try { localStorage.setItem(PANEL_HIDDEN_KEY, next); } catch { /* 持久化失败仅本次生效 */ }
                   window.dispatchEvent(new CustomEvent(PANEL_TOGGLE_EVENT));
                   return { ok: true, hidden: next === '1' };
@@ -1403,34 +1430,13 @@ window.__ModuleLoader__.load({
                   return { ok: true, ...(value || {}) };
                 }
                 case 'page-inject': {
-                  // MVP-4：整页 HTML 注入 guest。innerHTML 原语（同步赋值）替代 document.write——
-                  // 后者在页面资源未静止时 executeJavaScript 会永久悬挂（cmd-41/63 实测，P22）；
-                  // 页内 <script> 不经 innerHTML 执行，注入后单独 new Function 接线。
-                  const target = pickGuestEl();
-                  const html = String(c.html || '');
-                  if (!html) return { ok: false, error: '需要 html' };
-                  const value = await target.executeJavaScript(
-                    `(function () {\n` +
-                    `  var html = ${JSON.stringify(html)};\n` +
-                    `  var m = html.match(/<script>([\\s\\S]*?)<\\/script>/);\n` +
-                    `  var scriptCode = m ? m[1] : '';\n` +
-                    `  var htmlNoScript = html.replace(/<script>[\\s\\S]*?<\\/script>/, '');\n` +
-                    `  var inner = htmlNoScript.replace(/^[\\s\\S]*?<html[^>]*>/, '').replace(/<\\/html>\\s*$/, '');\n` +
-                    `  document.documentElement.innerHTML = inner;\n` +
-                    `  var wired = true, wireError = null;\n` +
-                    `  if (scriptCode) { try { (new Function(scriptCode))(); } catch (e) { wired = false; wireError = String(e); } }\n` +
-                    `  return { wired: wired, wireError: wireError, title: document.title };\n` +
-                    `})()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-                case 'page-inject': {
-                  // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）——
-                  // 实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；document.write 会在
-                  // 页面资源未静止时永久悬挂（P22）；iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
+                  // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）替代
+                  // document.write——后者在页面资源未静止时 executeJavaScript 会永久悬挂
+                  // （cmd-41/63 实测，P22）；实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；
+                  // iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
                   // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（keysion.cn 实测一次），
-                  // 注入后应立即使用/截图。
+                  // 注入后应立即使用/截图。历史教训：本 case 曾被复制成重复分支（switch 首个匹配生效，
+                  // 第二个是死代码、改它不生效）——case 唯一性已由静态契约钉死（§3.9）。
                   const target = pickGuestEl();
                   const html = String(c.html || '');
                   if (!html) return { ok: false, error: '需要 html' };
@@ -1475,7 +1481,7 @@ window.__ModuleLoader__.load({
                 case 'submit-annotations': {
                   // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
                   if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
-                    const r = await mergeAndSave(null);
+                    const r = await mergeAndSave();
                     if (r && r.ok) announceSubmission(r);
                     return r && r.ok ? { ok: true, path: r.path, bytes: r.bytes, count: r.count } : { ok: false, error: (r && r.error) || '保存失败' };
                   }
@@ -1485,8 +1491,7 @@ window.__ModuleLoader__.load({
                   if (!(r.annotations || []).length) return { ok: false, error: '无可打包批注（0 条）' };
                   let meta = null;
                   try {
-                    const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
-                    if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
+                    meta = metaOf(await target.executeJavaScript(GUEST_META_JS, true));
                   } catch { /* 元数据失败不拦保存 */ }
                   const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
                   if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
@@ -1505,6 +1510,7 @@ window.__ModuleLoader__.load({
             const svc = stateRef.getRemote ? stateRef.getRemote() : null;
             if (!svc || typeof svc.takeCommand !== 'function') return;
             cmdBusy = true;
+            const myEpoch = cmdEpoch; // C14：看门狗强制复位会推进代际——过期轮询的 finally 不许清掉新一轮的 busy
             try {
               // takeCommand 自身也可能挂（P20），10s 竞速保底（watchdog 45s 兜底在更外层）
               const taken = await Promise.race([
@@ -1531,18 +1537,20 @@ window.__ModuleLoader__.load({
             } catch (e) {
               say('warn', `命令轮询异常：${msgOf(e)}`);
             } finally {
-              cmdBusy = false;
+              if (myEpoch === cmdEpoch) cmdBusy = false;
             }
           };
-          setInterval(() => { pollCommands().catch(() => {}); }, 2500);
+          trackInterval(setInterval(() => { pollCommands().catch(() => {}); }, 2500));
           /* 看门狗：单条命令最长占用 30s（race 上限），45s 仍未释放视为卡死，强制复位
-           * cmdBusy，避免一次挂起饿死整条命令队列（P20）。 */
-          setInterval(() => {
+           * cmdBusy，避免一次挂起饿死整条命令队列（P20）。复位推进 cmdEpoch 代际，
+           * 卡死轮询的 finally 只清自己那一代的 busy（C14）。 */
+          trackInterval(setInterval(() => {
             if (cmdBusy) {
+              cmdEpoch += 1;
               cmdBusy = false;
               say('warn', '看门狗：命令轮询超 45s 未释放，已强制复位 cmdBusy');
             }
-          }, 45000);
+          }, 45000));
 
           const reportNow = async () => {
             if (!stateRef.findings) await probeAndPublish('report');
@@ -1552,15 +1560,8 @@ window.__ModuleLoader__.load({
             return stateRef.report;
           };
 
-          /** 等 svc 就绪（复用 reportToHost 的等待语义），返回 svc 或 null。 */
-          const waitSvc = async () => {
-            for (let i = 0; i < 27; i++) {
-              const svc = stateRef.getRemote ? stateRef.getRemote() : null;
-              if (svc) return svc;
-              await sleep(300);
-            }
-            return null;
-          };
+          /** 等 svc 就绪（C13：与 reportToHost 共用模块级 waitForSvc 实现）。 */
+          const waitSvc = async () => waitForSvc(stateRef);
 
           /**
            * MVP-1 截图主通道：capturePage() → dataURL → face saveShot → shots/<ts>-<title>.png。
@@ -1673,10 +1674,8 @@ window.__ModuleLoader__.load({
               getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot, annot: stateRef.annot, collapsed: stateRef.panelCollapsed }),
               actions: {
                 collapse: () => {
+                  // 折叠是会话内视觉态（历史写入的 localStorage 键从未被读回——C11：删掉假持久化）
                   stateRef.panelCollapsed = !stateRef.panelCollapsed;
-                  try {
-                    localStorage.setItem('dsh-browser-kit:panel-collapsed', stateRef.panelCollapsed ? '1' : '0');
-                  } catch { /* ignore */ }
                 },
                 reprobe: () => { probeAndPublish('manual').catch(() => {}); },
                 reportNow: () => { reportNow().catch(() => {}); },
@@ -1703,6 +1702,88 @@ window.__ModuleLoader__.load({
             })),
           ));
 
+          /* ---- 插件管理面板卡片（plugins.bundle.config 插槽，形态参照 dsh-connect-zcode）：
+           *  批注/截图的数量与字节占用 + 一键清除（face getStats / clearArtifacts）。 ---- */
+          try {
+            const BUNDLE_KEY = '@local/dsh-browser-kit';
+            const fmtBytes = (n) => {
+              const v = Number(n) || 0;
+              if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`;
+              if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`;
+              return `${v} B`;
+            };
+            function KitPanelCard() {
+              const [stats, setStats] = useState(null);
+              const [msg, setMsg] = useState(null);
+              const [busy, setBusy] = useState(false);
+              const refresh = () => {
+                const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+                if (!svc || typeof svc.getStats !== 'function') { setStats({ error: 'host 远端面未就绪' }); return; }
+                svc.getStats().then((r) => setStats(r && r.ok ? r : { error: (r && r.error) || '统计失败' })).catch((e) => setStats({ error: msgOf(e) }));
+              };
+              useEffect(() => { refresh(); }, []);
+              const clear = (kind, label) => {
+                if (busy) return;
+                setMsg(null);
+                setBusy(true);
+                const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+                const run = svc && typeof svc.clearArtifacts === 'function'
+                  ? svc.clearArtifacts(kind)
+                  : Promise.resolve({ ok: false, error: 'host 远端面未就绪' });
+                run.then((r) => {
+                  setBusy(false);
+                  if (r && r.ok) {
+                    setMsg(`${label}已清空（${Object.entries(r.removed || {}).map(([k, v]) => `${k} ${v} 个`).join('、') || '0 个文件'}）`);
+                    refresh();
+                  } else {
+                    setMsg(`清除失败：${(r && r.error) || '未知'}`);
+                  }
+                }).catch((e) => { setBusy(false); setMsg(`清除失败：${msgOf(e)}`); });
+              };
+              const ok = stats && stats.ok === true;
+              const row = (label, stat, kind, clearLabel) => h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' } },
+                h('span', { style: { width: 52, color: T.text2 } }, label),
+                ok
+                  ? h('span', { style: { color: T.text, fontFamily: T.mono, fontSize: 11 } }, `${stat.count} 个 · ${fmtBytes(stat.bytes)}`)
+                  : h('span', { style: { color: T.text3, fontSize: 11 } }, '—'),
+                h('button', {
+                  onClick: () => clear(kind, clearLabel),
+                  disabled: busy || !ok || (stat && stat.count === 0),
+                  title: `清空全部${label}文件（不可恢复）`,
+                  style: {
+                    marginLeft: 'auto', border: `1px solid ${T.border}`, borderRadius: 6,
+                    background: 'transparent', color: T.danger, cursor: 'pointer', fontSize: 11, padding: '1px 8px',
+                  },
+                }, clearLabel),
+              );
+              return h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0' } },
+                h('div', { style: { fontWeight: 700, fontSize: 12, color: T.text } }, '浏览器工件（dsh-browser-kit）'),
+                row('批注', stats && stats.annotations, 'annotations', '清除批注'),
+                row('截图', stats && stats.shots, 'shots', '清除截图'),
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                  h('button', {
+                    onClick: () => { setMsg(null); refresh(); },
+                    style: { border: `1px solid ${T.border}`, borderRadius: 6, background: T.hover, color: T.text, cursor: 'pointer', fontSize: 11, padding: '1px 8px' },
+                  }, '刷新统计'),
+                  msg ? h('span', { style: { color: T.text2, fontSize: 11, wordBreak: 'break-all' } }, msg) : null,
+                ),
+              );
+            }
+            ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
+              { name: 'plugins.bundle.config', key: BUNDLE_KEY, priority: 40, inject: () => ({}) },
+              KitPanelCard,
+            ));
+            say('info', '插件管理卡片已注册（plugins.bundle.config）');
+          } catch (e) {
+            say('warn', `插件管理卡片注册失败（不影响其他功能）：${msgOf(e)}`);
+          }
+
           /* 尽力而为的临时入口：把批注图标注入**每一个**浏览器工具条（多标签各一个；
            * 宿主未开放该位置插槽，DOM 注入 + 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。
            * 图标 = 本窗口退出/重进共享批注会话；会话活跃时其余窗口/标签由上方 2s 循环自动加入。 */
@@ -1721,19 +1802,15 @@ window.__ModuleLoader__.load({
                 btn.type = 'button';
                 btn.title = '元素批注（点击本窗口加入/退出共享批注）';
                 btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
-                btn.innerHTML =
-                  '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
-                  '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
-                  '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
-                  '</svg>';
+                btn.innerHTML = ANNOT_ICON_SVG;
                 btn.addEventListener('click', () => {
                   try {
                     // 即时视觉反馈（2s 同步循环随后校正）；面板点击时现取，
                     // 避免闭包持有重渲染前的旧 webview 节点（身份失配 = 永不点亮）
                     const pane = webviewOfForm(form);
                     if (!pane) return;
-                    btn.style.background = '#2563eb';
-                    btn.style.color = '#ffffff';
+                    btn.style.background = TOOLBAR_ACCENT;
+                    btn.style.color = TOOLBAR_ACCENT_TEXT;
                     stateRef.lastToggleError = null;
                     togglePaneAnnot(pane).then((r) => {
                       if (r && r.ok === false) {
@@ -1754,7 +1831,11 @@ window.__ModuleLoader__.load({
             stateRef.ensureToolbarButtons = ensureToolbarButtons;
             ensureToolbarButtons();
             // 守卫：工具条被框架重渲染（按钮被移除/新标签出现）→ **同步**重挂，无去抖
-            //（去抖会让按钮肉眼可见地消失重现=闪烁；微任务级重挂肉眼无感）
+            //（去抖会让按钮肉眼可见地消失重现=闪烁；微任务级重挂肉眼无感）。
+            // P32（review 发现）：tbLeft 曾未声明——观察器回调首次读取即抛 ReferenceError，
+            // 「同步重挂」快速路径整体失效，全靠 3s setInterval 兜底（新标签最长 3s 无图标）。
+            // 现声明为无限预算：observer 生命周期即预算（ctx.effect 已挂 disconnect）。
+            let tbLeft = Infinity;
             const tbObserver = new MutationObserver(() => {
               if (tbLeft <= 0) return;
               tbLeft -= 1;
@@ -1764,9 +1845,10 @@ window.__ModuleLoader__.load({
             if (typeof ctx?.effect === 'function') {
               ctx.effect(() => () => { try { tbObserver.disconnect(); } catch { /* ignore */ } });
             }
-            setInterval(() => {
+            const tbGuardTimer = setInterval(() => {
               try { ensureToolbarButtons(); } catch { /* ignore */ }
             }, 3000);
+            trackInterval(tbGuardTimer);
             // 各按钮激活态外观同步（2s，按 webContentsId 比对成员）+ 会话自动拉齐：
             //  - 会话活跃时，未入册且未被显式退出的面板 → 自动加入（用户核心诉求：
             //    「窗口1开启批注 → 窗口2直接显示已开启」，无需再点图标）；
@@ -1776,7 +1858,7 @@ window.__ModuleLoader__.load({
               Promise.resolve(p),
               new Promise((_, rej) => setTimeout(() => rej(new Error(`${tag || 'op'} 超时(${ms}ms)`)), ms)),
             ]);
-            setInterval(async () => {
+            trackInterval(setInterval(async () => {
               const st = stateRef.annot;
               refreshPanes();
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
@@ -1788,10 +1870,10 @@ window.__ModuleLoader__.load({
                 if (!btn) continue;
                 const pane = webviewOfForm(form);
                 const active = pane != null && activeIds.has(paneIdOf(pane));
-                // 固定高对比配色（蓝底白标）：主题令牌在工具条上下文里可能解析成浅色，
-                // 叠加 color:inherit 的浅色描边 → 白底白标隐形（用户实测反馈，已修）
-                btn.style.background = active ? '#2563eb' : 'transparent';
-                btn.style.color = active ? '#ffffff' : '';
+                // 固定高对比配色（蓝底白标）——字面色豁免：主题令牌在工具条上下文里可能
+                // 解析成浅色，叠加 color:inherit 的浅色描边 → 白底白标隐形（用户实测反馈）
+                btn.style.background = active ? TOOLBAR_ACCENT : 'transparent';
+                btn.style.color = active ? TOOLBAR_ACCENT_TEXT : '';
                 btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
               }
               if (!st || !st.active || autoJoinBusy) return;
@@ -1823,7 +1905,7 @@ window.__ModuleLoader__.load({
               } finally {
                 autoJoinBusy = false;
               }
-            }, 2000);
+            }, 2000));
           } catch (e) {
             say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);
           }
@@ -1856,12 +1938,10 @@ window.__ModuleLoader__.load({
                       fontSize: 12,
                     },
                   },
-                  h(
-                    'svg',
-                    { viewBox: '0 0 24 24', width: 13, height: 13, 'aria-hidden': true },
-                    h('path', { d: 'M4 4h16v12H9l-5 4V4z', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinejoin: 'round' }),
-                    h('path', { d: 'M12 7.5v5M9.5 10h5', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }),
-                  ),
+                  h('span', {
+                    style: { display: 'inline-flex', alignItems: 'center' },
+                    dangerouslySetInnerHTML: { __html: ANNOT_ICON_SVG }, // C9：共享图标常量
+                  }),
                   h('span', null, active ? '关闭元素批注' : '开启元素批注'),
                 );
               },

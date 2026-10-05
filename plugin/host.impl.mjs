@@ -13,8 +13,8 @@
  *
  * 激活安全：任何异常只记录不抛（绝不阻塞 cordis 激活；同 zcode-dispatch 纪律）。零 npm 依赖。
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join, resolve as pathResolve, sep } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve as pathResolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
 
@@ -236,7 +236,7 @@ async function runHostProbe(reportPath, state) {
 /** 写探测报告（失败只留 console，不抛）。 */
 function writeReport(reportPath, state, reason) {
   try {
-    mkdirSync(dirnameCompat(reportPath), { recursive: true });
+    mkdirSync(dirname(reportPath), { recursive: true });
     writeFileSync(
       reportPath,
       `${JSON.stringify(
@@ -262,11 +262,6 @@ function writeReport(reportPath, state, reason) {
       console.warn('[dsh-browser-kit] 写探测报告失败：', msg(e));
     } catch { /* 静默 */ }
   }
-}
-
-function dirnameCompat(p) {
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-  return i > 0 ? p.slice(0, i) : '.';
 }
 
 function groupsLen(sets) {
@@ -329,6 +324,23 @@ function dedupeFile(dir, name) {
   return file;
 }
 
+/**
+ * H2（review 提取）：saveShot/saveAnnotations/saveMerged 三处同构尾部——
+ * mkdir → dedupeFile → writeFileSync → index.jsonl 追加。索引写失败不影响主交付
+ * （与历史行为一致）。indexEntryOf(finalName) 收到去重后的文件名以构建索引行。
+ * 返回 { file, finalName }。
+ */
+function writeArtifact(dir, name, data, indexEntryOf) {
+  mkdirSync(dir, { recursive: true });
+  const file = dedupeFile(dir, name);
+  const finalName = file.split(/[\\/]/).pop();
+  writeFileSync(file, data);
+  try {
+    appendFileSync(join(dir, 'index.jsonl'), `${JSON.stringify(indexEntryOf(finalName))}\n`, 'utf8');
+  } catch { /* 索引写失败不影响主交付 */ }
+  return { file, finalName };
+}
+
 function saveShotImpl(paths, meta, dataUrl) {
   const m = meta && typeof meta === 'object' ? meta : {};
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
@@ -341,18 +353,12 @@ function saveShotImpl(paths, meta, dataUrl) {
     return { ok: false, error: `PNG 仅 ${png.length} 字节——疑似 1×1 假成功（guest 不可见/已后台？）`, bytes: png.length };
   }
   const dir = join(projectDirOf(paths), 'shots');
-  mkdirSync(dir, { recursive: true });
-  const name = `${tsStamp()}-${slugify(m.title || m.url || '')}.png`;
-  const file = dedupeFile(dir, name);
-  const finalName = file.split(/[\\/]/).pop();
-  writeFileSync(file, png);
-  try {
-    appendFileSync(
-      join(dir, 'index.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? null, title: m.title ?? null, bytes: png.length })}\n`,
-      'utf8',
-    );
-  } catch { /* 索引写失败不影响主交付 */ }
+  const { file } = writeArtifact(
+    dir,
+    `${tsStamp()}-${slugify(m.title || m.url || '')}.png`,
+    png,
+    (n) => ({ at: new Date().toISOString(), file: n, url: m.url ?? null, title: m.title ?? null, bytes: png.length }),
+  );
   return { ok: true, path: file, bytes: png.length };
 }
 
@@ -363,20 +369,15 @@ function saveAnnotationsImpl(paths, markdown, meta) {
   }
   const m = meta && typeof meta === 'object' ? meta : {};
   const dir = join(projectDirOf(paths), 'annotations');
-  mkdirSync(dir, { recursive: true });
-  const name = `${tsStamp()}.md`;
-  const file = dedupeFile(dir, name);
-  const finalName = file.split(/[\\/]/).pop();
-  writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
-  try {
-    const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
-    const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || 0);
-    appendFileSync(
-      join(dir, 'index.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? null, title: m.title ?? null, count })}\n`,
-      'utf8',
-    );
-  } catch { /* 索引写失败不影响主交付 */ }
+  const content = markdown.endsWith('\n') ? markdown : `${markdown}\n`;
+  const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
+  const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || 0);
+  const { file } = writeArtifact(
+    dir,
+    `${tsStamp()}.md`,
+    content,
+    (n) => ({ at: new Date().toISOString(), file: n, url: m.url ?? null, title: m.title ?? null, count }),
+  );
   return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8') };
 }
 
@@ -427,20 +428,16 @@ function saveMergedImpl(paths, sets, meta) {
     return { ok: false, error: '协议构建结果为空' };
   }
   const dir = join(projectDirOf(paths), 'annotations');
-  mkdirSync(dir, { recursive: true });
-  const file = dedupeFile(dir, `${tsStamp()}.md`);
-  const finalName = file.split(/[\\/]/).pop();
-  writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
-  try {
-    const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
-    const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || renumbered.length);
-    const urls = [...new Set(groups.map((g) => g.url).filter(Boolean))];
-    appendFileSync(
-      join(dir, 'index.jsonl'),
-      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? urls[0] ?? null, title: m.title ?? null, count, merged: groups.length })}\n`,
-      'utf8',
-    );
-  } catch { /* 索引写失败不影响主交付 */ }
+  const content = markdown.endsWith('\n') ? markdown : `${markdown}\n`;
+  const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
+  const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || renumbered.length);
+  const urls = [...new Set(groups.map((g) => g.url).filter(Boolean))];
+  const { file } = writeArtifact(
+    dir,
+    `${tsStamp()}.md`,
+    content,
+    (n) => ({ at: new Date().toISOString(), file: n, url: m.url ?? urls[0] ?? null, title: m.title ?? null, count, merged: groups.length }),
+  );
   return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8'), count: renumbered.length };
 }
 
@@ -533,6 +530,58 @@ function deleteAnnotationsImpl(paths, filePath) {
   return { ok: true, removedFile: target, removedIndexEntries };
 }
 
+/** getStats 实现：批注/截图两个 artifact 目录的数量与字节占用（供插件管理面板展示）。 */
+function getStatsImpl(paths) {
+  const root = projectDirOf(paths);
+  const statDir = (name) => {
+    const dir = join(root, name);
+    let count = 0;
+    let bytes = 0;
+    try {
+      for (const f of readdirSync(dir, { withFileTypes: true })) {
+        if (!f.isFile() || f.name === 'index.jsonl') continue;
+        count += 1;
+        bytes += statSync(join(dir, f.name)).size;
+      }
+    } catch { /* 目录不存在 = 0 */ }
+    return { count, bytes };
+  };
+  return { ok: true, annotations: statDir('annotations'), shots: statDir('shots') };
+}
+
+/**
+ * clearArtifacts 实现：一键清空批注/截图目录（'annotations' | 'shots' | 'all'）。
+ * 安全面与 deleteAnnotationsImpl 同款：只清 <项目>/ 下这两个白名单目录内的普通文件
+ * （含 index.jsonl 一并清空——目录被清空后索引行已无意义）。
+ */
+function clearArtifactsImpl(paths, kind) {
+  const root = projectDirOf(paths);
+  const targets = kind === 'all' ? ['annotations', 'shots'] : (kind === 'annotations' || kind === 'shots') ? [kind] : null;
+  if (!targets) {
+    return { ok: false, error: "kind 必须是 'annotations' | 'shots' | 'all'" };
+  }
+  const removed = {};
+  try {
+    for (const name of targets) {
+      const dir = join(root, name);
+      let n = 0;
+      try {
+        for (const f of readdirSync(dir, { withFileTypes: true })) {
+          if (!f.isFile()) continue;
+          try {
+            unlinkSync(join(dir, f.name));
+            n += 1;
+          } catch { /* 单文件失败继续 */ }
+        }
+      } catch { /* 目录不存在 = 已是空 */ }
+      removed[name] = n;
+    }
+  } catch (e) {
+    return { ok: false, error: `清除失败：${msg(e)}` };
+  }
+  return { ok: true, removed };
+}
+
 /**
  * impl 入口（index.js 薄壳动态调用）。async：wire.host.mjs 需带 ?ts= 动态 import（见文件头）。
  * @param {object} ctx cordis Context
@@ -593,12 +642,14 @@ export async function apply(ctx, _config = {}, paths = {}) {
   /* ---- face 注册（typertGateway SRC 兜底路径；typert-loader 路径靠 exports["./typert"] 自动发现） ---- */
   const face = wire.createRemoteFace({
     onReport: (findings) => {
-      const hadGuests = Array.isArray(state.client?.webviews) && state.client.webviews.length > 0;
+      // H1（review 修复）：旧实现读 findings.webviews——client findings 从无该字段，
+      // 「client 见 guest 而 host 未采到 → 补一轮探测」永不触发；真实形状是 webviewCount
+      const hadGuests = Number(state.client?.webviewCount) > 0;
       state.client = findings && typeof findings === 'object' ? findings : { raw: String(findings) };
       state.clientReceivedAt = new Date().toISOString();
       writeReport(reportPath, state, 'client report received');
       // client 发现了 webview 而上一轮 host 探测没采到 guest（guest 晚于激活出现）→ 补一轮
-      const nowHasGuests = Array.isArray(state.client?.webviews) && state.client.webviews.length > 0;
+      const nowHasGuests = Number(state.client?.webviewCount) > 0;
       if (nowHasGuests && !hadGuests) probe('client-report-guests').catch(() => {});
       return Promise.resolve({ ok: true, savedAt: state.clientReceivedAt });
     },
@@ -615,8 +666,6 @@ export async function apply(ctx, _config = {}, paths = {}) {
     },
     onSaveMerged: (sets, meta) => {
       const r = saveMergedImpl(paths, sets, meta);
-      state.merged = state.merged || [];
-      state.merged.push({ at: new Date().toISOString(), ...r });
       log(r.ok ? 'info' : 'warn', `saveMerged → ${r.ok ? `${r.path} (${r.count} 条, ${groupsLen(sets)} 组)` : r.error}`);
       return Promise.resolve(r);
     },
@@ -626,6 +675,16 @@ export async function apply(ctx, _config = {}, paths = {}) {
     onDeleteAnnotations: (p) => {
       const r = deleteAnnotationsImpl(paths, p);
       log(r.ok ? 'info' : 'warn', `deleteAnnotations → ${r.ok ? `${r.removedFile}（索引行 -${r.removedIndexEntries}）` : r.error}`);
+      return Promise.resolve(r);
+    },
+    onGetStats: () => {
+      const r = getStatsImpl(paths);
+      log('info', `getStats → 批注 ${r.annotations.count} 条/${r.annotations.bytes}B，截图 ${r.shots.count} 张/${r.shots.bytes}B`);
+      return Promise.resolve(r);
+    },
+    onClearArtifacts: (kind) => {
+      const r = clearArtifactsImpl(paths, kind);
+      log(r.ok ? 'warn' : 'warn', `clearArtifacts(${kind}) → ${r.ok ? JSON.stringify(r.removed) : r.error}`);
       return Promise.resolve(r);
     },
   });
@@ -660,10 +719,13 @@ export const _internals = {
   slugify,
   tsStamp,
   dedupeFile,
+  writeArtifact,
   saveShotImpl,
   saveAnnotationsImpl,
   saveMergedImpl,
   deleteAnnotationsImpl,
+  getStatsImpl,
+  clearArtifactsImpl,
   takeCommandImpl,
   commandResultImpl,
 };

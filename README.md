@@ -55,35 +55,38 @@ dsh-browser-kit/
 ├── browser-annotation-and-screenshot-research.md    # 方案调研（自足交接件，含 DSH 实测证据）
 ├── tasks/
 │   └── zcode-task-01-portable-layer.md              # ZCode 任务01：可移植资产层（任务书）
-├── docs/
-│   ├── delivery-01.md                               # 任务01 交付说明（改动清单 + 验收证据 + 未决问题）
-│   ├── delivery-02-mvp0.md                          # 任务02 交付说明：MVP-0 接入路径验证（A/B/C 定论）
-│   └── mvp0-probe-state.md                          # MVP-0 探测期交接件（历史留档）
-├── plugin/                                          # DSH 插件 @local/dsh-browser-kit（MVP-0 探测为首个增量）
-│   ├── package.json / cordis.patch.yml              # bundle 声明（exports["."] → entry.mjs；junction+install_bundle 安装）
-│   ├── entry.mjs                                    # host 入口永久薄壳（?ts=mtime-seq 击穿 ESM 缓存，pitfalls P13）
-│   ├── host.impl.mjs                                # host 业务（探测/face/落盘；改后 toggle 即生效，勿动薄壳）
-│   ├── wire.host.mjs                                # TYPERT 描述符 + createRemoteFace（zcode-dispatch 同款）
-│   └── client.js                                    # client 探测面板（webview 静态+实测，四路结果出口）
+│   ├── docs/
+│   │   ├── delivery-01..12.md                          # 任务/交付记录（01 可移植层 → 12 胶囊+撤回 face）
+│   │   └── mvp0-probe-state.md / mvp3-loop-state.md    # 探测期/闭环期交接件（历史留档）
+├── plugin/                                            # DSH 插件 @local/dsh-browser-kit
+│   ├── package.json / cordis.patch.yml                # bundle 声明（exports["."] → entry.mjs；junction+install_bundle 安装）
+│   ├── entry.mjs                                      # host 入口永久薄壳（?ts=mtime-seq 击穿 ESM 缓存，pitfalls P13）
+│   ├── host.impl.mjs                                  # host 业务（探测/face/落盘/_internals 测试导出；改后 toggle 即生效）
+│   ├── wire.host.mjs                                  # TYPERT 描述符 + createRemoteFace（10 方法，client↔wire 对账有测试）
+│   ├── client.js                                      # client 半边（探测/共享批注会话/胶囊/命令通道/工具条/面板）
+│   └── .data/                                         # 运行期数据（command.json / command-results.jsonl / probe-report.json）
 ├── src/
-│   ├── hid-observer.js                              # L1 通用设备观测（HID/Serial/USB，自包含 IIFE，零 DSH 依赖）
-│   ├── element-annotator.js                         # 网页批注层（picker 基座移植 + 批注模式，自包含 IIFE）
-│   ├── annotations-protocol.js                      # 批注协议 v2 build/parse（纯函数 ESM）
-│   ├── virtual-hid-device.js                        # mock 设备（ESM + 可注入 IIFE 双形态）
+│   ├── hid-observer.js                                # L1 通用设备观测（HID/Serial/USB，自包含 IIFE，零 DSH 依赖）
+│   ├── element-annotator.js                           # 网页批注层 v1.5.0（picker 基座 + 共享会话/同页门控/清除，自包含 IIFE）
+│   ├── annotations-protocol.js                        # 批注协议 v2 build/parse（纯函数 ESM）
+│   ├── virtual-hid-device.js                          # mock 设备（ESM + 可注入 IIFE 双形态）
 │   └── cdp/
-│       └── drive.mjs                                # CDP 驱动（launch/connect/inject/evalJs/console/screenshot）
+│       └── drive.mjs                                  # CDP 驱动（launch/connect/inject/evalJs/console/screenshot）
 ├── test/
-│   ├── helpers/                                     # vm 沙箱 + Chrome 冒烟公共工具
-│   ├── fixtures/                                    # hid-mock-page / hid-docstart-page / page
-│   ├── annotations-protocol.test.js                 # 协议 round-trip 全分支
-│   ├── virtual-hid-device.test.js                   # mock 设备双形态
-│   ├── hid-observer.test.js                         # observer 沙箱单测（HID/Serial/USB + detach/重注入）
-│   ├── annotator-protocol-parity.test.js            # 批注层内嵌 builder ↔ ESM 协议逐字对拍
-│   ├── cdp-smoke.test.js                            # CDP 五项冒烟（真实 Chrome）
-│   ├── hid-fixture-smoke.test.js                    # 无硬件配对帧冒烟（evaluate 兜底注入）
-│   └── annotator-smoke.test.js                      # 批注流全链路冒烟 + 协议对拍
-├── pitfalls.md                                      # 踩坑记录（实施期自建）
-└── shots/ annotations/                              # （运行期产物，已 gitignore）
+│   ├── helpers/                                       # vm 沙箱 + Chrome 冒烟公共工具
+│   ├── fixtures/                                      # hid-mock-page / hid-docstart-page / page
+│   ├── annotations-protocol.test.js                   # 协议 round-trip 全分支
+│   ├── virtual-hid-device.test.js                     # mock 设备双形态
+│   ├── hid-observer.test.js                           # observer 沙箱单测（HID/Serial/USB + detach/重注入）
+│   ├── annotator-protocol-parity.test.js              # 批注层内嵌 builder ↔ ESM 协议逐字对拍
+│   ├── cdp-smoke.test.js                              # CDP 五项冒烟（真实 Chrome）
+│   ├── hid-fixture-smoke.test.js                      # 无硬件配对帧冒烟（evaluate 兜底注入）
+│   └── annotator-smoke.test.js                        # 批注流全链路冒烟（含共享编号/门控/清除/删除日志）
+├── pitfalls.md                                        # 踩坑记录 P1–P33（实施期自建）
+├── README.md                                          # 本文件
+├── NOTICE.md                                          # Apache-2.0 归属声明（ZCode 移植来源与修改说明）
+├── package.json                                       # 零 npm 依赖 · Node ≥22 · scripts.test = node --test
+└── shots/ annotations/                                # （运行期产物，已 gitignore）
 ```
 
 ## 5. 参考资料
@@ -109,6 +112,12 @@ dsh-browser-kit/
 - ✅ 任务06（ZCode 派发 + 主会话落地）：**host impl 单元测试**——39 项全绿（全量 83/83）；P21：headless 派发会话无许可客户端，读写类派发须 mode=yolo 或交互会话执行（docs/delivery-06-plugin-tests.md）。
 - ✅ 任务07（主会话）：**MVP-4 agent 自动化命令集**——snapshot（真实页面 21 元素实测）/ click / type / reload / navigate / page-inject / page-open / guest-eval(frame)；P22 document.write 悬挂、P23 var 遮蔽、P24 iframe CSP 两道墙（docs/delivery-07-mvp4.md）。
 - ✅ 任务08（主会话）：**共享批注会话 + 正式形态入口**——同会话多窗口共用批注（编号跨窗口延续、saveMerged 合并单文件）、工具条批注图标（每标签一个，尽力而为注入）+ 标签菜单项 + 面板最小化；自诊断体系（kit-status/PanelBoundary/findings.gui）（docs/delivery-08-shared-session.md）。
-- ⏭️ 下一步：**人工验收包**——① keysion dac vue（localhost:5173）连续 3 轮「批注→修改→截图」；② 双窗口共享批注人工确认（窗口2 编号从窗口1 最大号+1 延续）；③ 真实表单走 snapshot→type→click→screenshot 组合；④ 调试面板 config 门控（正式版默认隐藏）；⑤ 向 DSH 官方提浏览器工具条插槽需求。
+- ✅ 任务09-12（主会话，2026-10-05 连续迭代，docs/delivery-09..12）：**共享会话真打通 + 输入框胶囊 + 主题适配**——
+  - P25/P26/P27 三根因修复（成员先入册再 start / 编号下限不双加 / webContentsId 身份统一）+ 会话自动加入（窗口1开启 → 全部窗口数秒内亮起，leftIds 防拉回）+ 导航自愈；
+  - **P29 face 装配对账**（client descriptors ↔ wire 方法表漂移 = 调用静默失败，W3 静态契约守护）；P30 Lexical 输入框延迟回读（同步回读必误报）；P31 会话指纹（document.title）防胶囊跨会话泄漏；P32 tbLeft 未声明（MutationObserver 快速重挂整体失效）；
+  - **ZCode 式胶囊**：提交后输入框卡片内独占一行「N 条批注 ×」，× = 撤回（deleteAnnotations face，annotations/ 围栏）；同页门控（pageOk）防徽标串窗；样式全走主题令牌（明暗双主题自适应）；
+  - **face 扩到 10 方法**（+deleteAnnotations/getStats/clearArtifacts），插件管理页卡片显示批注/截图数量与字节占用 + 一键清空；
+  - 调试面板默认隐藏（panel-toggle 唤出，功能保留）；清理项：死 case 分支、tbLeft、双份助手、writeArtifact 三合一、dirname 内置化。
+- ⏭️ 下一步：**人工验收包**——① keysion dac vue（localhost:5173）连续 3 轮「批注→修改→截图」；② 双窗口共享批注人工确认（窗口2 编号从窗口1 最大号+1 延续）；③ 真实表单走 snapshot→type→click→screenshot 组合；④ 明暗主题下胶囊/徽标视觉复核；⑤ 向 DSH 官方提浏览器工具条插槽需求。
 - 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——真实 Chrome 主路径已有 `cdp/drive.mjs` + `hid-observer.js` 全套资产；DSH 内置浏览器侧的注入走 client 插件（同 MVP-1 通道）。
 - 关键修正（推翻调研文档 §4.4 预判）：host plugin 无 main 进程能力；`browserUse`/`computerUse` 等自动化属 DSH 主进程自有服务，第三方插件无门（F3 远期需求届时再评估）。

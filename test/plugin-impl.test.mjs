@@ -22,10 +22,13 @@ const {
   slugify,
   tsStamp,
   dedupeFile,
+  writeArtifact,
   saveShotImpl,
   saveAnnotationsImpl,
   saveMergedImpl,
   deleteAnnotationsImpl,
+  getStatsImpl,
+  clearArtifactsImpl,
   takeCommandImpl,
   commandResultImpl,
   shapeOf,
@@ -366,14 +369,14 @@ test("dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩
 /* ─────────────── 3.7 wire.host.mjs TYPERT ─────────────── */
 
 test("wire TYPERT 清单形状（不触网）", async (t) => {
-  await t.test("package/service 固定，invocations 恰 8 个且 id 形如 pkg#face/method", () => {
+  await t.test("package/service 固定，invocations 恰 10 个且 id 形如 pkg#face/method", () => {
     assert.equal(FACE_NAME, "dshBrowserKit");
     assert.equal(TYPERT.package, "@local/dsh-browser-kit");
     assert.equal(TYPERT.service, FACE_NAME);
-    assert.equal(TYPERT.invocations.length, 8);
+    assert.equal(TYPERT.invocations.length, 10);
     assert.deepEqual(
       TYPERT.invocations.map((i) => i.id),
-      ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "deleteAnnotations", "getInjectScript", "takeCommand", "commandResult"].map(
+      ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "deleteAnnotations", "getStats", "clearArtifacts", "getInjectScript", "takeCommand", "commandResult"].map(
         (m) => `@local/dsh-browser-kit#dshBrowserKit/${m}`,
       ),
     );
@@ -392,6 +395,43 @@ test("wire TYPERT 清单形状（不触网）", async (t) => {
     assert.equal("acceptsUndefined" in shot.parameters.find((p) => p.name === "meta"), false);
     assert.equal("acceptsUndefined" in shot.parameters.find((p) => p.name === "dataUrl"), false);
   });
+});
+
+/* ─────────────── 3.7b writeArtifact（H2 提取的三合一落盘尾部） ─────────────── */
+
+test("writeArtifact：mkdir/dedupe/写入/索引行 一体化", (t) => {
+  const { pluginDir } = makePaths(t);
+  const dir = join(pluginDir, "shots");
+  const a = writeArtifact(dir, "shot.png", Buffer.from([1, 2, 3, 4]), (n) => ({ file: n, bytes: 4 }));
+  assert.equal(a.finalName, "shot.png");
+  assert.equal(existsSync(a.file), true);
+  const b = writeArtifact(dir, "shot.png", Buffer.from([5]), (n) => ({ file: n }));
+  assert.equal(b.finalName, "shot-2.png", "同名去重追加 -2");
+  const idx = readFileSync(join(dir, "index.jsonl"), "utf8").trim().split(/\r?\n/).map((l) => JSON.parse(l));
+  assert.equal(idx.length, 2);
+  assert.equal(idx[0].file, "shot.png");
+  assert.equal(idx[1].file, "shot-2.png");
+});
+
+/* ─────────────── 3.8b getStatsImpl / clearArtifactsImpl（面板统计 + 一键清空） ─────────────── */
+
+test("getStatsImpl / clearArtifactsImpl：统计回环 / kind 白名单 / 一键清空", (t) => {
+  const { pluginDir } = makePaths(t);
+  saveAnnotationsImpl({ pluginDir }, "# Web page annotations: 1\n\n## Annotation 1\nTag: button\n", { title: "T" });
+  const shot = saveShotImpl({ pluginDir }, { title: "页" }, `data:image/png;base64,${randomBytes(600).toString("base64")}`);
+  assert.equal(shot.ok, true);
+  const stats = getStatsImpl({ pluginDir });
+  assert.equal(stats.ok, true);
+  assert.equal(stats.annotations.count, 1, "1 个批注文件（index.jsonl 不计）");
+  assert.equal(stats.shots.count, 1, "1 张截图");
+  assert.ok(stats.annotations.bytes > 0 && stats.shots.bytes >= 600);
+  const cleared = clearArtifactsImpl({ pluginDir }, "all");
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.removed.annotations, 2, "批注 md + index.jsonl");
+  assert.equal(cleared.removed.shots, 2, "截图 png + index.jsonl");
+  assert.equal(getStatsImpl({ pluginDir }).annotations.count, 0);
+  assert.equal(getStatsImpl({ pluginDir }).shots.count, 0);
+  assert.equal(clearArtifactsImpl({ pluginDir }, "nonsense").ok, false, "kind 白名单外拒绝");
 });
 
 /* ─────────────── 3.8 deleteAnnotationsImpl（撤回：删文件 + 清索引行 / 越界拒绝） ─────────────── */
@@ -533,5 +573,36 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /dsh-browser-kit:panel:hidden:v1/);
     assert.match(clientSource, /case 'panel-toggle'/);
     assert.match(clientSource, /PANEL_TOGGLE_EVENT/);
+  });
+
+  await t.test("W3：client descriptors ↔ wire FACE_METHOD_TABLE 逐字对账（P29 防复发）", async () => {
+    // P29 实测：两端清单漂移 = face 调用静默失败。此测试把漂移变成红灯。
+    const wire = await import("../plugin/wire.host.mjs");
+    const wireMethods = wire.TYPERT.invocations.map((i) => ({ id: i.id, params: i.parameters.map((p) => ({ name: p.name, acceptsUndefined: !!p.acceptsUndefined })) }));
+    // 从 client.js 源提取 REMOTE_CONTRIBUTION.descriptors 行：['method', ['a','b'], "sig（可含单引号）", ['opt']]
+    const descRe = /\['([A-Za-z]+)', \[([^\]]*)\], (?:"[^"]*"|'(?:[^'\\]|\\.)*'), \[([^\]]*)\]\]/g;
+    const clientMethods = [];
+    let m;
+    while ((m = descRe.exec(clientSource)) !== null) {
+      const params = m[2].split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean);
+      const optionals = m[3].split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean);
+      clientMethods.push({
+        id: `@local/dsh-browser-kit#dshBrowserKit/${m[1]}`,
+        params: params.map((name) => ({ name, acceptsUndefined: optionals.includes(name) })),
+      });
+    }
+    assert.ok(clientMethods.length >= 10, `client descriptors 至少 10 个（实际 ${clientMethods.length}）`);
+    assert.deepEqual(clientMethods, wireMethods, "client descriptors 与 wire TYPERT 必须逐字一致（方法序、参数名、可选标记）");
+  });
+
+  await t.test("A6：switch case 标签唯一性（F2 复发钉）+ guest-eval document 参数遮蔽（P23 回归钉）", () => {
+    // A6a：executeCommand 的 switch 里每个 case 只能出现一次（page-inject 曾复制成死分支）
+    const caseLabels = [...clientSource.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]);
+    const dup = caseLabels.filter((v, i) => caseLabels.indexOf(v) !== i);
+    assert.deepEqual(dup, [], `executeCommand 内重复的 case 标签：${dup.join(",")}`);
+    // A6b：guest-eval 的 document 必须经函数参数传入（P23：var 遮蔽会让函数体内 document=undefined）；
+    // docExpr 按 frame 分支解析成表达式（cmd-99/101 回归）
+    assert.match(clientSource, /return \(function \(document\) \{\\n\$\{code\}\\n\}\)\(\$\{docExpr\}\)/);
+    assert.match(clientSource, /docExpr/);
   });
 });

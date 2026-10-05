@@ -826,11 +826,9 @@
     if (!record.badge || !record.badge.isConnected) {
       return;
     }
+    // isStale 首条已覆盖 el 缺失/脱离（B4：此处不再重复判定）
     var stale = isStale(record);
     var pending = Boolean(inputStateRecordIs(record));
-    if (!record.el || !record.el.isConnected) {
-      stale = true;
-    }
     if (stale) {
       record.badge.setAttribute("data-state", "stale");
       record.badge.style.background = STALE_COLOR;
@@ -1075,6 +1073,7 @@
       panel = null;
       panelList = null;
       panelCount = null;
+      panelChevron = null; // B8：漏置空——重建时会被覆盖，但悬空引用属隐患
     }
   }
 
@@ -1254,14 +1253,7 @@
       }
     });
     annotations.length = 0;
-    if (inputState) {
-      // 正开着的批注输入框一并收掉（与 discardRecord 的关闭分支同构，但不走 removeRecord）
-      var container = inputState.container;
-      inputState = null;
-      if (container) {
-        container.remove();
-      }
-    }
+    closeNoteInput(false); // 正开着的批注输入框一并收掉（B3：复用关闭分支，不走 removeRecord）
     renderPanel();
     showToast(count > 0 ? "已清除 " + count + " 条批注（所有窗口同步移除）" : "当前没有批注");
   }
@@ -1277,7 +1269,8 @@
     removeRecord(record);
   }
 
-  function showToast(text) {    if (toastEl) {
+  function showToast(text) {
+    if (toastEl) {
       toastEl.remove();
     }
     if (toastTimer) {
@@ -1417,6 +1410,7 @@
 
   async function handlePanelSubmit() {
     var result = packageAnnotations();
+    var current = session; // B1：进 await 前捕获——期间若 start() 开了新会话，endSession 不得误杀
     var copied = false;
     try {
       copied = await copyToClipboard(result.markdown);
@@ -1424,7 +1418,6 @@
       copied = false;
     }
     showToast(copied ? "批注 Markdown 已复制到剪贴板" : "已生成批注（复制失败，可经回调获取）");
-    var current = session;
     if (current && typeof current.onSubmit === "function") {
       try {
         current.onSubmit(result);
@@ -1432,7 +1425,9 @@
         /* 回调异常不阻塞交付 */
       }
     }
-    endSession("submitted");
+    if (session === current) {
+      endSession("submitted"); // 仅当仍是发起提交的会话才收束；否则新会话已接棒
+    }
   }
 
   // ---------------------------------------------------------------- 会话生命周期
@@ -1590,7 +1585,7 @@
           gid: item.gid,
           index: index,
           note: item.note || "",
-          element: item.element,
+          element: item.element || {}, // B6：脏输入兜底——renderPanel 直取 tagName，缺 element 会打崩列表渲染
           el: pageOk ? el : null, // 非同页不留 el（selector 在别的页面可能误命中同类元素）
           badge: null,
           pageOk: pageOk,
@@ -1599,8 +1594,10 @@
         if (pageOk) {
           renderBadge(record);
           if (!record.el && item.element && item.element.rect) {
-            record.badge.style.left = Math.max(0, Number(item.element.rect.x) || 0) + "px";
-            record.badge.style.top = Math.max(0, Number(item.element.rect.y) || 0) + "px";
+            // B7：badge 是文档坐标（absolute），rect 是视口坐标（getBoundingClientRect）——
+            // 页面滚过后需补 scroll 偏移，否则徽标错位
+            record.badge.style.left = Math.max(0, (Number(item.element.rect.x) || 0) + (window.scrollX || 0)) + "px";
+            record.badge.style.top = Math.max(0, (Number(item.element.rect.y) || 0) + (window.scrollY || 0)) + "px";
           }
         }
         changed = true;

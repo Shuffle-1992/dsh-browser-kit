@@ -168,6 +168,30 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     );
     assert.equal(await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'), 1, "同页共享项照常渲染徽标");
 
+    // A2：addExternal 更新分支（同 gid 改 note → 徽标/列表同步）+ removeExternal 写删除日志
+    await drive.evalJs(
+      cdp,
+      'window.__dshKitAnnotator.addExternal([{ gid: "xpage-2", index: 10, note: "更新后的意见", element: { tagName: "button", selector: "#btn-a" }, _originUrl: location.href }])',
+    );
+    const updated = JSON.parse(await drive.evalJs(cdp, 'JSON.stringify(window.__dshKitAnnotator.list().find(function (a) { return a.gid === "xpage-2"; }))'));
+    assert.equal(updated.note, "更新后的意见", "同 gid 再推送应更新 note");
+    const delLogBefore = JSON.parse(await drive.evalJs(cdp, "JSON.stringify(window.__dshKitDeletedGids || [])"));
+    await drive.evalJs(cdp, 'window.__dshKitAnnotator.removeExternal("xpage-2")');
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1, "removeExternal 应移除该条");
+    const delLogAfter = JSON.parse(await drive.evalJs(cdp, "JSON.stringify(window.__dshKitDeletedGids || [])"));
+    assert.ok(delLogAfter.includes("xpage-2") && !delLogBefore.includes("xpage-2"), "removeExternal 应写删除日志");
+
+    // A3：startIndex 编号交接下限（P26 契约的 annotator 侧）：start({startIndex:5}) 后首条 = 6
+    await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
+    await drive.evalJs(cdp, "window.__p6 = window.__dshKitAnnotator.start({ startIndex: 5 }); 'ok'");
+    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
+    assert.equal(
+      await drive.evalJs(cdp, "window.__dshKitAnnotator.list()[0].index"),
+      6,
+      "startIndex 是下限：首条编号应为 6（max(list, 5) + 1）",
+    );
+
     await cdp.close();
   } finally {
     await drive.close();
