@@ -706,7 +706,7 @@ window.__ModuleLoader__.load({
               }
               setTimeout(() => { if (stateRef.annot) stateRef.annot.count = sum; }, 300);
             }, 1200);
-            await startPaneInSession(target, 1);
+            await startPaneInSession(target, 0); // 首个成员：编号从 1 起（startIndex 为下限）
             runSessionLoop();
             say('info', '共享批注会话开始（本窗口已加入；其他窗口点图标加入）');
             return { ok: true, started: true };
