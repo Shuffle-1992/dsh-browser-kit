@@ -171,3 +171,9 @@
 - **现象**：package.json 补了 displayName/description、重启后列表与详情的说明仍空白（回退显示包名）。
 - **根因**：宿主 `dsh-app-boot` 构建词典：`dictionaries.set(id, { title: meta?.title, description: meta?.description })`——**读插件包 `locale/zh.json` + `locale/en.json` 的 meta 段**（按语言取），package.json 顶层字段不参与。
 - **对策**：补 `plugin/locale/zh.json` + `locale/en.json`（meta.title/meta.description 双语都要写，缺的那份回退）+ package.json exports 声明 `"./locale/*.json"`。诊断手法：Cordis Inspect client/Slots 的 listSubTree 可直接看插槽占用与 catalog（ownerProps/契约原文），比读 asar 源码快。
+### P35 WebHID 选择器在 DSH 内置浏览器不弹：requestDevice 静默返回空数组（宿主层缺口，插件层不可修）
+- **现象**（2026-10-05 keysion.cn 实测）：页面 `navigator.hid` 存在、`getDevices()` 正常返回 `[]`；点击站点「授权设备」→ 站点自有弹层打开但**原生选择器不出现**；直接调 `requestDevice({filters:[…]})` **立即 resolve 空数组**（不抛错、不弹窗）——站点侧无任何异常可捕，设备列表永远停在「未找到USB设备」。同页在真 Chrome 弹原生选择器（用户截图）。
+- **根因**：Chrome 有内建选择器 UI；Electron 没有——必须主进程 `session.on('select-hid-device')` + `setDevicePermissionHandler`/`device-id` 权限处理 + 自绘选择 UI。DSH 主进程均未做，`requestDevice` 走「无 handler」分支静默 resolve `[]`。
+- **插件层不可修的双向取证**：client 侧（app 窗口渲染层）`typeof require === 'undefined'` 且无 `process`（nodeIntegration 关）；host 侧 probe-report 实证 `runAsNode:"1"`、`import('electron')` 命名空间空（无 app/session/webContents）、各 CJS 路径 `Cannot find module 'electron'`——插件 host 是 RUN_AS_NODE 纯 Node runner（Path B 结论复证），不存在可挂 `select-hid-device` 的进程位。
+- **诊断手法**（命令通道 5 发，全 ASCII）：`guest-eval` 探 `!!navigator.hid` → `getDevices()` → 读站点 `#deviceList` DOM → `screenshot` 看有无选择器窗 → `requestDevice` 捕 resolve/reject 形态。**判据**：requestDevice 立即 resolve 空数组 = 无 handler；抛 NotFoundError = 用户取消；挂起 = 有选择器在等。
+- **出路**：只有 DSH 宿主升级（main 进程接线 + 选择器 UI）。可行形态：`web-contents-created` 监听 webview → 挂 session 事件 → 经 face/IPC 把设备清单回传 client 渲染选择浮层 → callback(deviceIds)。插件侧已留好命令通道与 guest 注入两个现成管线可复用。
