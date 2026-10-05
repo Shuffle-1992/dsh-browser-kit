@@ -11,10 +11,21 @@
  * package.json exports["."] 已指向本文件；index.js 仅存档不再被加载。
  *
  * 代价：每次激活产生一个新模块记录（旧记录留在模块缓存，开发期可忽略）。
+ *
+ * ⚠️ Config 静态导出（2026-10-05 追加：本薄壳唯一一次允许改动的例外，改动需重启 DSH 一次）：
+ *   DSH 插件详情页只在 bundle **声明了 config schema** 时才渲染「配置区」，而配置区正是
+ *   `plugins.bundle.config` 卡片（与详情页说明）的宿主——无 schema 的 bundle 在 Config
+ *   provider 里 status="absent"，卡片虽注册成功（active:true）但页面上无内容。
+ *   实测对照：dsh-connect-trae / @local/dsh-connect-zcode 均 status="schema" 且卡片可见。
+ *   cordis loader 读的是**入口模块的静态导出** Config（动态 import 的 impl 导出不被识别），
+ *   故此处静态 re-export schema；schema 本体住 plugin-config.schema.mjs（纯对象字面量、零依赖
+ *   ——见该文件头注：schemastery 在 link 插件里裸 import 解析不到，且本项目无需 volatile）。
  */
 import { statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { DSH_BROWSER_KIT_CONFIG_SCHEMA } from './plugin-config.schema.mjs';
 
 const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url));
 const IMPL_PATH = join(PLUGIN_DIR, 'host.impl.mjs');
@@ -22,6 +33,9 @@ const IMPL_PATH = join(PLUGIN_DIR, 'host.impl.mjs');
 const REPORT_PATH = join(PLUGIN_DIR, '.data', 'probe-report.json');
 
 export const name = 'dsh-browser-kit';
+
+/** bundle config schema：详情页配置区的存在条件（字段见 plugin-config.schema.mjs）。 */
+export const Config = DSH_BROWSER_KIT_CONFIG_SCHEMA;
 
 let activationSeq = 0;
 
