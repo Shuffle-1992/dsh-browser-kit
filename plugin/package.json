@@ -1,5 +1,7 @@
 {
   "name": "@local/dsh-browser-kit",
+  "displayName": "DSH Browser Kit",
+  "description": "给 DSH 内置浏览器加编码助手协作能力：元素批注（多窗口共享会话、编号跨窗口延续、提交合并落盘）、截图回传（agent 可直接读图）、设备通讯观测（HID/Serial/USB）与一条由实施会话驱动的命令通道（snapshot/click/type/navigate/guest-eval 等 20+ action）。",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,11 +11,15 @@
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
     }
   },
   "meta": {
     "title": "DSH Browser Kit",
-    "description": "dsh-browser-kit 插件半边：内置浏览器批注/截图/设备观测的宿主接入层（当前为 MVP-0 探测）"
+    "description": "内置浏览器批注/截图/设备观测：共享批注会话 + 截图回传 + 命令通道"
   }
 }

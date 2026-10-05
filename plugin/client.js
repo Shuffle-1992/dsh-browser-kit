@@ -1703,7 +1703,9 @@ window.__ModuleLoader__.load({
           ));
 
           /* ---- 插件管理面板卡片（plugins.bundle.config 插槽，形态参照 dsh-connect-zcode）：
-           *  批注/截图的数量与字节占用 + 一键清除（face getStats / clearArtifacts）。 ---- */
+           *  批注/截图的数量与字节占用 + 一键清除（face getStats / clearArtifacts）。
+           *  插槽契约（Cordis Inspect 取证）：ownerProps = { view: 'summary'|'page' }，
+           *  仅 view==='page' 时在 bundle 详情页渲染；无参组件曾致占用未被采用（active:false）。 ---- */
           try {
             const BUNDLE_KEY = '@local/dsh-browser-kit';
             const fmtBytes = (n) => {
@@ -1712,7 +1714,7 @@ window.__ModuleLoader__.load({
               if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`;
               return `${v} B`;
             };
-            function KitPanelCard() {
+            function KitPanelCard({ view }) {
               const [stats, setStats] = useState(null);
               const [msg, setMsg] = useState(null);
               const [busy, setBusy] = useState(false);
@@ -1721,7 +1723,10 @@ window.__ModuleLoader__.load({
                 if (!svc || typeof svc.getStats !== 'function') { setStats({ error: 'host 远端面未就绪' }); return; }
                 svc.getStats().then((r) => setStats(r && r.ok ? r : { error: (r && r.error) || '统计失败' })).catch((e) => setStats({ error: msgOf(e) }));
               };
-              useEffect(() => { refresh(); }, []);
+              useEffect(() => {
+                if (view && view !== 'page') return; // summary 视图不需要数据
+                refresh();
+              }, [view]);
               const clear = (kind, label) => {
                 if (busy) return;
                 setMsg(null);
@@ -1741,6 +1746,11 @@ window.__ModuleLoader__.load({
                 }).catch((e) => { setBusy(false); setMsg(`清除失败：${msgOf(e)}`); });
               };
               const ok = stats && stats.ok === true;
+              // view==='summary'：仅渲染一行摘要（详情页顶部一行）；'page' 才给完整表单
+              if (view === 'summary') {
+                return h('span', { style: { color: T.text2, fontSize: 12 } },
+                  ok ? `批注 ${stats.annotations.count} 个 · 截图 ${stats.shots.count} 张` : '统计不可用');
+              }
               const row = (label, stat, kind, clearLabel) => h(
                 'div',
                 { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' } },
@@ -1777,7 +1787,15 @@ window.__ModuleLoader__.load({
             }
             ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
               { name: 'plugins.bundle.config', key: BUNDLE_KEY, priority: 40, inject: () => ({}) },
-              KitPanelCard,
+              function KitCardBoundary(props) {
+                // 错误边界（zcode/trae 同款纪律）：渲染异常只留痕，绝不冒泡打崩插件详情页
+                try {
+                  return h(KitPanelCard, props);
+                } catch (e) {
+                  try { console.warn(`${LOG_PREFIX} 插件管理卡片渲染失败:`, e && e.message); } catch { /* ignore */ }
+                  return null;
+                }
+              },
             ));
             say('info', '插件管理卡片已注册（plugins.bundle.config）');
           } catch (e) {
