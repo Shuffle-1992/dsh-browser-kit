@@ -3,6 +3,9 @@ shots/
 annotations/
 plugin/.data/
 
+# 本机文档（不进库：对外需求说明等）
+.local/
+
 node_modules/
 *.log
 .DS_Store
