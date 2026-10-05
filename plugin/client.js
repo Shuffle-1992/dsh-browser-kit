@@ -578,13 +578,49 @@ window.__ModuleLoader__.load({
           /**
            * 共享批注会话模型（用户需求：同会话多窗口共用一份批注、批注号跨窗口延续、
            * 不同会话的窗口互不影响）：
-           *  - stateRef.annot = { active, panes:[webview…], pending:[{pane,promise}], count, … }；
-           *  - 面板的图标/菜单点击 = 该面板「加入 / 退出」共享会话（没点过的窗口不参与——
-           *    不同 DSH 会话的窗口天然独立；跨会话归属的自动识别需宿主租约信息，列入后续增强）；
+           *  - stateRef.annot = { active, panes:[webview…], pending:[{pane,promise}], leftIds:Set, count, … }；
+           *  - 任一窗口点图标开启 → 会话建立；**其余窗口/标签自动加入**（数秒内面板出现、编号自动
+           *    交接，无需再点图标——用户核心诉求「窗口1开启，窗口2直接显示已开启」）；点图标 =
+           *    本窗口退出/重进（leftIds 记忆显式退出，防自动加入立刻拉回）；不同 DSH 会话的窗口
+           *    天然独立（各自 client 实例、各自文档）；
+           *  - **成员先入册再 start**：annotator start() 返回的 Promise 到该面板提交/取消才 settle，
+           *    旧实现 settle 后才 push 成员表 → 新面板整个会话期不参与同步（P25 根因）；
            *  - 任一成员面板提交 → 收集**全部成员**的批注 → host `saveMerged` 按 capturedAt
            *    权威重编号（= 页内徽标号，由 startIndex 交接保证）→ 单个协议文件；
-           *  - 编号交接：加入时 startIndex = 成员间最大已用号 + 1（窗口1 批了 1、2 → 窗口2 从 3 起）。
+           *  - 编号交接：加入面板的 indexBase 下限 = 全局最大已用号 → 首个新批注 = 最大号 + 1
+           *    （annotator nextIndex = max(listMax, indexBase) + 1；旧实现把 maxUsed+1 当下限传入
+           *    → 直接跳号，用户实测「窗口1批1 → 窗口2变3」，P26）。
            */
+
+          /** 面板身份：webContentsId 数字优先（框架重渲染换节点后仍能对上），失败退回元素自身。 */
+          const paneIdOf = (el) => {
+            if (!el) return null;
+            try {
+              const id = el.getWebContentsId && el.getWebContentsId();
+              if (typeof id === 'number') return id;
+            } catch { /* 已脱离 DOM 等：退回元素身份 */ }
+            return el;
+          };
+
+          /** 把成员表里的陈旧节点映射回当前文档的同 id 节点（DSH 重渲染会替换 webview 节点）。 */
+          const livePane = (el) => {
+            const id = paneIdOf(el);
+            if (typeof id === 'number') {
+              for (const w of document.querySelectorAll('webview')) {
+                if (paneIdOf(w) === id) return w;
+              }
+            }
+            return el;
+          };
+          const refreshPanes = () => {
+            const st = stateRef.annot;
+            if (st && Array.isArray(st.panes)) st.panes = st.panes.map(livePane).filter(Boolean);
+          };
+
+          /** 编号交接下限（P26 契约钉死）：加入面板 indexBase = maxUsed → 首个新批注 = maxUsed+1。
+           *  首个成员传 0 → 首批注 = 1。绝不要再 +1（那是 annotator nextIndex 自己加的）。 */
+          const joinFloorIndex = (maxUsed) => (Number(maxUsed) || 0);
+
           const sessionMaxIndex = async () => {
             let max = 0;
             for (const p of stateRef.annot.panes) {
@@ -630,6 +666,7 @@ window.__ModuleLoader__.load({
               await stopAllPanes(true);
               st.origins = {}; // 编号来源表随会话结束清空
               st.pending = [];
+              if (st.leftIds) st.leftIds.clear(); // 显式退出记忆随会话结束清空
               say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
             } else {
               // 取消/Esc/重启动：**成员身份保留**（退出必须走 leavePane 显式开关）——
@@ -673,6 +710,7 @@ window.__ModuleLoader__.load({
           const mergeAndSave = async (submitterPane) => {
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
+            refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
             const sets = [];
             for (const p of stateRef.annot.panes) {
               try {
@@ -691,40 +729,59 @@ window.__ModuleLoader__.load({
             return unwrap(await svc.saveMerged(sets, null));
           };
 
-          /** 面板加入共享会话（startIndex = 成员间最大已用号 + 1，跨窗口延续）。 */
+          /** 面板加入共享会话（编号交接：首个新批注 = 全局最大已用号 + 1，跨窗口延续）。 */
           const joinPane = async (target) => {
-            const nextIndex = (stateRef.annot.panes.length > 0 ? await sessionMaxIndex() : 0) + 1;
             const svc = await waitSvc();
             if (!svc) throw new Error('host 远端面未就绪');
             await ensureAnnotator(svc, target);
-            await startPaneInSession(target, nextIndex);
-            if (!stateRef.annot.panes.includes(target)) stateRef.annot.panes.push(target); // 成为同步成员（遗漏=不参与同步）
+            const st = stateRef.annot;
+            // 先入册再 start（P25）：start() 的 Promise 到该面板提交/取消才 settle——
+            // settle 后才 push 会让新面板整个会话期不在成员表 → syncPanes 恒 <2 面板直返、
+            // 图标激活态恒灭、合并缺其批注（用户实测「窗口2没打通」根因）。
+            if (st && !st.panes.some((p) => paneIdOf(p) === paneIdOf(target))) st.panes.push(target);
+            const maxUsed = (st && st.panes.length > 1) ? await sessionMaxIndex() : 0;
+            await startPaneInSession(target, joinFloorIndex(maxUsed)); // P26：下限=maxUsed，勿再 +1
           };
 
-          /** 面板退出共享会话（stop 由其 watcher 收尾）。 */
-          const leavePane = (target) => target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
+          /** 面板退出共享会话（stop 由其 watcher 收尾；记入 leftIds 防自动加入立刻拉回）。 */
+          const leavePane = (target) => {
+            const st = stateRef.annot;
+            const live = st ? (st.panes.find((p) => paneIdOf(p) === paneIdOf(target)) || target) : target;
+            if (st && st.leftIds) {
+              const id = paneIdOf(target);
+              if (id != null) st.leftIds.add(id);
+            }
+            return live.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
+          };
 
-          /** 图标/菜单开关语义：该面板未参与 → 加入；已参与 → 退出（最后一个退出 = 会话结束）。 */
+          /** 图标/菜单开关语义：会话未开 → 开会话（本窗口首个成员，其余窗口自动加入）；
+           *  会话已开 → 本窗口已参与则退出 / 未参与则（重新）加入。最后一个退出 = 会话结束。 */
           const togglePaneAnnot = async (targetEl) => {
             const target = targetEl || pickGuestEl();
-            if (stateRef.annot && stateRef.annot.active) {
-              if (stateRef.annot.panes.includes(target)) {
+            const st = stateRef.annot;
+            if (st && st.active) {
+              const tid = paneIdOf(target);
+              if (st.panes.some((p) => paneIdOf(p) === tid)) {
                 await leavePane(target);
-                stateRef.annot.panes = stateRef.annot.panes.filter((p) => p !== target);
-                if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
+                st.panes = st.panes.filter((p) => paneIdOf(p) !== tid);
+                if (st.panes.length === 0) {
+                  st.active = false;
+                  if (st.leftIds) st.leftIds.clear();
+                }
                 return { ok: true, left: true };
               }
+              if (st.leftIds && st.leftIds.has(paneIdOf(target))) st.leftIds.delete(paneIdOf(target));
               await joinPane(target);
               return { ok: true, joined: true };
             }
-            // 新会话：点击者为其首个成员
+            // 新会话：点击者为其首个成员；其余窗口由自动加入在数秒内拉齐
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
-            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
-            await startPaneInSession(target, 0); // 首个成员：编号从 1 起（startIndex 为下限）
+            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, leftIds: new Set(), count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
             runSessionLoop();
-            say('info', '共享批注会话开始（本窗口已加入；其他窗口点图标加入，批注实时同步）');
+            say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标退出/重进本窗口）');
             return { ok: true, started: true };
           };
 
@@ -747,7 +804,9 @@ window.__ModuleLoader__.load({
           let syncBusy = false;
           const syncPanes = async () => {
             const st = stateRef.annot;
-            if (!st || !st.active || syncBusy || st.panes.length < 2) return;
+            if (!st || !st.active || syncBusy) return;
+            refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
+            if (st.panes.length < 2) return;
             syncBusy = true;
             try {
               const states = [];
@@ -1358,7 +1417,7 @@ window.__ModuleLoader__.load({
 
           /* 尽力而为的临时入口：把批注图标注入**每一个**浏览器工具条（多标签各一个；
            * 宿主未开放该位置插槽，DOM 注入 + 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。
-           * 各按钮绑定自己面板的 webview：点击 = 该面板加入/退出共享批注会话。 */
+           * 图标 = 本窗口退出/重进共享批注会话；会话活跃时其余窗口/标签由上方 2s 循环自动加入。 */
           try {
             const toolbarForms = () => Array.from(document.querySelectorAll('form[class*="toolbar"]'))
               .filter((f) => f.parentElement && f.parentElement.querySelector('webview'));
@@ -1381,7 +1440,10 @@ window.__ModuleLoader__.load({
                   '</svg>';
                 btn.addEventListener('click', () => {
                   try {
-                    // 即时视觉反馈（2s 同步循环随后校正）
+                    // 即时视觉反馈（2s 同步循环随后校正）；面板点击时现取，
+                    // 避免闭包持有重渲染前的旧 webview 节点（身份失配 = 永不点亮）
+                    const pane = webviewOfForm(form);
+                    if (!pane) return;
                     btn.style.background = '#2563eb';
                     btn.style.color = '#ffffff';
                     stateRef.lastToggleError = null;
@@ -1417,20 +1479,60 @@ window.__ModuleLoader__.load({
             setInterval(() => {
               try { ensureToolbarButtons(); } catch { /* ignore */ }
             }, 3000);
-            // 各按钮激活态外观同步（2s）：按钮对应面板 ∈ 共享会话成员 → 实心底
-            setInterval(() => {
+            // 各按钮激活态外观同步（2s，按 webContentsId 比对成员）+ 会话自动拉齐：
+            //  - 会话活跃时，未入册且未被显式退出的面板 → 自动加入（用户核心诉求：
+            //    「窗口1开启批注 → 窗口2直接显示已开启」，无需再点图标）；
+            //  - 成员面板 guest 导航后批注层丢失（API 消失；主动取消不丢 API）→ 自动重注入续编号。
+            let autoJoinBusy = false;
+            const withTimeout = (p, ms, tag) => Promise.race([
+              Promise.resolve(p),
+              new Promise((_, rej) => setTimeout(() => rej(new Error(`${tag || 'op'} 超时(${ms}ms)`)), ms)),
+            ]);
+            setInterval(async () => {
               const st = stateRef.annot;
-              const activePanes = (st && st.active) ? st.panes : [];
+              refreshPanes();
+              const activeIds = (st && st.active && Array.isArray(st.panes))
+                ? new Set(st.panes.map(paneIdOf))
+                : new Set();
               for (const form of toolbarForms()) {
                 const btn = form.querySelector('#dsh-kit-toolbar-btn');
                 if (!btn) continue;
                 const pane = webviewOfForm(form);
-                const active = pane && activePanes.includes(pane);
+                const active = pane != null && activeIds.has(paneIdOf(pane));
                 // 固定高对比配色（蓝底白标）：主题令牌在工具条上下文里可能解析成浅色，
                 // 叠加 color:inherit 的浅色描边 → 白底白标隐形（用户实测反馈，已修）
                 btn.style.background = active ? '#2563eb' : 'transparent';
                 btn.style.color = active ? '#ffffff' : '';
                 btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
+              }
+              if (!st || !st.active || autoJoinBusy) return;
+              autoJoinBusy = true;
+              try {
+                // 自愈：成员批注层丢失（页面导航把 guest 文档换掉）→ 重注入并从全局最大号续编
+                for (const p of Array.from(st.panes)) {
+                  try {
+                    const has = await withTimeout(p.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true), 4000, 'annot-probe');
+                    if (has === true) continue;
+                    const svc = await waitSvc();
+                    if (!svc) break;
+                    await withTimeout(ensureAnnotator(svc, p), 8000, 'annot-reinject');
+                    const maxUsed = await sessionMaxIndex();
+                    await withTimeout(startPaneInSession(p, joinFloorIndex(maxUsed)), 8000, 'annot-restart');
+                    say('info', '批注层因页面导航丢失，已自动恢复（编号延续）');
+                  } catch { /* 面板暂时不可达：下轮再试 */ }
+                }
+                // 自动加入：把会话拉齐到本 DSH 会话的全部浏览器窗口/标签
+                for (const wv of Array.from(document.querySelectorAll('webview'))) {
+                  if (!wv.isConnected) continue;
+                  const id = paneIdOf(wv);
+                  if (activeIds.has(id) || st.leftIds.has(id)) continue;
+                  try {
+                    await withTimeout(joinPane(wv), 8000, 'auto-join');
+                    say('info', '浏览器窗口/标签已自动加入共享批注会话');
+                  } catch { /* 注入失败（页面未就绪等）：下轮重试 */ }
+                }
+              } finally {
+                autoJoinBusy = false;
               }
             }, 2000);
           } catch (e) {

@@ -129,3 +129,17 @@
 - **现象**：在 keysion.cn（公网 Vue 站）页面上建 `iframe srcdoc` 沙箱注入 demo 页：① srcdoc 被页面 CSP（frame-src/default-src）拦成空文档（contentDocument bodyLen=15，cmd-70/77）；② 顶层 innerHTML 注入的 demo DOM 在 Vue 响应式刷新窗口内被重绘清空（cmd-78→79 count 4→0）。
 - **根因**：公网页面自带 CSP 与框架生命周期，agent 对其 DOM 的「整页替换」是天然的对抗场景。
 - **对策**：整页注入/沙箱只用于**用户自有 dev 页面**（无 CSP 对抗、框架行为可控）；公网页面只做 snapshot/click/type/guest-eval（对既有 DOM 操作，实测稳定）。snapshot/click/type 已针对「顶层文档 + 可选 kit 沙箱文档」双目标实现（TARGET_DOC_SNIPPET）。
+
+## 共享批注会话打通期（2026-10-05）
+### P25 joinPane 成员入册在 start settle 之后：新面板整个会话期不参与同步
+- **现象**：窗口1开启批注后窗口2点图标加入——批注功能本身能用（annotator 已注入），但窗口2图标永不点亮、两窗口批注互不同步、提交合并缺窗口2的批注（用户实测「同会话不同窗口批注没打通」）。
+- **根因**：annotator `start()` 返回的 Promise 到该面板**提交/取消才 settle**；`joinPane` 把 `panes.push(target)` 写在 `await startPaneInSession(...)` 之后 → 成员入册被阻塞整个会话期 → `syncPanes` 恒 `length<2` 直接 return、图标激活态按成员表比对恒 false、`mergeAndSave`/`sessionMaxIndex` 都看不到它。前一晚「实测通过」是入册位置重构（取消/Esc 不移除成员那轮）之前的事。
+- **对策**：**先入册再 start**——`ensureAnnotator` 成功后同步 push（按 paneId 去重），`startPaneInSession` 只是挂起等终态。静态契约钉进 test/plugin-impl.test.mjs（push 必须先于 start 调用点）。
+### P26 编号交接下限双加一：窗口2 首个批注直接跳号（1 → 3）
+- **现象**：窗口1批注 #1 后窗口2加入再批，新批注编号是 #3，#2 凭空消失（用户实测）。
+- **根因**：annotator 侧 `nextIndex = max(listMax, indexBase) + 1`（startIndex 是**下限**）；client `joinPane` 却传 `sessionMaxIndex() + 1` 当下限 → 下限被多加一次 1。注释里写的「窗口1批了 1、2 → 窗口2 从 3 起」语义被实现成「从 4 起」。
+- **对策**：`joinFloorIndex(maxUsed) = maxUsed`（勿再 +1，+1 是 annotator 自己做的）；静态契约断言 client 源不再出现 `sessionMaxIndex()…+ 1`。
+### P27 工具条按钮闭包捕获挂载时 webview 节点：框架重渲染换节点后身份失配
+- **现象**（隐患，与 P25 症状同族）：按钮激活态 2s 同步用「当前 DOM 里的 webview」比对「点击闭包捕获的旧节点」，DSH 重渲染替换 webview 节点后 `includes` 恒 false → 图标永不点亮；对旧节点 executeJavaScript 行为不定。
+- **对策**：① 点击时现取 `webviewOfForm(form)`，不闭包持有；② 面板身份统一 `paneIdOf`（`getWebContentsId()` 数字优先，异常退元素自身）；③ 成员表每次用 `refreshPanes()` 映射回活节点（syncPanes/mergeAndSave/sessionMaxIndex/图标同步共用）。
+- **附**：会话活跃时其余窗口/标签由 2s 循环**自动加入**（用户诉求「窗口1开启 → 窗口2直接显示已开启」）；显式退出记入 `leftIds` 防自动加入拉回，会话结束清空；成员批注层因导航丢失（API 消失）自动重注入并从全局最大号续编（主动取消不丢 API，不触发）。

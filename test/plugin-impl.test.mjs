@@ -392,3 +392,39 @@ test("wire TYPERT 清单形状（不触网）", async (t) => {
     assert.equal("acceptsUndefined" in shot.parameters.find((p) => p.name === "dataUrl"), false);
   });
 });
+
+/* ─────────────── 3.8 client.js 共享会话静态契约（P25/P26 回归钉） ─────────────── */
+
+/** 读 client.js 源码（普通 script，非 ESM——静态契约为最经济的守护面）。 */
+const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8");
+
+test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下限不双加）", async (t) => {
+  await t.test("P26：joinFloorIndex 存在，且不再把 sessionMaxIndex()+1 当下限", () => {
+    assert.match(clientSource, /const joinFloorIndex = \(maxUsed\) => \(Number\(maxUsed\) \|\| 0\)/);
+    // 旧实现 `(await sessionMaxIndex() : 0) + 1` 直接跳号（窗口1批1 → 窗口2变3）
+    assert.doesNotMatch(clientSource, /sessionMaxIndex\(\)[^;\n]*\+ 1/);
+  });
+
+  await t.test("P25：joinPane 内成员入册（push）先于 startPaneInSession", () => {
+    const m = clientSource.match(/const joinPane = async \(target\) => \{([\s\S]*?)\n          \};/);
+    assert.ok(m, "joinPane 函数体可定位");
+    const body = m[1];
+    const pushAt = body.search(/st\.panes\.push\(target\)/);
+    const startAt = body.indexOf("startPaneInSession(target");
+    assert.ok(pushAt >= 0, "joinPane 显式入册成员");
+    assert.ok(startAt >= 0, "joinPane 调用 startPaneInSession");
+    assert.ok(pushAt < startAt, "先入册再 start（start 的 Promise 到提交/取消才 settle）");
+  });
+
+  await t.test("自动加入与退出记忆：leftIds 存在且自动加入检查它；会话结束清空", () => {
+    assert.match(clientSource, /leftIds: new Set\(\)/);
+    assert.match(clientSource, /st\.leftIds\.has\(id\)/); // 自动加入跳过显式退出的面板
+    assert.match(clientSource, /st\.leftIds\.clear\(\)/);
+  });
+
+  await t.test("面板身份按 webContentsId 比对（重渲染换节点不失配）", () => {
+    assert.match(clientSource, /const paneIdOf = \(el\) =>/);
+    assert.match(clientSource, /getWebContentsId/);
+    assert.match(clientSource, /const refreshPanes = \(\) =>/);
+  });
+});
