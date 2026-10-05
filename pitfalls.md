@@ -177,3 +177,14 @@
 - **插件层不可修的双向取证**：client 侧（app 窗口渲染层）`typeof require === 'undefined'` 且无 `process`（nodeIntegration 关）；host 侧 probe-report 实证 `runAsNode:"1"`、`import('electron')` 命名空间空（无 app/session/webContents）、各 CJS 路径 `Cannot find module 'electron'`——插件 host 是 RUN_AS_NODE 纯 Node runner（Path B 结论复证），不存在可挂 `select-hid-device` 的进程位。
 - **诊断手法**（命令通道 5 发，全 ASCII）：`guest-eval` 探 `!!navigator.hid` → `getDevices()` → 读站点 `#deviceList` DOM → `screenshot` 看有无选择器窗 → `requestDevice` 捕 resolve/reject 形态。**判据**：requestDevice 立即 resolve 空数组 = 无 handler；抛 NotFoundError = 用户取消；挂起 = 有选择器在等。
 - **出路**：只有 DSH 宿主升级（main 进程接线 + 选择器 UI）。可行形态：`web-contents-created` 监听 webview → 挂 session 事件 → 经 face/IPC 把设备清单回传 client 渲染选择浮层 → callback(deviceIds)。插件侧已留好命令通道与 guest 注入两个现成管线可复用。
+### P36 primeSessionInput 的 `filter(visible)`：重命名漏改致输入框提示整体失败
+- **现象**：提交批注后输入框始终收不到提示文本，`lastPrime = { ok:false, error:"visible is not defined" }`。
+- **根因**：可见性助手改名 `visible` → `isVisibleEl` 时，primeSessionInput 内的 `.filter(visible)` 漏改——引用未声明标识符，整个函数首跑即抛，被外层 catch 吞成 lastPrime 错误。
+- **对策**：改回 `.filter(isVisibleEl)` + 静态契约 `doesNotMatch(/filter\(visible\)/)` 防复发。**教训**：重命名共享助手后必须 grep 全部调用点（含字符串模板外的地方）。
+### P37 toggle 热换不清理旧实例：多 rev client 并存互删（挂上即被删的拉锯战）
+- **现象**：胶囊手动挂上几秒后消失、模型却还在；removespy（monkey-patch `Element.prototype.remove` 抓栈）实证 **三个 rev 的 client.js 同文档并存**（`rev=a19…/a4f4…/8a1c…` 各自 2s tick），无模型实例的 `!model` 分支把有模型实例刚挂的胶囊删掉——挂/删每 2s 拉锯。
+- **根因**：`clientModules.rebuilt` 让页面加载新模块，但**旧实例的 effect dispose 不执行**，`trackInterval` 的 interval 随旧实例永生；工具条按钮 click 闭包归属创建实例——不接管则批注动作永远路由进旧代码。
+- **对策**：认领制（ownerBoot 盖戳，ISO 时间戳可比，新者胜旧者让）：①输入框胶囊 `dataset.ownerBoot`，非最新实例不挂不改不删；②工具条按钮同款，无戳/更旧按钮**拆除重挂**，把动作路由切到最新实例。根治 = 刷新/重启 DSH（所有内存实例归一）。诊断手法：gui-eval 装 removespy 抓 `new Error().stack`。
+### P38 绝不对 DSH 应用窗口做顶层 `location.reload()`：dsh-app:// 外壳崩溃退出
+- **现象**（2026-10-05 实测，用户报告）：gui-eval 里 `location.reload()` → **DSH 报错整个退出**（dsh-app:// 应用外壳依赖启动期注入的 `window.__DSH_BOOT__`，顶层 reload 后无法重建，直接崩）。
+- **对策**：多实例清理只能靠**用户手动重启 DSH**（或在独立 web GUI 标签页里刷新），插件/实施会话永远不要 reload 应用窗口。崩溃重启的意外收益：实例归一、状态干净。

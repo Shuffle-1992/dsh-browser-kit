@@ -554,7 +554,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
 
   await t.test("胶囊（ZCode 式）：输入框卡片内侧 + 会话指纹门控（P31 跨会话不泄漏）", () => {
     assert.match(clientSource, /dsh-kit-annot-chip/);
-    assert.match(clientSource, /mode: 'saved', count/); // announceSubmission 挂 saved 模型
+    assert.match(clientSource, /mode: 'saved',\s*\r?\n\s*count:/); // announceSubmission 挂 saved 模型（含 items/convo/bornAt）
     assert.match(clientSource, /const ensureAnnotChip = \(\) =>/);
     assert.match(clientSource, /svc\.deleteAnnotations\(m\.path\)/); // × 撤回
     assert.match(clientSource, /clearAll \? window\.__dshKitAnnotator\.clearAll\(\) : undefined/); // × 清除（会话中）
@@ -575,6 +575,47 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /dsh-browser-kit:panel:hidden:v1/);
     assert.match(clientSource, /'panel-toggle': async function \(svc, c\)/);
     assert.match(clientSource, /PANEL_TOGGLE_EVENT/);
+  });
+
+  await t.test("单次消耗 + 会话内消息胶囊（2026-10-05 用户需求钉）：提交即清空（删除日志+广播）、发送检测、hover 提示", () => {
+    // 1) 提交 = 单次消耗：逐面板 stop + clearAll（全量 gid 进删除日志），趁 active 跑一轮
+    //    syncPanes 广播删除（旧 clear() 不写日志，清空中段会被其他窗口 union 推回）
+    assert.match(clientSource, /if \(a\.stop\) a\.stop\(\); if \(a\.clearAll\) a\.clearAll\(\)/);
+    assert.match(clientSource, /try \{ await syncPanes\(\); \} catch/);
+    // 2) 发送检测：常规流协议块只进剪贴板、消息不含标记 → 信号用 userRow 结构（行数/末行指纹，
+    //    CSS-module 哈希前缀 + 稳定后缀 `_userRow`）；基线在提交时点快照（P36：输入框写入另有修复）
+    assert.match(clientSource, /const userRows = \(\) => Array\.from\(document\.querySelectorAll\('\[class\*="_userRow"\]'\)\)/);
+    assert.match(clientSource, /rows\.length > \(Number\(m\.baseline\) \|\| 0\)/);
+    assert.match(clientSource, /baseline: rowsNow\.length/);
+    assert.match(clientSource, /baselineLast: lastUserRowText\(rowsNow\)/);
+    assert.match(clientSource, /stateRef\.sentChips = stateRef\.sentChips \|\| \[\]/);
+    assert.match(clientSource, /queue\.push\(m\)/);
+    // 2b) P36 回归钉：primeSessionInput 的可见性过滤必须是 isVisibleEl（曾误写未定义的 visible）
+    assert.doesNotMatch(clientSource, /filter\(visible\)/);
+    // 2c) 挂载目标 = userRow 内气泡；胶囊用块级容器包一层（气泡内独立一行）；插到文本上方
+    assert.match(clientSource, /row\.querySelector\('\[class\*="_bubble"\]'\)/);
+    assert.match(clientSource, /wrap\.appendChild\(chip\)/);
+    assert.match(clientSource, /else if \(holder\.firstChild\) holder\.insertBefore\(wrap, holder\.firstChild\)/);
+    // 2d) P37 多实例认领制：ownerBoot 盖戳 + 新者胜旧者退让（removespy 实证多 rev 并存互删的回归钉）
+    assert.match(clientSource, /dataset\.ownerBoot = String\(stateRef\.clientBootAt\)/);
+    assert.match(clientSource, /const iAmNewer = \(el\) => !ownerBootOf\(el\) \|\| String\(stateRef\.clientBootAt\) >= ownerBootOf\(el\)/);
+    assert.match(clientSource, /if \(existing && !iAmNewer\(existing\)\) return;/);
+    // 2e) P37 工具条按钮同款接管：无戳/更旧 → 拆除重挂（批注动作路由进最新实例）
+    assert.match(clientSource, /btn\.dataset\.ownerBoot = String\(stateRef\.clientBootAt\); \/\/ P37 认领戳/);
+    assert.match(clientSource, /if \(owner === myBoot \|\| \(owner && owner > myBoot\)\) \{ attached \+= 1; continue; \}/);
+    // 3) 会话消息胶囊：data 标记 + 幂等重挂 + P31 同款会话门控 + hover 富提示 + × 撤回占位
+    assert.match(clientSource, /data-dsh-kit-ann-msg/);
+    assert.match(clientSource, /const ensureConvoChips = \(\) =>/);
+    assert.match(clientSource, /queue\.filter\(\(x\) => x\.convo === convo\)/);
+    assert.match(clientSource, /rows2\.length - models\.length/);
+    assert.match(clientSource, /const ANN_TIP_ID = 'dsh-kit-ann-tip'/);
+    assert.match(clientSource, /chip\.addEventListener\('mouseenter', \(\) => showAnnTip\(chip, model\)\)/);
+    assert.match(clientSource, /model\.retracted = true/);
+    assert.match(clientSource, /dsh-kit-ann-msg-style/);
+    // 4) tick 接线 + 诊断句柄 + mergeAndSave 摘要（hover 提示数据源）
+    assert.match(clientSource, /ensureConvoChips\(\); \/\/ 消息胶囊/);
+    assert.match(clientSource, /ensureAnnotChip,\s*\r?\n\s*ensureConvoChips,/);
+    assert.match(clientSource, /items\.sort\(\(x, y\) => x\.index - y\.index\)/);
   });
 
   await t.test("W3：client descriptors ↔ wire FACE_METHOD_TABLE 逐字对账（P29 防复发）", async () => {

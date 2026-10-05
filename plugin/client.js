@@ -509,7 +509,8 @@ window.__ModuleLoader__.load({
             report: null,
             lastShot: null,
             annot: null, // { active, count, startedAt, lastSaved, error }
-            chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path }（live 模式由 annot 派生）
+            chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path, items, convo, bornAt }（live 模式由 annot 派生）
+            sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按序配对到会话消息）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
             toolbarBtn: null,
@@ -726,7 +727,7 @@ window.__ModuleLoader__.load({
                 }, 300);
               }
               if (!r) {
-                const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(visible);
+                const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(isVisibleEl); // P36：曾误写 `visible`（未定义标识符）→ 整个 primeSessionInput 抛错、输入框提示永远失败
                 const ce = ces[ces.length - 1] || null;
                 if (ce) {
                   try { ce.focus(); } catch { /* ignore */ }
@@ -825,19 +826,25 @@ window.__ModuleLoader__.load({
               const liveModel = (liveCount > 0 && st.convo) ? { mode: 'live', count: liveCount, convo: st.convo } : null;
               const model = saved || liveModel;
               const existing = document.getElementById(CHIP_ID);
+              /* P37 多实例共存：toggle 热换后旧实例的 interval 不被清理（clientModules.rebuilt
+               *  不触发旧 effect dispose；removespy 实证三 rev 并存互删）——胶囊认领制：
+               *  dataset.ownerBoot = 挂载者 clientBootAt（ISO 字符串可比），仅最新实例可
+               *  挂/改/删；旧实例见到别人的胶囊一律退让，消除「挂上即被删」的拉锯。 */
+              const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
+              const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
               if (!model) {
-                if (existing) existing.remove();
-                removeChipSpacer();
+                if (existing && iAmNewer(existing)) { existing.remove(); removeChipSpacer(); }
                 return;
               }
               // P31 会话门控：胶囊只属于创建它的那个会话（标题指纹），切会话即隐藏
               if (model.convo && model.convo !== convoTitle()) {
-                if (existing) existing.remove();
-                removeChipSpacer();
+                try { stateRef.chipGate = { at: new Date().toISOString(), titleNow: document.title, convoNow: convoTitle(), modelConvo: model.convo }; } catch { /* 诊断字段不影响主流程 */ }
+                if (existing && iAmNewer(existing)) { existing.remove(); removeChipSpacer(); }
                 return;
               }
               const ce = findComposer();
               if (!ce) return; // 输入框暂不可见：不锚定（saved 模型保留，下轮再试）
+              if (existing && !iAmNewer(existing)) return; // 更新实例的胶囊在场：本实例退让
               const spacer = ensureChipSpacer(ce); // 胶囊独占一行：正文被推到下方（ZCode 布局）
               let chip = existing;
               if (!chip) {
@@ -896,8 +903,16 @@ window.__ModuleLoader__.load({
                     say('info', '已清除全部批注（所有窗口同步移除）');
                   }
                 });
+                // 悬浮富提示（saved 模型才有 items；live 模型只有计数提示）
+                chip.addEventListener('mouseenter', () => {
+                  const mm = stateRef.chip;
+                  if (mm && mm.mode === 'saved') showAnnTip(chip, mm);
+                  else chip.title = '点 × 清除全部批注';
+                });
+                chip.addEventListener('mouseleave', hideAnnTip);
                 document.body.appendChild(chip);
               }
+              chip.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领（新建/接管无主胶囊都要盖戳）
               const label = chip.querySelector('[data-role="label"]');
               const text = model.mode === 'saved' ? `${model.count} 条批注 · 已保存` : `${model.count} 条批注`;
               if (label.textContent !== text) label.textContent = text;
@@ -909,11 +924,183 @@ window.__ModuleLoader__.load({
             } catch { /* 胶囊失败不影响主流程 */ }
           };
 
+          /* ─────────────── 发送消耗 + 会话内消息胶囊（用户需求 2026-10-05） ───────────────
+           *  批注为单次消耗：输入框胶囊是「待发送」态；检测到用户**发出了新消息**（会话内
+           *  userRow 行数增长/末行变化）→ 输入框胶囊消耗移除，改为在该条消息气泡尾部挂
+           *  会话胶囊「N 条批注」，hover 出富提示（延续悬浮提示），× 仍撤回（删已保存文件）。
+           *  常规流中协议块只进剪贴板（用户手动粘贴），消息文本不含标记——故发送信号用
+           *  userRow 结构（CSS-module 哈希前缀 + 稳定后缀 `_userRow`），不依赖消息内容。
+           *  配对规则：本会话模型按提交顺序 ↔ 末尾 N 条 userRow（消息恒追加在末尾，按序
+           *  稳定；DSH 重渲染吞掉胶囊后由 tick 幂等重挂；撤回的模型占位不配对错位）。
+           *  会话门控（P31 同款标题指纹）：模型只在其创建会话内消耗/显示，跨会话不配对。 */
+          /** 会话流里的用户消息行（后缀稳定；哈希前缀随构建变化，勿按全类名匹配）。 */
+          const userRows = () => Array.from(document.querySelectorAll('[class*="_userRow"]'));
+          const lastUserRowText = (rows) => (rows.length ? (rows[rows.length - 1].textContent || '').slice(0, 100) : '');
+          /** 共享悬浮提示（延续页面徽标 hover 提示；主题令牌配色，pointer-events 关闭）。 */
+          const ANN_TIP_ID = 'dsh-kit-ann-tip';
+          const hideAnnTip = () => {
+            const t = document.getElementById(ANN_TIP_ID);
+            if (t) t.style.display = 'none';
+          };
+          const showAnnTip = (anchor, model) => {
+            let tip = document.getElementById(ANN_TIP_ID);
+            if (!tip || !tip.isConnected) {
+              tip = document.createElement('div');
+              tip.id = ANN_TIP_ID;
+              tip.style.cssText = 'position:fixed;z-index:2147483647;display:none;max-width:380px;'
+                + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:8px;'
+                + 'padding:8px 10px;font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                + 'color:' + T.text + ';box-shadow:' + T.shadow + ';pointer-events:none;user-select:none;';
+              document.body.appendChild(tip);
+            }
+            tip.textContent = '';
+            const head = document.createElement('div');
+            head.style.cssText = 'font-weight:600;margin-bottom:4px;';
+            head.textContent = `已提交 ${model.count} 条批注`;
+            tip.appendChild(head);
+            for (const it of (model.items || []).slice(0, 8)) {
+              const row = document.createElement('div');
+              row.style.cssText = 'display:flex;gap:6px;align-items:baseline;white-space:nowrap;overflow:hidden;';
+              const no = document.createElement('span');
+              no.style.cssText = 'color:' + T.accent + ';flex:none;';
+              no.textContent = `${it.index}.`;
+              const sel = document.createElement('span');
+              sel.style.cssText = 'font-family:' + T.mono + ';color:' + T.text2 + ';flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;';
+              sel.textContent = it.selector || '(无选择器)';
+              const txt = document.createElement('span');
+              txt.style.cssText = 'color:' + T.text3 + ';overflow:hidden;text-overflow:ellipsis;';
+              txt.textContent = it.text || '';
+              row.appendChild(no);
+              row.appendChild(sel);
+              row.appendChild(txt);
+              tip.appendChild(row);
+            }
+            const rest = (model.items || []).length - 8;
+            if (rest > 0) {
+              const more = document.createElement('div');
+              more.style.cssText = 'color:' + T.text3 + ';margin-top:2px;';
+              more.textContent = `…共 ${model.count} 条`;
+              tip.appendChild(more);
+            }
+            tip.style.display = 'block';
+            tip.style.visibility = 'hidden';
+            const r = anchor.getBoundingClientRect();
+            let left = Math.min(Math.max(8, r.left), window.innerWidth - tip.offsetWidth - 8);
+            let top = r.top - tip.offsetHeight - 8;
+            if (top < 8) top = r.bottom + 8;
+            tip.style.left = `${Math.max(8, left)}px`;
+            tip.style.top = `${Math.max(8, top)}px`;
+            tip.style.visibility = 'visible';
+          };
+          /** 撤回共用（输入框/会话两处胶囊同源）：删已保存文件，文件已不在也视为撤回。 */
+          const retractSaved = (model) => {
+            waitSvc().then((svc) => (svc ? svc.deleteAnnotations(model.path) : { ok: false, error: 'host 远端面未就绪' })).then((r) => {
+              if (r && r.ok) say('info', `已撤回批注文件：${model.path}`);
+              else if (r && /不存在/.test(String(r.error || ''))) say('info', `批注文件已不在（视为撤回）：${model.path}`);
+              else say('warn', `撤回失败：${(r && r.error) || '未知'}`);
+            }).catch((e) => say('warn', `撤回失败：${msgOf(e)}`));
+          };
+          /** 在消息 holder 尾部挂「N 条批注」胶囊（幂等：已挂即跳过）。 */
+          const attachMsgChip = (holder, model) => {
+            const wrap = document.createElement('span');
+            wrap.setAttribute('data-dsh-kit-ann-msg', String(model.count));
+            wrap.style.cssText = 'display:flex;width:100%;margin-top:6px;';
+            const chip = document.createElement('span');
+            chip.style.cssText = 'display:inline-flex;width:fit-content;align-items:center;gap:6px;'
+              + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:999px;'
+              + 'padding:3px 6px 3px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+              + 'color:' + T.text + ';box-shadow:' + T.shadow + ';user-select:none;';
+            const label = document.createElement('span');
+            label.textContent = `${model.count} 条批注`;
+            chip.appendChild(label);
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.setAttribute('data-role', 'close');
+            close.textContent = '×';
+            close.title = '撤回（删除已保存批注文件）';
+            close.style.cssText = 'border:0;background:var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.14));'
+              + 'color:var(--dsw-alias-label-primary, #e5e7eb);border-radius:999px;'
+              + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
+              + 'align-items:center;justify-content:center;padding:0;';
+            chip.appendChild(close);
+            if (!document.getElementById('dsh-kit-ann-msg-style')) {
+              // × 的 hover 危险色（伪类走 style 标签，与输入框胶囊同款纪律）
+              const st = document.createElement('style');
+              st.id = 'dsh-kit-ann-msg-style';
+              st.textContent = '[data-dsh-kit-ann-msg] [data-role=close]:hover{'
+                + 'background:var(--dsw-alias-state-error-primary, rgba(220,38,38,0.85))!important;'
+                + 'color:var(--dsw-alias-label-primary-foreground, #ffffff)!important}';
+              document.head.appendChild(st);
+            }
+            chip.addEventListener('mouseenter', () => showAnnTip(chip, model));
+            chip.addEventListener('mouseleave', hideAnnTip);
+            close.addEventListener('click', () => {
+              model.retracted = true; // 占住配对位（防下轮 tick 重挂），不删除模型本身
+              wrap.remove();
+              hideAnnTip();
+              retractSaved(model);
+            });
+            wrap.appendChild(chip);
+            // 插入位置（用户需求 2026-10-05）：消息文本上方——跳过开头的纯图片节点（图片最上），
+            // 插到首个含文本的子节点之前；无子节点时兜底插到最前。
+            let anchor = null;
+            for (const child of holder.children) {
+              if ((child.textContent || '').trim()) { anchor = child; break; }
+            }
+            if (anchor) holder.insertBefore(wrap, anchor);
+            else if (holder.firstChild) holder.insertBefore(wrap, holder.firstChild);
+            else holder.appendChild(wrap);
+          };
+          /** 每轮 tick：发送消耗检测 + 会话胶囊配对挂载（幂等）。 */
+          const ensureConvoChips = () => {
+            try {
+              const convo = convoTitle();
+              const queue = (stateRef.sentChips = stateRef.sentChips || []);
+              if (queue.length > 100) queue.splice(0, queue.length - 100);
+              // 1) 发送消耗检测：saved 胶囊 + 本会话 userRow 增长/末行变化 → 消耗迁入队列。
+              //    用户手动清空草稿不产生新 userRow → 胶囊保留（仍可撤回），不误消耗。
+              const m = stateRef.chip;
+              if (m && m.mode === 'saved' && m.convo === convo) {
+                const rows = userRows();
+                const lastTxt = lastUserRowText(rows);
+                if (rows.length > (Number(m.baseline) || 0) || (lastTxt && lastTxt !== m.baselineLast)) {
+                  queue.push(m);
+                  stateRef.chip = null;
+                  removeAnnotChip();
+                }
+              }
+              // 2) 配对挂载：本会话模型 ↔ 末尾 N 条 userRow 的气泡（按序；撤回模型占位防错位；
+              //    重渲染后气泡缺胶囊由本幂等重挂补齐）。
+              const models = queue.filter((x) => x.convo === convo);
+              if (models.length === 0) return;
+              const rows2 = userRows();
+              const start = Math.max(0, rows2.length - models.length);
+              for (let i = start; i < rows2.length; i++) {
+                const model = models[i - start];
+                const row = rows2[i];
+                if (!row || !model || model.retracted) continue;
+                const holder = row.querySelector('[class*="_bubble"]') || row;
+                if (holder.querySelector('[data-dsh-kit-ann-msg]')) continue;
+                attachMsgChip(holder, model);
+              }
+            } catch { /* 失败不影响主流程 */ }
+          };
+
           /** 提交成功 → 挂「N 条批注 · 已保存」胶囊（× 可撤回）；输入框找不到才退回文本提示。 */
           const announceSubmission = (r) => {
             if (!r || r.ok !== true || !r.path) return;
             const n = Number(r.count);
-            stateRef.chip = { mode: 'saved', count: Number.isFinite(n) && n > 0 ? n : 0, path: r.path, convo: convoTitle() };
+            const rowsNow = userRows(); // 发送检测基线（userRow 行数 + 末行指纹，提交时点快照）
+            stateRef.chip = {
+              mode: 'saved',
+              count: Number.isFinite(n) && n > 0 ? n : 0,
+              path: r.path,
+              convo: convoTitle(),
+              items: Array.isArray(r.items) ? r.items : [], // 会话胶囊 hover 提示数据
+              bornAt: new Date().toISOString(),
+              baseline: rowsNow.length,
+              baselineLast: lastUserRowText(rowsNow),
+            };
             ensureAnnotChip();
             if (!document.getElementById(CHIP_ID)) {
               const c = Number.isFinite(n) && n > 0 ? n : 0;
@@ -927,16 +1114,27 @@ window.__ModuleLoader__.load({
             st.pending = (st.pending || []).filter((e) => e.pane !== winner.pane);
             if (winner.how === 'submitted') {
               const r = await mergeAndSave();
+              // 单次消耗（用户需求 2026-10-05）：提交即全窗口清空——逐面板 stop + clearAll
+              // （clearAll 全量 gid 进删除日志），随后趁 st.active 仍真跑一轮 syncPanes 把
+              // 删除广播到所有窗口。旧实现 stopAllPanes(true) 的 clear() 在 stop 之后
+              // session=null（removeBadges 已由 endSession 兜住）且**不写删除日志**，若
+              // 1.5s 同步圈恰好落在逐面板清空中段，会把成员批注从其他窗口推回来。
+              for (const p of st.panes) {
+                try {
+                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+                } catch { /* 面板已关闭等：死面板由后续刷新自愈 */ }
+              }
+              try { await syncPanes(); } catch { /* 广播失败：删除日志仍在，后续自愈 */ }
               st.active = false;
+              st.panes = [];
               st.lastSaved = r && r.ok ? r : null;
               if (r && r.ok === false) st.error = r.error;
-              await stopAllPanes(true);
               st.origins = {}; // 编号来源表随会话结束清空
               st.originUrls = {}; // 来源页 URL 表（同页门控用）随会话结束清空
               st.pending = [];
               if (st.leftIds) st.leftIds.clear(); // 显式退出记忆随会话结束清空
               announceSubmission(r); // 会话输入框提示（N 条 + 路径）
-              say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
+              say('info', `共享批注会话提交完成（单次消耗，批注已全窗口清空）：${r && r.ok ? r.path : r.error}`);
             } else {
               // 取消/Esc/重启动：**成员身份保留**（退出必须走 leavePane 显式开关）——
               // 否则 drive 自愈式 start 重启会把自己踢出成员表，跨面板同步随即失效。
@@ -993,7 +1191,21 @@ window.__ModuleLoader__.load({
               } catch { /* 成员不可达：跳过 */ }
             }
             if (sets.length === 0) return { ok: false, error: '无可提交批注' };
-            return unwrap(await svc.saveMerged(sets, null));
+            // 摘要（会话胶囊 hover 提示用）：编号/gid/选择器/文本片段，按编号排序
+            const items = [];
+            for (const s of sets) {
+              for (const a of s.annotations || []) {
+                items.push({
+                  index: Number(a.index) || 0,
+                  gid: a.gid || null,
+                  selector: String((a.element && a.element.selector) || ''),
+                  text: String((a.element && a.element.text) || '').slice(0, 60),
+                  url: s.url || null,
+                });
+              }
+            }
+            items.sort((x, y) => x.index - y.index);
+            return Object.assign({}, unwrap(await svc.saveMerged(sets, null)), { items });
           };
 
           /** 面板加入共享会话（编号交接：首个新批注 = 全局最大已用号 + 1，跨窗口延续）。 */
@@ -1727,6 +1939,7 @@ window.__ModuleLoader__.load({
             window.__dshKitClientDiag = {
               get state() { return stateRef; },
               ensureAnnotChip,
+              ensureConvoChips,
             };
           } catch { /* 全局诊断句柄挂载失败不影响 */ }
 
@@ -1911,11 +2124,21 @@ window.__ModuleLoader__.load({
             const ensureToolbarButtons = () => {
               let attached = 0;
               for (const form of toolbarForms()) {
-                if (form.querySelector('#dsh-kit-toolbar-btn')) { attached += 1; continue; }
+                const owned = form.querySelector('#dsh-kit-toolbar-btn');
+                if (owned) {
+                  /* P37 认领制（与胶囊同款）：click 闭包归属创建实例——不接管则批注动作永远
+                   * 路由进旧实例（旧代码旧状态）。自己/更新实例的按钮保留；无戳（P37 前旧按钮）
+                   * 或更旧实例的按钮拆除重挂，让动作路由进最新实例。 */
+                  const owner = (owned.dataset && owned.dataset.ownerBoot) || '';
+                  const myBoot = String(stateRef.clientBootAt);
+                  if (owner === myBoot || (owner && owner > myBoot)) { attached += 1; continue; }
+                  owned.remove();
+                }
                 const pane = webviewOfForm(form);
                 if (!pane) continue;
                 const btn = document.createElement('button');
                 btn.id = 'dsh-kit-toolbar-btn';
+                btn.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
                 btn.type = 'button';
                 btn.title = '元素批注（点击本窗口加入/退出共享批注）';
                 btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
@@ -1976,9 +2199,11 @@ window.__ModuleLoader__.load({
               new Promise((_, rej) => setTimeout(() => rej(new Error(`${tag || 'op'} 超时(${ms}ms)`)), ms)),
             ]);
             trackInterval(setInterval(async () => {
+              try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
               const st = stateRef.annot;
               refreshPanes();
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
+              ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
               const activeIds = (st && st.active && Array.isArray(st.panes))
                 ? new Set(st.panes.map(paneIdOf))
                 : new Set();
