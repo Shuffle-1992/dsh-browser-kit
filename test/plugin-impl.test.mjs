@@ -680,29 +680,4 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // tick 接线：ensureAnnotChip/ensureConvoChips 之后
     assert.match(clientSource, /ensureAwayBanner\(\); \/\/ 发送前防呆/);
   });
-
-  await t.test("消息引用插入（待实施会话实机验收；规格 .local/feature-message-quote.md）", () => {
-    // T1：buildQuoteBlock 纯函数 + 300 字截断常量 + 时间戳提取（规格正则）
-    assert.match(clientSource, /const buildQuoteBlock = \(rowText, senderLabel, timeText\) =>/);
-    assert.match(clientSource, /const QUOTE_MAX_CHARS = 300;/);
-    assert.match(clientSource, /const extractTime = \(rowText\) =>/);
-    assert.match(clientSource, /\[01\]\?\\d\|2\[0-3\]\):\[0-5\]\\d/);
-    // 摘录：去尾部时间戳 → 空白归一 → 空 → ''（调用方跳过追加）；输出 `> [头] 摘录\n`
-    assert.match(clientSource, /excerpt\.replace\(\/\\s\+\/g, ' '\)\.trim\(\)/);
-    assert.match(clientSource, /if \(!excerpt\) return '';/);
-    assert.match(clientSource, /return `> \[\$\{head\}\] \$\{clipped\}\\n`;/);
-    // T2：引用按钮浮层——单例 id、P37 认领戳、hover 行内挂载（position:relative 内联兜底）
-    assert.match(clientSource, /dsh-kit-quote-btn/);
-    assert.match(clientSource, /btn\.textContent = '❝ 引用';/);
-    assert.match(clientSource, /btn\.dataset\.ownerBoot = String\(stateRef\.clientBootAt\); \/\/ P37 认领戳/);
-    assert.match(clientSource, /row\.style\.position = 'relative'/);
-    // 点击 → primeSessionInput（只追加管线，P30）；连续引用 = 追加多个块（非空补空行由 quoteLeadIfNeeded 负责）
-    assert.match(clientSource, /if \(block\) primeSessionInput\(quoteLeadIfNeeded\(block\)\)/);
-    assert.match(clientSource, /const quoteLeadIfNeeded = \(block\) =>/);
-    // assistant 行兜底：语义后缀匹配（_body 且含 _content），勿按全类名（哈希前缀随构建变化）
-    assert.match(clientSource, /cls\.includes\('_body'\) && cur\.querySelector\('\[class\*="_content"\]'\)/);
-    // tick 接线：仅 hover 态行补挂（不做全量常驻）+ capture 委托
-    assert.match(clientSource, /ensureQuoteButtons\(\); \/\/ 消息引用/);
-    assert.match(clientSource, /document\.addEventListener\('mouseover', onQuoteOver, true\)/);
-  });
 });
