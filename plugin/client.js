@@ -728,6 +728,19 @@ window.__ModuleLoader__.load({
                     webviewCount: document.querySelectorAll('webview').length,
                   };
                 }
+                case 'toolbar-probe': {
+                  // 诊断：直接测 ensureToolbarButton 的每一步判定
+                  const bySelector = !!document.querySelector('form[class*="toolbar"]');
+                  const allForms = Array.from(document.querySelectorAll('form')).map((f) => f.className.slice(0, 60));
+                  const btnById = !!document.getElementById('dsh-kit-toolbar-btn');
+                  let formEl = document.querySelector('form[class*="toolbar"]');
+                  let rootHasWebview = null, rootCls = null;
+                  if (formEl && formEl.parentElement) {
+                    rootCls = String(formEl.parentElement.className || '').slice(0, 60);
+                    rootHasWebview = !!formEl.parentElement.querySelector('webview');
+                  }
+                  return { ok: true, bySelector, allForms, btnById, rootHasWebview, rootCls };
+                }
                 case 'page-close': {
                   const target = pickGuestEl();
                   const value = await target.executeJavaScript(
