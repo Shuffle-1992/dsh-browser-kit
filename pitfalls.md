@@ -143,3 +143,7 @@
 - **现象**（隐患，与 P25 症状同族）：按钮激活态 2s 同步用「当前 DOM 里的 webview」比对「点击闭包捕获的旧节点」，DSH 重渲染替换 webview 节点后 `includes` 恒 false → 图标永不点亮；对旧节点 executeJavaScript 行为不定。
 - **对策**：① 点击时现取 `webviewOfForm(form)`，不闭包持有；② 面板身份统一 `paneIdOf`（`getWebContentsId()` 数字优先，异常退元素自身）；③ 成员表每次用 `refreshPanes()` 映射回活节点（syncPanes/mergeAndSave/sessionMaxIndex/图标同步共用）。
 - **附**：会话活跃时其余窗口/标签由 2s 循环**自动加入**（用户诉求「窗口1开启 → 窗口2直接显示已开启」）；显式退出记入 `leftIds` 防自动加入拉回，会话结束清空；成员批注层因导航丢失（API 消失）自动重注入并从全局最大号续编（主动取消不丢 API，不触发）。
+### P28 跨窗口共享按 selector 全量推送：徽标串到别的页面（用户实测「批注串窗口」）
+- **现象**：窗口1在 A 页密码框批注 #1 → syncPanes 把批注推给窗口2，B 页的密码框 selector 同样命中 → 徽标 #1 挂在 B 页密码框上（annotator 1.4.0 实测反馈）。
+- **根因**：共享同步只认 gid，不管推送目标当前是什么页面；`addExternal` 在目标页 `querySelector(selector)` 命中同类元素就渲染徽标。「同一页面开两个窗口徽标两边出现」的核心诉求，被放大成「任何页面命中就出现」。
+- **对策（同页门控，1.5.0）**：共享板块保持全量（编号延续/互相引用不变）；sync 快照带回各面板 `location.href`，新 gid 登记来源页 URL（`st.originUrls`），推送项附 `_originUrl`；annotator `addExternal` 按 `samePageHref`（origin+pathname 相等）判 `pageOk`——**非同页只进列表不渲染徽标、不留 el、无 stale 语义**；`start()` 重钉标循环同样跳过。徽标串窗的历史实例靠版本 bump（1.4.0→1.5.0）触发整体重注入清场。

@@ -150,6 +150,24 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
       "面板清除按钮与 clearAll 同源：gid 进删除日志",
     );
 
+    // 同页门控（1.5.0）：跨页共享项只进列表不渲染徽标；同页共享项照常渲染
+    await drive.evalJs(
+      cdp,
+      'window.__dshKitAnnotator.addExternal([{ gid: "xpage-1", index: 9, note: "别的页面来的", element: { tagName: "button", selector: "#btn-a" }, _originUrl: "http://other.example/login" }])',
+    );
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1, "跨页共享项应进共享板块列表");
+    assert.equal(
+      await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'),
+      0,
+      "跨页共享项不得渲染徽标（防串窗，用户实测反馈）",
+    );
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list()[0].stale"), undefined, "跨页共享项无 stale 语义");
+    await drive.evalJs(
+      cdp,
+      'window.__dshKitAnnotator.addExternal([{ gid: "xpage-2", index: 10, note: "同页来的", element: { tagName: "button", selector: "#btn-a" }, _originUrl: location.href }])',
+    );
+    assert.equal(await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'), 1, "同页共享项照常渲染徽标");
+
     await cdp.close();
   } finally {
     await drive.close();

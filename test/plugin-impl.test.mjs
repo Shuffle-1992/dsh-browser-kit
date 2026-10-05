@@ -428,13 +428,20 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const refreshPanes = \(\) =>/);
   });
 
-  await t.test("1.4.0：版本锁同步 + 提交提示写入会话输入框 + 清除按钮契约", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.4\.0'/);
+  await t.test("1.5.0：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）", () => {
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.5\.0'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.4\.0"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.5\.0"/);
+    // 同页门控：sync 快照带 href、来源页 URL 登记、推送附 _originUrl；annotator 按 pageOk 抑制徽标
+    assert.match(clientSource, /href: location\.href/);
+    assert.match(clientSource, /st\.originUrls\[a\.gid\] = s\.url/);
+    assert.match(clientSource, /_originUrl/);
+    assert.match(clientSource, /originUrls: \{\}/);
+    assert.match(annotSource, /function samePageHref\(/);
+    assert.match(annotSource, /pageOk/);
     // 清除按钮：存在于面板、append 顺序在 chevron 之前（DOM 顺序 = 图标左侧）
     assert.match(annotSource, /data-dsh-kit-panel-clear/);
     assert.match(

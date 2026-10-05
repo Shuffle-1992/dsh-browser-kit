@@ -633,7 +633,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.4.0';
+          const EXPECTED_ANNOT_VERSION = '1.5.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -709,6 +709,7 @@ window.__ModuleLoader__.load({
               if (r && r.ok === false) st.error = r.error;
               await stopAllPanes(true);
               st.origins = {}; // 编号来源表随会话结束清空
+              st.originUrls = {}; // 来源页 URL 表（同页门控用）随会话结束清空
               st.pending = [];
               if (st.leftIds) st.leftIds.clear(); // 显式退出记忆随会话结束清空
               announceSubmission(r); // 会话输入框提示（N 条 + 路径）
@@ -823,7 +824,7 @@ window.__ModuleLoader__.load({
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
-            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, leftIds: new Set(), count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
             startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
             runSessionLoop();
             say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标退出/重进本窗口）');
@@ -856,18 +857,23 @@ window.__ModuleLoader__.load({
             try {
               const states = [];
               for (const p of st.panes) {
-                let list = [];
-                let deleted = [];
                 try {
-                  list = (await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true)) || [];
-                  deleted = (await p.executeJavaScript('(window.__dshKitDeletedGids || [])', true)) || [];
-                } catch { states.push({ pane: p, list, deleted, dead: true }); continue; }
-                states.push({ pane: p, list: Array.isArray(list) ? list : [], deleted: Array.isArray(deleted) ? deleted : [] });
+                  // url+list+deleted 一次往返取回；url 用于同页门控（徽标只渲染在 origin 同页，防串窗）
+                  const snap = await p.executeJavaScript('({ href: location.href, list: (window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : []), deleted: (window.__dshKitDeletedGids || []) })', true);
+                  const o = (snap && typeof snap === 'object') ? snap : {};
+                  states.push({ pane: p, url: String(o.href || ''), list: Array.isArray(o.list) ? o.list : [], deleted: Array.isArray(o.deleted) ? o.deleted : [] });
+                } catch {
+                  states.push({ pane: p, url: '', list: [], deleted: [], dead: true });
+                  continue;
+                }
               }
-              // 登记新 gid 的来源面板（首次出现处）
+              // 登记新 gid 的来源面板与来源页 URL（首次出现处）
               for (const s of states) {
                 for (const a of s.list) {
-                  if (a.gid && !(a.gid in st.origins)) st.origins[a.gid] = s.pane;
+                  if (a.gid && !(a.gid in st.origins)) {
+                    st.origins[a.gid] = s.pane;
+                    if (st.originUrls) st.originUrls[a.gid] = s.url;
+                  }
                 }
               }
               // 删除判定：gid 出现在任意删除日志，或来源面板已无此 gid
@@ -889,11 +895,14 @@ window.__ModuleLoader__.load({
                   }
                 }
               }
-              // 推送缺失/落后项到各面板（addExternal 按 gid 幂等）
+              // 推送缺失/落后项到各面板（addExternal 按 gid 幂等）；附 _originUrl 供
+              // annotator 同页门控：非同页共享项只进共享板块列表，不渲染徽标（防串窗）
               for (const s of states) {
                 const mine = {};
                 for (const a of s.list) if (a.gid) mine[a.gid] = true;
-                const toPush = union.filter((u) => u.origin !== s.pane && !mine[u.item.gid]).map((u) => u.item);
+                const toPush = union
+                  .filter((u) => u.origin !== s.pane && !mine[u.item.gid])
+                  .map((u) => ({ ...u.item, _originUrl: (st.originUrls && st.originUrls[u.item.gid]) || null }));
                 if (toPush.length) {
                   try {
                     await s.pane.executeJavaScript('window.__dshKitAnnotator.addExternal(' + JSON.stringify(toPush) + ')', true);

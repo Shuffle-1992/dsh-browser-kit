@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.4.0"; // 面板「清除」按钮：全量清除 + 删除日志广播（跨窗口同步移除）
+  window.__dshKitAnnotatorVersion = "1.5.0"; // 跨窗口共享加「同页门控」：非同页共享项只进列表不渲染徽标（防串窗，用户实测反馈）
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -490,7 +490,29 @@
     sessionListeners = [];
   }
 
+  /** 同页判定（跨窗口共享的门控）：origin+pathname 相同即同页（query/hash 差异不影响）。
+   *  用户实测：窗口1在 A 页密码框批注 → 窗口2的 B 页密码框 selector 也命中，徽标串窗。
+   *  共享板块保持全量（编号延续/互相引用），但**徽标只在同页渲染**。 */
+  function samePageHref(a, b) {
+    if (!a || !b) {
+      return false;
+    }
+    if (a === b) {
+      return true;
+    }
+    try {
+      var u1 = new URL(a);
+      var u2 = new URL(b);
+      return u1.origin === u2.origin && u1.pathname === u2.pathname;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function isStale(record) {
+    if (record.pageOk === false) {
+      return false; // 跨页共享项：元素本就不在本页，不存在 stale 语义
+    }
     if (!record.el || !record.el.isConnected) {
       return true;
     }
@@ -1432,6 +1454,9 @@
       ensureHoverLayers();
       ensurePanel();
       annotations.forEach(function (record) {
+        if (record.pageOk === false) {
+          return; // 跨页共享项：不渲染徽标（防串窗）
+        }
         renderBadge(record); // 跨会话保留的批注重新钉标
       });
       document.documentElement.style.cursor = "crosshair";
@@ -1552,19 +1577,31 @@
         } catch (_) {
           el = null;
         }
+        // 同页门控：跨页共享项只进共享板块（列表/编号/提交），不在本页渲染徽标（防串窗）
+        var pageOk = true;
+        if (item._originUrl) {
+          try {
+            pageOk = samePageHref(item._originUrl, location.href);
+          } catch (_) {
+            pageOk = true;
+          }
+        }
         var record = {
           gid: item.gid,
           index: index,
           note: item.note || "",
           element: item.element,
-          el: el,
+          el: pageOk ? el : null, // 非同页不留 el（selector 在别的页面可能误命中同类元素）
           badge: null,
+          pageOk: pageOk,
         };
         annotations.push(record);
-        renderBadge(record);
-        if (!record.el && item.element && item.element.rect) {
-          record.badge.style.left = Math.max(0, Number(item.element.rect.x) || 0) + "px";
-          record.badge.style.top = Math.max(0, Number(item.element.rect.y) || 0) + "px";
+        if (pageOk) {
+          renderBadge(record);
+          if (!record.el && item.element && item.element.rect) {
+            record.badge.style.left = Math.max(0, Number(item.element.rect.x) || 0) + "px";
+            record.badge.style.top = Math.max(0, Number(item.element.rect.y) || 0) + "px";
+          }
         }
         changed = true;
       });
