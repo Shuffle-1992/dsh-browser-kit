@@ -549,10 +549,11 @@ window.__ModuleLoader__.load({
             // GUI 侧自诊断（随探测上报：实施会话读报告即可定位面板/工具条问题）
             findings.gui = {
               clientBootAt: stateRef.clientBootAt,
-              toolbarBtnConnected: !!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected),
+              toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
               panelRootInDom: !!document.getElementById('dsh-kit-panel'),
               remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
               annotActive: !!(stateRef.annot && stateRef.annot.active),
+              annotPaneCount: (stateRef.annot && Array.isArray(stateRef.annot.panes)) ? stateRef.annot.panes.length : 0,
               lastToggleError: stateRef.lastToggleError || null,
             };
             stateRef.findings = findings;
@@ -573,75 +574,151 @@ window.__ModuleLoader__.load({
             return target;
             };
 
-          /** 确保批注层已注入（重复注入会打断活动会话，故先查 API 存在性）。 */
-          const ensureAnnotator = async (svc) => {
-            const target = pickGuestEl();
-            const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
-            if (has === true) return target;
-            if (!annotSourceCache) {
-              const g = unwrap(await svc.getInjectScript());
-              if (!g || g.ok === false) throw new Error(`getInjectScript 失败：${(g && g.error) || '未知'}`);
-              annotSourceCache = { mtime: g.mtime, source: g.source };
-              say('info', `批注层源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
+          /**
+           * 共享批注会话模型（用户需求：同会话多窗口共用一份批注、批注号跨窗口延续、
+           * 不同会话的窗口互不影响）：
+           *  - stateRef.annot = { active, panes:[webview…], pending:[{pane,promise}], count, … }；
+           *  - 面板的图标/菜单点击 = 该面板「加入 / 退出」共享会话（没点过的窗口不参与——
+           *    不同 DSH 会话的窗口天然独立；跨会话归属的自动识别需宿主租约信息，列入后续增强）；
+           *  - 任一成员面板提交 → 收集**全部成员**的批注 → host `saveMerged` 按 capturedAt
+           *    权威重编号（= 页内徽标号，由 startIndex 交接保证）→ 单个协议文件；
+           *  - 编号交接：加入时 startIndex = 成员间最大已用号 + 1（窗口1 批了 1、2 → 窗口2 从 3 起）。
+           */
+          const sessionMaxIndex = async () => {
+            let max = 0;
+            for (const p of stateRef.annot.panes) {
+              try {
+                const lst = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list().map(function (a) { return a.index; }) : [])', true);
+                if (Array.isArray(lst)) for (const n of lst) if (typeof n === 'number' && n > max) max = n;
+              } catch { /* 面板已关闭等：跳过 */ }
             }
-            await target.executeJavaScript(annotSourceCache.source, true);
-            const ok = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined"', true);
-            if (ok !== true) throw new Error('批注层注入后 API 缺失');
-            return target;
+            return max;
           };
 
-          /** 批注会话主流程：start 的 Promise 由 executeJavaScript await，提交后 payload 走全局暂存桥。 */
-          const startAnnotSession = async () => {
-            if (stateRef.annot && stateRef.annot.active) return { ok: false, error: '批注会话进行中' };
+          const sessionSettled = async (winner) => {
+            const st = stateRef.annot;
+            if (!st || !st.active) return;
+            st.pending = (st.pending || []).filter((e) => e.pane !== winner.pane);
+            if (winner.how === 'submitted') {
+              const r = await mergeAndSave(winner.pane);
+              st.active = false;
+              st.lastSaved = r && r.ok ? r : null;
+              if (r && r.ok === false) st.error = r.error;
+              await stopAllPanes(true);
+              say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
+            } else {
+              // 该面板退出（Esc/关闭/导航），其余成员继续
+              st.panes = st.panes.filter((p) => p !== winner.pane);
+              if (st.panes.length === 0) st.active = false;
+              else runSessionLoop();
+            }
+          };
+
+          const startPaneInSession = async (target, startIndex) => {
+            const howPromise = (async () => {
+              let how = 'cancelled';
+              try {
+                how = await target.executeJavaScript(
+                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0} })`,
+                  true,
+                );
+              } catch (e) {
+                how = `error:${msgOf(e)}`;
+              }
+              return { pane: target, how };
+            })();
+            stateRef.annot.pending.push({ pane: target, promise: howPromise });
+            howPromise.then((w) => {
+              sessionSettled(w).catch((e) => say('warn', `会话收尾异常：${msgOf(e)}`));
+            }).catch(() => {});
+            return howPromise;
+          };
+
+          const stopAllPanes = async (withClear) => {
+            for (const p of stateRef.annot.panes) {
+              try {
+                await p.executeJavaScript(withClear
+                  ? '(window.__dshKitAnnotator ? (window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined), window.__dshKitAnnotator.clear ? window.__dshKitAnnotator.clear() : undefined, undefined) : undefined'
+                  : '(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
+              } catch { /* 面板已关闭等 */ }
+            }
+            stateRef.annot.panes = [];
+          };
+
+          /** 收集全部成员批注 → host saveMerged 合并落盘。 */
+          const mergeAndSave = async (submitterPane) => {
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
-            const target = await ensureAnnotator(svc);
-            stateRef.annot = { active: true, count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
-            // 批注条数轮询（面板实时显示）
-            stateRef.annot.timer = setInterval(() => {
-              target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.list ? window.__dshKitAnnotator.list().length : -1)', true)
-                .then((n) => { if (stateRef.annot) stateRef.annot.count = n; })
-                .catch(() => {});
-            }, 1200);
-            say('info', '批注会话开始（在页面里点元素 → 留意见 → 面板提交 / Esc 取消）');
-            let how = 'cancelled';
-            try {
-              how = await target.executeJavaScript(
-                'window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; } })',
-                true,
-              );
-            } catch (e) {
-              how = `error:${msgOf(e)}`;
-            }
-            clearInterval(stateRef.annot.timer);
-            stateRef.annot.active = false;
-            let saved = null;
-            if (how === 'submitted') {
+            const sets = [];
+            for (const p of stateRef.annot.panes) {
               try {
-                const r = await target.executeJavaScript('window.__dshKitLastSubmit', true);
-                if (r && typeof r.markdown === 'string') {
-                  let meta = null;
-                  try {
-                    const m = await target.executeJavaScript('({ url: location.href, title: document.title })', true);
-                    if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
-                  } catch { /* 元数据失败不拦保存 */ }
-                  const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
-                  saved = sr && sr.ok ? sr : null;
-                  stateRef.annot.lastSaved = saved;
-                  if (!saved) say('warn', `saveAnnotations 失败：${(sr && sr.error) || '未知'}`);
-                }
-              } catch (e) {
-                say('warn', `取回提交结果失败：${msgOf(e)}`);
-              }
+                const lst = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true);
+                if (!Array.isArray(lst)) continue;
+                let meta = null;
+                try {
+                  const m = await p.executeJavaScript('({ url: location.href, title: document.title })', true);
+                  if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
+                } catch { /* 元数据失败不拦合并 */ }
+                if (lst.length > 0) sets.push({ url: (meta && meta.url) || null, title: (meta && meta.title) || null, annotations: lst });
+              } catch { /* 成员不可达：跳过 */ }
             }
-            say('info', `批注会话结束（${how}${saved ? `，已保存 ${saved.path}` : ''}）`);
-            return { ok: true, how, saved };
+            if (sets.length === 0) return { ok: false, error: '无可提交批注' };
+            void submitterPane;
+            return unwrap(await svc.saveMerged(sets, null));
           };
 
-          const stopAnnotSession = async () => {
-            const target = pickGuestEl();
-            await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
-            return { ok: true };
+          /** 面板加入共享会话（startIndex = 成员间最大已用号 + 1，跨窗口延续）。 */
+          const joinPane = async (target) => {
+            const nextIndex = (stateRef.annot.panes.length > 0 ? await sessionMaxIndex() : 0) + 1;
+            const svc = await waitSvc();
+            if (!svc) throw new Error('host 远端面未就绪');
+            await ensureAnnotator(svc, target);
+            await startPaneInSession(target, nextIndex);
+          };
+
+          /** 面板退出共享会话（stop 由其 watcher 收尾）。 */
+          const leavePane = (target) => target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
+
+          /** 图标/菜单开关语义：该面板未参与 → 加入；已参与 → 退出（最后一个退出 = 会话结束）。 */
+          const togglePaneAnnot = async (targetEl) => {
+            const target = targetEl || pickGuestEl();
+            if (stateRef.annot && stateRef.annot.active) {
+              if (stateRef.annot.panes.includes(target)) {
+                await leavePane(target);
+                stateRef.annot.panes = stateRef.annot.panes.filter((p) => p !== target);
+                if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
+                return { ok: true, left: true };
+              }
+              await joinPane(target);
+              return { ok: true, joined: true };
+            }
+            // 新会话：点击者为其首个成员
+            const svc = await waitSvc();
+            if (!svc) return { ok: false, error: 'host 远端面未就绪' };
+            await ensureAnnotator(svc, target);
+            stateRef.annot = { active: true, panes: [target], pending: [], count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            stateRef.annot.timer = setInterval(() => {
+              let sum = 0;
+              for (const p of stateRef.annot.panes) {
+                p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.list ? window.__dshKitAnnotator.list().length : 0)', true)
+                  .then((n) => { sum += typeof n === 'number' && n > 0 ? n : 0; })
+                  .catch(() => {});
+              }
+              setTimeout(() => { if (stateRef.annot) stateRef.annot.count = sum; }, 300);
+            }, 1200);
+            await startPaneInSession(target, 1);
+            runSessionLoop();
+            say('info', '共享批注会话开始（本窗口已加入；其他窗口点图标加入）');
+            return { ok: true, started: true };
+          };
+
+          /** 会话主循环：等任一成员 settle（提交/退出）并收尾。 */
+          const runSessionLoop = () => {
+            const pending = (stateRef.annot && stateRef.annot.pending) || [];
+            if (pending.length === 0) return;
+            Promise.race(pending.map((e) => e.promise))
+              .then((winner) => { sessionSettled(winner).catch((e) => say('warn', `会话收尾异常：${msgOf(e)}`)); })
+              .catch(() => {});
           };
 
           /* ─────────────── MVP-4 种子：命令通道（实施会话写 .data/command.json 驱动） ─────────────── */
@@ -661,13 +738,20 @@ window.__ModuleLoader__.load({
                 }
                 case 'start-annotator': {
                   // 不能 await：会话直到提交/Esc 才结束，await 会卡死命令轮询（cmdBusy）
-                  startAnnotSession().then((r) => {
-                    say('info', `批注会话（命令触发）收尾：${JSON.stringify(r).slice(0, 120)}`);
+                  const target = pickGuestEl();
+                  togglePaneAnnot(target).then((r) => {
+                    say('info', `批注（命令触发）：${JSON.stringify(r).slice(0, 120)}`);
                   }).catch(() => {});
                   return { ok: true, started: true };
                 }
                 case 'stop-annotator': {
-                  return await stopAnnotSession();
+                  const target = pickGuestEl();
+                  await leavePane(target);
+                  if (stateRef.annot) {
+                    stateRef.annot.panes = stateRef.annot.panes.filter((p) => p !== target);
+                    if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
+                  }
+                  return { ok: true };
                 }
                 case 'annotator-status': {
                   const target = pickGuestEl();
@@ -675,14 +759,18 @@ window.__ModuleLoader__.load({
                   return { ok: true, ...st };
                 }
                 case 'guest-eval': {
-                  // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行。
+                  // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
+                  // tab（0 起）指定目标面板（默认第一个）——多浏览器窗口分别驱动。
                   // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
                   // 会因提升让全函数体的 document 变 undefined（cmd-72/73 实测自坑，P23）。
-                  const target = pickGuestEl();
+                  const els = Array.from(document.querySelectorAll('webview'));
+                  const tabIdx = Number(c.tab) || 0;
+                  const target = els[tabIdx] || pickGuestEl();
                   const docPre = c.frame ? TARGET_DOC_SNIPPET : '';
+                  const docExpr = c.frame ? 'DOC' : 'document';
                   const code = String(c.code || '');
                   const value = await target.executeJavaScript(
-                    `(function () { ${docPre} return (function (document) {\n${code}\n})(DOC || document); })()`,
+                    `(function () { ${docPre} return (function (document) {\n${code}\n})(${docExpr}); })()`,
                     true,
                   );
                   return { ok: true, value };
@@ -716,10 +804,16 @@ window.__ModuleLoader__.load({
                     ok: true,
                     clientBootAt: stateRef.clientBootAt || null,
                     annot: stateRef.annot
-                      ? { active: stateRef.annot.active, count: stateRef.annot.count, error: stateRef.annot.error || null, startedAt: stateRef.annot.startedAt || null }
+                      ? {
+                          active: stateRef.annot.active,
+                          paneCount: Array.isArray(stateRef.annot.panes) ? stateRef.annot.panes.length : 0,
+                          count: stateRef.annot.count,
+                          error: stateRef.annot.error || null,
+                          startedAt: stateRef.annot.startedAt || null,
+                        }
                       : null,
                     lastToggleError: stateRef.lastToggleError || null,
-                    toolbarBtnConnected: !!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected),
+                    toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
                     panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                     panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
                     remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
@@ -908,6 +1002,11 @@ window.__ModuleLoader__.load({
                   return await captureShot();
                 }
                 case 'submit-annotations': {
+                  // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
+                  if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
+                    const r = await mergeAndSave(null);
+                    return r && r.ok ? { ok: true, path: r.path, bytes: r.bytes, count: r.count } : { ok: false, error: (r && r.error) || '保存失败' };
+                  }
                   const target = await ensureAnnotator(svc);
                   const r = await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.submit ? window.__dshKitAnnotator.submit() : null)', true);
                   if (!r || typeof r.markdown !== 'string') return { ok: false, error: '无可打包批注' };
@@ -1107,93 +1206,95 @@ window.__ModuleLoader__.load({
                   }).catch(() => {});
                 },
                 toggleAnnot: () => {
-                  if (stateRef.annot && stateRef.annot.active) {
-                    stopAnnotSession().catch((e) => say('warn', `结束批注失败：${msgOf(e)}`));
-                  } else {
-                    startAnnotSession().then((r) => {
+                  try {
+                    const target = pickGuestEl();
+                    togglePaneAnnot(target).then((r) => {
                       if (r && r.ok === false) {
                         if (stateRef.annot) stateRef.annot.error = r.error;
-                        say('warn', `批注启动失败：${r.error}`);
+                        say('warn', `批注失败：${r.error}`);
                       }
                     }).catch((e) => say('warn', `批注异常：${msgOf(e)}`));
+                  } catch (e) {
+                    say('warn', `批注：${msgOf(e)}`);
                   }
                 },
               },
             })),
           ));
 
-          /* 尽力而为的临时入口：把批注图标注进浏览器工具条（宿主未开放该位置插槽，DOM 注入 +
-           * MutationObserver 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。 */
+          /* 尽力而为的临时入口：把批注图标注入**每一个**浏览器工具条（多标签各一个；
+           * 宿主未开放该位置插槽，DOM 注入 + 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。
+           * 各按钮绑定自己面板的 webview：点击 = 该面板加入/退出共享批注会话。 */
           try {
-            const ensureToolbarButton = () => {
-              if (document.getElementById('dsh-kit-toolbar-btn')) return true;
-              const form = document.querySelector('form[class*="toolbar"]');
-              if (!form) return false;
-              const rootEl = form.parentElement;
-              if (!rootEl || !rootEl.querySelector('webview')) return false; // 只挂带 webview 的浏览器工具条
-              const btn = document.createElement('button');
-              btn.id = 'dsh-kit-toolbar-btn';
-              btn.type = 'button';
-              btn.title = '元素批注（点击开启/关闭）';
-              btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
-              btn.innerHTML =
-                '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
-                '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
-                '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
-                '</svg>';
-              btn.addEventListener('click', () => {
-                try {
-                  if (stateRef.annot && stateRef.annot.active) {
-                    stopAnnotSession().then((r) => {
-                      if (r && r.ok === false) { stateRef.lastToggleError = r.error || null; if (stateRef.toolbarBtn) stateRef.toolbarBtn.title = '关闭失败：' + (r.error || ''); }
-                    }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
-                  } else {
+            const toolbarForms = () => Array.from(document.querySelectorAll('form[class*="toolbar"]'))
+              .filter((f) => f.parentElement && f.parentElement.querySelector('webview'));
+            const webviewOfForm = (form) => form.parentElement.querySelector('webview');
+            const ensureToolbarButtons = () => {
+              let attached = 0;
+              for (const form of toolbarForms()) {
+                if (form.querySelector('#dsh-kit-toolbar-btn')) { attached += 1; continue; }
+                const pane = webviewOfForm(form);
+                if (!pane) continue;
+                const btn = document.createElement('button');
+                btn.id = 'dsh-kit-toolbar-btn';
+                btn.type = 'button';
+                btn.title = '元素批注（点击本窗口加入/退出共享批注）';
+                btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
+                btn.innerHTML =
+                  '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+                  '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+                  '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
+                  '</svg>';
+                btn.addEventListener('click', () => {
+                  try {
                     stateRef.lastToggleError = null;
-                    startAnnotSession().then((r) => {
+                    togglePaneAnnot(pane).then((r) => {
                       if (r && r.ok === false) {
                         stateRef.lastToggleError = r.error || null;
-                        if (stateRef.toolbarBtn) stateRef.toolbarBtn.title = '批注启动失败：' + (r.error || '');
+                        btn.title = '批注失败：' + (r.error || '');
                       }
                     }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+                  } catch (e) {
+                    stateRef.lastToggleError = msgOf(e);
                   }
-                } catch (e) {
-                  stateRef.lastToggleError = msgOf(e);
-                }
-              });
-              form.appendChild(btn);
-              stateRef.toolbarBtn = btn;
-              return true;
+                });
+                form.appendChild(btn);
+                attached += 1;
+              }
+              stateRef.toolbarBtnCount = attached;
+              return attached;
             };
-            stateRef.ensureToolbarButton = ensureToolbarButton;
-            ensureToolbarButton();
-            // 守卫：按钮被框架重渲染移除后自动重挂（去抖 600ms，上限 200 次）
+            stateRef.ensureToolbarButtons = ensureToolbarButtons;
+            ensureToolbarButtons();
+            // 守卫：新工具条出现 / 按钮被框架重渲染移除 → 自动补挂（3s 轮询 + 变更观察双保险）
             let tbPending = null;
-            let tbLeft = 200;
+            let tbLeft = 2000;
             const tbObserver = new MutationObserver(() => {
               if (tbLeft <= 0) return;
-              if (document.getElementById('dsh-kit-toolbar-btn')) return;
               tbLeft -= 1;
               clearTimeout(tbPending);
-              tbPending = setTimeout(() => { try { ensureToolbarButton(); } catch { /* ignore */ } }, 600);
+              tbPending = setTimeout(() => { try { ensureToolbarButtons(); } catch { /* ignore */ } }, 600);
             });
             tbObserver.observe(document.body, { childList: true, subtree: true });
-            // 轮询挂载：浏览器面板晚于插件激活挂载时（boot 瞬间 form 尚不存在），定时补挂
-            setInterval(() => {
-              try {
-                if (!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected)) ensureToolbarButton();
-              } catch { /* ignore */ }
-            }, 3000);
             if (typeof ctx?.effect === 'function') {
               ctx.effect(() => () => { try { tbObserver.disconnect(); } catch { /* ignore */ } });
             }
-            // 激活态外观同步（2s）
             setInterval(() => {
-              const btn = stateRef.toolbarBtn;
-              if (!btn || !btn.isConnected) return;
-              const active = stateRef.annot && stateRef.annot.active;
-              btn.style.background = active
-                ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb))'
-                : 'transparent';
+              try { ensureToolbarButtons(); } catch { /* ignore */ }
+            }, 3000);
+            // 各按钮激活态外观同步（2s）：按钮对应面板 ∈ 共享会话成员 → 实心底
+            setInterval(() => {
+              const st = stateRef.annot;
+              const activePanes = (st && st.active) ? st.panes : [];
+              for (const form of toolbarForms()) {
+                const btn = form.querySelector('#dsh-kit-toolbar-btn');
+                if (!btn) continue;
+                const pane = webviewOfForm(form);
+                const active = pane && activePanes.includes(pane);
+                btn.style.background = active
+                  ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb))'
+                  : 'transparent';
+              }
             }, 2000);
           } catch (e) {
             say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);
@@ -1212,13 +1313,13 @@ window.__ModuleLoader__.load({
                   'div',
                   {
                     onClick: () => {
-                      if (stateRef.annot && stateRef.annot.active) {
-                        stopAnnotSession().catch((e) => say('warn', `结束批注失败：${msgOf(e)}`));
-                      } else {
-                        startAnnotSession().then((r) => {
-                          if (r && r.ok === false) say('warn', `批注启动失败：${r.error}`);
+                      try {
+                        const pane = document.querySelector('webview');
+                        if (!pane) return;
+                        togglePaneAnnot(pane).then((r) => {
+                          if (r && r.ok === false) say('warn', `批注失败：${r.error}`);
                         }).catch(() => {});
-                      }
+                      } catch { /* ignore */ }
                     },
                     style: {
                       display: 'flex', alignItems: 'center', gap: 6,

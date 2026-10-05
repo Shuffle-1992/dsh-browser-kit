@@ -451,6 +451,7 @@
 
   var annotations = []; // { index, note, element, el, badge }
   var session = null; // { resolve, onSubmit }
+  var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
   var inputState = null; // { record, isNew, container, field }
 
   var overlay = null;
@@ -518,9 +519,12 @@
   }
 
   function nextIndex() {
-    return annotations.reduce(function (max, record) {
-      return Math.max(max, record.index);
-    }, 0) + 1;
+    return Math.max(
+      annotations.reduce(function (max, record) {
+        return Math.max(max, record.index);
+      }, 0),
+      indexBase,
+    ) + 1;
   }
 
   // ---------------------------------------------------------------- hover 高亮（ZCode 基座）
@@ -1332,6 +1336,9 @@
     }
     closeNoteInput(true);
     var opts = options || {};
+    if (opts.startIndex != null) {
+      indexBase = Number(opts.startIndex) || 0; // 多面板共享编号：后加入窗口从全局最大号之后继续
+    }
     return new Promise(function (resolve) {
       session = {
         resolve: resolve,
@@ -1395,7 +1402,8 @@
   // ---------------------------------------------------------------- 公开契约（任务书 §3.2，钉死）
 
   window[STATE_KEY] = {
-    /** 开始批注会话；返回 Promise<'cancelled' | 'submitted'>。opts.onSubmit 在面板提交时回调。 */
+    /** 开始批注会话；返回 Promise<'cancelled' | 'submitted'>。opts.onSubmit 在面板提交时回调；
+     *  opts.startIndex 设置批注编号下限（多面板共享编号：后加入窗口从全局最大号之后继续）。 */
     start: function (options) {
       return startAnnotating(options);
     },

@@ -24,6 +24,7 @@ const {
   dedupeFile,
   saveShotImpl,
   saveAnnotationsImpl,
+  saveMergedImpl,
   takeCommandImpl,
   commandResultImpl,
   shapeOf,
@@ -263,6 +264,38 @@ test("commandResultImpl：追加 JSONL（at/id/result），undefined 落 null", 
   for (const line of lines) assert.equal(typeof line.at, "string");
 });
 
+/* ─────────────── 3.6b saveMergedImpl（多面板合并：capturedAt 排序 + 权威重编号） ─────────────── */
+
+test("saveMergedImpl：跨组合并 + 按创建时间重编号 + 索引 merged 计数", (t) => {
+  const paths = makePaths(t);
+  const ann = (idx, capturedAt, sel, note) => ({
+    index: idx,
+    note: note || null,
+    element: { selector: sel, capturedAt },
+  });
+  const sets = [
+    { url: "https://a.example/", title: "A", annotations: [ann(1, 1000, "#a1", "窗口1第一条"), ann(2, 2000, "#a2")] },
+    { url: "https://b.example/", title: "B", annotations: [ann(1, 3000, "#b1", "窗口2第一条")] },
+  ];
+  const r = saveMergedImpl(paths, sets, { title: "合并页" });
+  assert.equal(r.ok, true);
+  assert.equal(r.count, 3);
+  const md = readFileSync(r.path, "utf8");
+  assert.match(md, /^# Web page annotations: 3\r?\n/);
+  // 权威重编号：按 capturedAt 升序 → 1/2/3（原窗口2的本地 1 号变全局 3 号）
+  const order = [...md.matchAll(/^## Annotation (\d+)$/gm)].map((m) => Number(m[1]));
+  assert.deepEqual(order, [1, 2, 3]);
+  const selectors = [...md.matchAll(/^Selector: (.+)$/gm)].map((m) => m[1].trim());
+  assert.deepEqual(selectors, ["#a1", "#a2", "#b1"]);
+  const [line] = jsonl(join(paths.pluginDir, "..", "annotations", "index.jsonl"));
+  assert.equal(line.count, 3);
+  assert.equal(line.merged, 2);
+  assert.equal(line.url, "https://a.example/");
+  // 空组 / sets 缺失 → 拒绝
+  assert.equal(saveMergedImpl(paths, [{ url: "x", annotations: [] }]).ok, false);
+  assert.equal(saveMergedImpl(paths, null).ok, false);
+});
+
 /* ─────────────── 3.7 shapeOf / extractApi ─────────────── */
 
 test("shapeOf/extractApi：jiti 互操作形状与候选链", async (t) => {
@@ -321,14 +354,14 @@ test("dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩
 /* ─────────────── 3.7 wire.host.mjs TYPERT ─────────────── */
 
 test("wire TYPERT 清单形状（不触网）", async (t) => {
-  await t.test("package/service 固定，invocations 恰 6 个且 id 形如 pkg#face/method", () => {
+  await t.test("package/service 固定，invocations 恰 7 个且 id 形如 pkg#face/method", () => {
     assert.equal(FACE_NAME, "dshBrowserKit");
     assert.equal(TYPERT.package, "@local/dsh-browser-kit");
     assert.equal(TYPERT.service, FACE_NAME);
-    assert.equal(TYPERT.invocations.length, 6);
+    assert.equal(TYPERT.invocations.length, 7);
     assert.deepEqual(
       TYPERT.invocations.map((i) => i.id),
-      ["reportClient", "saveShot", "saveAnnotations", "getInjectScript", "takeCommand", "commandResult"].map(
+      ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "getInjectScript", "takeCommand", "commandResult"].map(
         (m) => `@local/dsh-browser-kit#dshBrowserKit/${m}`,
       ),
     );

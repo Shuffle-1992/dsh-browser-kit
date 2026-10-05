@@ -16,6 +16,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
 
 /** 同款 ?ts= 击穿 wire.host.mjs 缓存（由 apply 传入 mtime）。 */
 let wireCacheBust = 'init';
@@ -268,6 +269,10 @@ function dirnameCompat(p) {
   return i > 0 ? p.slice(0, i) : '.';
 }
 
+function groupsLen(sets) {
+  return Array.isArray(sets) ? sets.filter((s) => s && Array.isArray(s.annotations) && s.annotations.length > 0).length : 0;
+}
+
 /* ─────────────── 入口 ─────────────── */
 
 /** cordis Context 的 logger（缺席时退回 console）。 */
@@ -373,6 +378,63 @@ function saveAnnotationsImpl(paths, markdown, meta) {
     );
   } catch { /* 索引写失败不影响主交付 */ }
   return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8') };
+}
+
+/**
+ * saveMerged 实现：多面板批注合并 → 单个协议文件。
+ * 编号规则（用户需求：跨窗口延续 + 可互相引用）：
+ *  1. 合并各组 annotations（每组 {url,title,annotations[]}）；
+ *  2. 按 element.capturedAt（创建时刻，批注层采集时固化的毫秒时间戳）升序排序——
+ *     创建顺序 = 窗口1 的 1、2 在前，窗口2 的在后；
+ *  3. 重编号 index = 1..N（权威编号，与页内徽标一致——页内 startIndex 由 client 按同一规则交接）；
+ *  4. 用 src/annotations-protocol.js 的构建器（与页内逐字同源）生成 markdown 落盘。
+ */
+function saveMergedImpl(paths, sets, meta) {
+  if (!Array.isArray(sets) || sets.length === 0) {
+    return { ok: false, error: 'sets 为空' };
+  }
+  const groups = [];
+  for (const s of sets) {
+    if (s && typeof s === 'object' && Array.isArray(s.annotations) && s.annotations.length > 0) {
+      groups.push(s);
+    }
+  }
+  if (groups.length === 0) {
+    return { ok: false, error: '无可合并批注（各组均无 annotations）' };
+  }
+  const m = meta && typeof meta === 'object' ? meta : {};
+  const combined = [];
+  for (const g of groups) {
+    for (const a of g.annotations) {
+      if (a && typeof a === 'object') combined.push(a);
+    }
+  }
+  combined.sort((a, b) => {
+    const ta = (a.element && a.element.capturedAt) || 0;
+    const tb = (b.element && b.element.capturedAt) || 0;
+    return ta - tb;
+  });
+  const renumbered = combined.map((a, i) => Object.assign({}, a, { index: i + 1 }));
+  const markdown = buildAnnotationsMarkdown(renumbered);
+  if (typeof markdown !== 'string' || markdown.trim().length === 0) {
+    return { ok: false, error: '协议构建结果为空' };
+  }
+  const dir = join(projectDirOf(paths), 'annotations');
+  mkdirSync(dir, { recursive: true });
+  const file = dedupeFile(dir, `${tsStamp()}.md`);
+  const finalName = file.split(/[\\/]/).pop();
+  writeFileSync(file, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');
+  try {
+    const firstLine = markdown.split(/\r?\n/, 1)[0] || '';
+    const count = Number((firstLine.match(/# Web page annotations:\s*(\d+)/) || [])[1] || renumbered.length);
+    const urls = [...new Set(groups.map((g) => g.url).filter(Boolean))];
+    appendFileSync(
+      join(dir, 'index.jsonl'),
+      `${JSON.stringify({ at: new Date().toISOString(), file: finalName, url: m.url ?? urls[0] ?? null, title: m.title ?? null, count, merged: groups.length })}\n`,
+      'utf8',
+    );
+  } catch { /* 索引写失败不影响主交付 */ }
+  return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8'), count: renumbered.length };
 }
 
 /** getInjectScript 实现：按 mtime 供源（client 按 mtime 缓存；源文件改动即时生效）。 */
@@ -498,6 +560,13 @@ export async function apply(ctx, _config = {}, paths = {}) {
       log(r.ok ? 'info' : 'warn', `saveAnnotations → ${r.ok ? r.path : r.error}`);
       return Promise.resolve(r);
     },
+    onSaveMerged: (sets, meta) => {
+      const r = saveMergedImpl(paths, sets, meta);
+      state.merged = state.merged || [];
+      state.merged.push({ at: new Date().toISOString(), ...r });
+      log(r.ok ? 'info' : 'warn', `saveMerged → ${r.ok ? `${r.path} (${r.count} 条, ${groupsLen(sets)} 组)` : r.error}`);
+      return Promise.resolve(r);
+    },
     onGetInjectScript: () => getInjectScriptImpl(paths),
     onTakeCommand: () => takeCommandImpl(paths),
     onCommandResult: (id, result) => commandResultImpl(paths, id, result),
@@ -535,6 +604,7 @@ export const _internals = {
   dedupeFile,
   saveShotImpl,
   saveAnnotationsImpl,
+  saveMergedImpl,
   takeCommandImpl,
   commandResultImpl,
 };
