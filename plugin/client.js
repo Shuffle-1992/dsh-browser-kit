@@ -172,6 +172,10 @@ window.__ModuleLoader__.load({
       } catch (e) {
         findings.error = msgOf(e);
       }
+      // 面板诊断：渲染崩溃原因随探测上报（PanelBoundary 写入）
+      try {
+        findings.panelError = typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null;
+      } catch { /* ignore */ }
       return findings;
     }
 
@@ -244,6 +248,30 @@ window.__ModuleLoader__.load({
       if (!r) return '未测';
       return r.ok ? `OK ${JSON.stringify(r.value ?? r.size ?? r.dataUrlLength ?? '')}` : `FAIL ${r.error || ''}`;
     };
+
+    /** 渲染错误边界：面板崩溃时就地显示原因 + 写入 window.__dshKitPanelError（随探测上报定位）。 */
+    class PanelBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { err: null };
+      }
+      static getDerivedStateFromError(e) {
+        return { err: e };
+      }
+      componentDidCatch(e) {
+        try {
+          window.__dshKitPanelError = `面板渲染崩溃：${(e && e.message) || String(e)}`;
+        } catch { /* ignore */ }
+        say('error', window.__dshKitPanelError || '面板渲染崩溃');
+      }
+      render() {
+        if (this.state.err) {
+          return h('div', { style: { padding: '8px 10px', color: T.danger, fontSize: 11 } },
+            `面板渲染出错：${(this.state.err && this.state.err.message) || '未知'}`);
+        }
+        return this.props.children;
+      }
+    }
 
     function ProbePanel({ stateRef, getState, actions }) {
       const [, force] = useState(0);
@@ -991,7 +1019,7 @@ window.__ModuleLoader__.load({
           /* 槽位注册（list 型：id 必填；order 排在 zcode-dispatch 之后） */
           ctx.slots.inject(SLOT, () => ctx.slots.register(
             { name: SLOT, id: PANEL_ID, order: 30 },
-            () => h(ProbePanel, {
+            () => h(PanelBoundary, null, h(ProbePanel, {
               stateRef,
               getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot, annot: stateRef.annot, collapsed: stateRef.panelCollapsed }),
               actions: {
