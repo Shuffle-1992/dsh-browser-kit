@@ -529,5 +529,9 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /background:' \+ T\.bg \+ ';border:1px solid ' \+ T\.border/);
     assert.match(clientSource, /dsh-kit-annot-chip-style/);
     assert.match(clientSource, /--dsw-alias-interactive-bg-hover/);
+    // 调试面板：默认隐藏可唤出（panel-toggle 命令 + localStorage 持久化；探测/上报等功能保留）
+    assert.match(clientSource, /dsh-browser-kit:panel:hidden:v1/);
+    assert.match(clientSource, /case 'panel-toggle'/);
+    assert.match(clientSource, /PANEL_TOGGLE_EVENT/);
   });
 });

@@ -27,6 +27,10 @@ window.__ModuleLoader__.load({
     const LS_KEY = 'dsh-browser-kit:probe:v1';
     const LOG_PREFIX = '[dsh-browser-kit]';
     const MAX_AUTO_REPROBE = 12; // 自动补测上限（防意外循环）
+    // 调试面板显隐（用户要求：默认隐藏、功能保留、可唤出）：'0'=显示；缺省/'1'=隐藏。
+    // 切换走命令 panel-toggle（写 localStorage + 广播事件，面板监听后即时显隐，跨刷新持久）。
+    const PANEL_HIDDEN_KEY = 'dsh-browser-kit:panel:hidden:v1';
+    const PANEL_TOGGLE_EVENT = 'dsh-kit-panel-toggle';
     const REMOTE_CONTRIBUTION = {
       package: '@local/dsh-browser-kit',
       descriptors: [
@@ -277,6 +281,17 @@ window.__ModuleLoader__.load({
 
     function ProbePanel({ stateRef, getState, actions }) {
       const [, force] = useState(0);
+      // 默认隐藏（用户要求），可经命令 panel-toggle 唤出/再隐藏；显隐持久化，跨刷新有效
+      const [hidden, setHidden] = useState(() => {
+        try { return localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { return true; }
+      });
+      useEffect(() => {
+        const onToggle = () => {
+          try { setHidden(localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'); } catch { /* ignore */ }
+        };
+        window.addEventListener(PANEL_TOGGLE_EVENT, onToggle);
+        return () => window.removeEventListener(PANEL_TOGGLE_EVENT, onToggle);
+      }, []);
       useEffect(() => {
         const t = setInterval(() => force((n) => n + 1), 1500);
         return () => clearInterval(t);
@@ -288,6 +303,7 @@ window.__ModuleLoader__.load({
         {
           id: 'dsh-kit-panel',
           style: {
+            display: hidden ? 'none' : 'block',
             pointerEvents: 'auto',
             position: 'fixed', // 浮层默认从左上排布——钉到左下角（与 zcode-dispatch 右下角面板对称）
             left: 16,
@@ -1221,6 +1237,7 @@ window.__ModuleLoader__.load({
                     lastToggleError: stateRef.lastToggleError || null,
                     lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
                     lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
+                    panelHidden: (() => { try { return localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { return true; } })(),
                     toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
                     panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                     panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
@@ -1247,6 +1264,15 @@ window.__ModuleLoader__.load({
                     try { out = JSON.parse(JSON.stringify(v)); } catch { out = String(v); }
                   } else out = v;
                   return { ok: true, value: out };
+                }
+                case 'panel-toggle': {
+                  // 调试面板显隐切换（默认隐藏、功能保留；持久化跨刷新）
+                  let nowHidden = true;
+                  try { nowHidden = localStorage.getItem(PANEL_HIDDEN_KEY) !== '0'; } catch { /* 缺省隐藏 */ }
+                  const next = nowHidden ? '0' : '1';
+                  try { localStorage.setItem(PANEL_HIDDEN_KEY, next); } catch { /* 持久化失败仅本次生效 */ }
+                  window.dispatchEvent(new CustomEvent(PANEL_TOGGLE_EVENT));
+                  return { ok: true, hidden: next === '1' };
                 }
                 case 'toolbar-probe': {
                   // 诊断：直接测 ensureToolbarButton 的每一步判定
