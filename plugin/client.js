@@ -280,31 +280,44 @@ window.__ModuleLoader__.load({
           { style: { padding: '8px 10px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 } },
           h('strong', { style: { fontSize: 12 } }, 'dsh-browser-kit'),
           h('span', { style: { color: T.text3, marginLeft: 'auto' } }, f ? new Date(f.at).toLocaleTimeString() : '—'),
+          h(
+            'button',
+            {
+              onClick: actions.collapse,
+              title: '最小化（调试面板；正式版默认隐藏）',
+              style: {
+                border: 0, background: 'transparent', color: T.text3, cursor: 'pointer',
+                fontSize: 12, padding: '0 2px', lineHeight: 1,
+              },
+            },
+            '—',
+          ),
         ),
-        h(
-          'div',
-          { style: { padding: '8px 10px', display: 'grid', gap: 4 } },
-          !f
-            ? h('div', { style: { color: T.text2 } }, '探测中…')
-            : h(
-                React.Fragment,
-                null,
-                h('div', null, 'webview 数量：', h('b', null, String(f.webviewCount))),
-                f.webviewCount === 0
-                  ? h('div', { style: { color: T.warn } }, '尚未发现 webview——打开内置浏览器后自动补测。')
-                  : h(
-                      React.Fragment,
-                      null,
-                      h('div', { style: { color: T.text2, fontFamily: T.mono, fontSize: 11 } },
-                        `#1 src=${(f.statics && f.statics[0] && f.statics[0].src) || '—'}`),
-                      f.guest && h('div', null, 'getWebContentsId：',
-                        h('span', { style: { color: f.guest.webContentsId && f.guest.webContentsId.ok ? T.ok : T.danger } }, fmtResult(f.guest.webContentsId))),
-                      f.guest && h('div', null, 'executeJavaScript：',
-                        h('span', { style: { color: f.guest.executeJavaScript && f.guest.executeJavaScript.ok ? T.ok : T.danger } }, fmtResult(f.guest.executeJavaScript))),
-                      f.guest && h('div', null, 'capturePage：',
-                        h('span', { style: { color: f.guest.capturePage && f.guest.capturePage.ok ? T.ok : T.danger } }, fmtResult(f.guest.capturePage))),
-                    ),
-                f.error && h('div', { style: { color: T.danger } }, `探测错误：${f.error}`),
+        !s.collapsed
+          ? h(
+              'div',
+              { style: { padding: '8px 10px', display: 'grid', gap: 4 } },
+              !f
+                ? h('div', { style: { color: T.text2 } }, '探测中…')
+                : h(
+                    React.Fragment,
+                    null,
+                    h('div', null, 'webview 数量：', h('b', null, String(f.webviewCount))),
+                    f.webviewCount === 0
+                      ? h('div', { style: { color: T.warn } }, '尚未发现 webview——打开内置浏览器后自动补测。')
+                      : h(
+                          React.Fragment,
+                          null,
+                          h('div', { style: { color: T.text2, fontFamily: T.mono, fontSize: 11 } },
+                            `#1 src=${(f.statics && f.statics[0] && f.statics[0].src) || '—'}`),
+                          f.guest && h('div', null, 'getWebContentsId：',
+                            h('span', { style: { color: f.guest.webContentsId && f.guest.webContentsId.ok ? T.ok : T.danger } }, fmtResult(f.guest.webContentsId))),
+                          f.guest && h('div', null, 'executeJavaScript：',
+                            h('span', { style: { color: f.guest.executeJavaScript && f.guest.executeJavaScript.ok ? T.ok : T.danger } }, fmtResult(f.guest.executeJavaScript))),
+                          f.guest && h('div', null, 'capturePage：',
+                            h('span', { style: { color: f.guest.capturePage && f.guest.capturePage.ok ? T.ok : T.danger } }, fmtResult(f.guest.capturePage))),
+                        ),
+                  f.error && h('div', { style: { color: T.danger } }, `探测错误：${f.error}`),
                 h('div', { style: { color: T.text3, borderTop: `1px solid ${T.border}`, paddingTop: 4 } },
                   '批注：',
                   h('span', { style: { color: s.annot && s.annot.active ? T.warn : T.text3 } },
@@ -348,7 +361,8 @@ window.__ModuleLoader__.load({
                       : '未上报'),
                 ),
               ),
-        ),
+            )
+          : null,
         h(
           'div',
           { style: { padding: '8px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
@@ -979,8 +993,14 @@ window.__ModuleLoader__.load({
             { name: SLOT, id: PANEL_ID, order: 30 },
             () => h(ProbePanel, {
               stateRef,
-              getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot, annot: stateRef.annot }),
+              getState: () => ({ findings: stateRef.findings, report: stateRef.report, lastShot: stateRef.lastShot, annot: stateRef.annot, collapsed: stateRef.panelCollapsed }),
               actions: {
+                collapse: () => {
+                  stateRef.panelCollapsed = !stateRef.panelCollapsed;
+                  try {
+                    localStorage.setItem('dsh-browser-kit:panel-collapsed', stateRef.panelCollapsed ? '1' : '0');
+                  } catch { /* ignore */ }
+                },
                 reprobe: () => { probeAndPublish('manual').catch(() => {}); },
                 reportNow: () => { reportNow().catch(() => {}); },
                 captureShot: () => {
@@ -1004,6 +1024,50 @@ window.__ModuleLoader__.load({
               },
             }),
           ));
+
+          /* 正式形态入口：内置浏览器标签 ⋯ 菜单里的「元素批注」项（官方插槽
+           * sidebar.right.tab.menu.item，list 型；工具条图标位官方未开放插槽——见 delivery-08）。
+           * 独立 try/catch：菜单项失败不拖累调试面板。 */
+          try {
+            const MENU_SLOT = 'sidebar.right.tab.menu.item';
+            ctx.slots.inject(MENU_SLOT, () => ctx.slots.register(
+              { name: MENU_SLOT, id: 'dsh-browser-kit.annotate', order: 10, label: '元素批注' },
+              () => {
+                const active = stateRef.annot && stateRef.annot.active;
+                return h(
+                  'div',
+                  {
+                    onClick: () => {
+                      if (stateRef.annot && stateRef.annot.active) {
+                        stopAnnotSession().catch((e) => say('warn', `结束批注失败：${msgOf(e)}`));
+                      } else {
+                        startAnnotSession().then((r) => {
+                          if (r && r.ok === false) say('warn', `批注启动失败：${r.error}`);
+                        }).catch(() => {});
+                      }
+                    },
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '4px 8px', cursor: 'pointer',
+                      color: active ? T.accent : 'inherit',
+                      fontSize: 12,
+                    },
+                  },
+                  h(
+                    'svg',
+                    { viewBox: '0 0 24 24', width: 13, height: 13, 'aria-hidden': true },
+                    h('path', { d: 'M4 4h16v12H9l-5 4V4z', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinejoin: 'round' }),
+                    h('path', { d: 'M12 7.5v5M9.5 10h5', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }),
+                  ),
+                  h('span', null, active ? '关闭元素批注' : '开启元素批注'),
+                );
+              },
+            ));
+            say('info', '菜单项「元素批注」已注册（sidebar.right.tab.menu.item）');
+          } catch (e) {
+            say('warn', `菜单项注册失败（不影响面板）：${msgOf(e)}`);
+          }
+
           say('info', 'dsh-browser-kit 已挂载（左下角工具面板：截图 / 上报 / 探测）');
         } catch (e) {
           try {
