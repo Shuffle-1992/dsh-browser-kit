@@ -1004,7 +1004,7 @@ window.__ModuleLoader__.load({
           const attachMsgChip = (holder, model) => {
             const wrap = document.createElement('span');
             wrap.setAttribute('data-dsh-kit-ann-msg', String(model.count));
-            wrap.style.cssText = 'display:flex;width:100%;margin-top:6px;';
+            wrap.style.cssText = 'display:flex;width:100%;margin:2px 0 10px 0;'; // 下 10px：与消息文本拉开间距（用户 2026-10-05 反馈）
             const chip = document.createElement('span');
             chip.style.cssText = 'display:inline-flex;width:fit-content;align-items:center;gap:6px;'
               + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:999px;'
@@ -1191,10 +1191,17 @@ window.__ModuleLoader__.load({
               } catch { /* 成员不可达：跳过 */ }
             }
             if (sets.length === 0) return { ok: false, error: '无可提交批注' };
-            // 摘要（会话胶囊 hover 提示用）：编号/gid/选择器/文本片段，按编号排序
+            // 摘要（会话胶囊 hover 提示用）：编号/gid/选择器/文本片段，按编号排序。
+            // 与 host saveMerged 同款 gid 去重——共享会话下同一批注会同步进多个面板，
+            // 原始 sets 含重复条目（实测：count=1 但悬浮提示出 2 行重复，用户 2026-10-05 报告）。
             const items = [];
+            const seenGids = {};
             for (const s of sets) {
               for (const a of s.annotations || []) {
+                if (a.gid) {
+                  if (seenGids[a.gid]) continue;
+                  seenGids[a.gid] = true;
+                }
                 items.push({
                   index: Number(a.index) || 0,
                   gid: a.gid || null,
