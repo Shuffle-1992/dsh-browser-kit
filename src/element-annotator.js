@@ -452,6 +452,8 @@
   var annotations = []; // { index, note, element, el, badge }
   var session = null; // { resolve, onSubmit }
   var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
+  var listExpanded = false; // 页内面板批注列表展开/收起（默认收起）
+  var panelChevron = null;
   var inputState = null; // { record, isNew, container, field }
 
   var overlay = null;
@@ -459,6 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
+  window.__dshKitAnnotatorVersion = "1.1.0"; // 面板列表展开/收起 + startIndex（宿主按版本决定是否重注入）
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -832,10 +835,18 @@
     if (panelCount) {
       panelCount.textContent = String(annotations.length);
     }
+    if (panelChevron) {
+      panelChevron.textContent = listExpanded ? "▾" : "▸";
+      panelChevron.title = listExpanded ? "收起批注列表" : "展开批注列表";
+    }
     if (!panelList) {
       return;
     }
+    panelList.style.display = listExpanded ? "" : "none";
     panelList.replaceChildren();
+    if (!listExpanded) {
+      return;
+    }
     annotations.forEach(function (record) {
       var row = makeElement("div", {
         alignItems: "baseline",
@@ -928,13 +939,33 @@
     title.textContent = "批注";
     panelCount = makeElement("span", {
       background: ACCENT,
-      borderRadius: "8px",
+      borderRadius: "7px",
       color: "#ffffff",
+      display: "inline-block",
       font: "600 10px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-      padding: "3px 7px",
+      minWidth: "14px",
+      padding: "2px 4px",
+      textAlign: "center",
     });
     panelCount.textContent = "0";
-    header.append(icon, title, panelCount);
+    panelChevron = makeElement("button", {
+      background: "transparent",
+      border: "none",
+      color: "rgba(255,255,255,0.72)",
+      cursor: "pointer",
+      fontSize: "10px",
+      padding: "2px 4px",
+    });
+    panelChevron.type = "button";
+    panelChevron.textContent = "▸";
+    panelChevron.title = "展开批注列表";
+    panelChevron.setAttribute("data-dsh-kit-panel-chevron", "");
+    panelChevron.addEventListener("click", function (event) {
+      event.stopPropagation();
+      listExpanded = !listExpanded;
+      renderPanel();
+    });
+    header.append(icon, title, panelCount, panelChevron);
     panel.append(header);
 
     panelList = makeElement("div", { overflowY: "auto", minHeight: "24px" });

@@ -595,11 +595,16 @@ window.__ModuleLoader__.load({
             return max;
           };
 
-          /** 确保批注层已注入目标面板（重复注入会打断活动会话，故先查 API 存在性）。 */
+          /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
+          const EXPECTED_ANNOT_VERSION = '1.1.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
-            if (has === true) return target;
+            let version = null;
+            if (has === true) {
+              version = await target.executeJavaScript('window.__dshKitAnnotatorVersion || null', true);
+            }
+            if (has === true && version === EXPECTED_ANNOT_VERSION) return target;
             if (!annotSourceCache) {
               const g = unwrap(await svc.getInjectScript());
               if (!g || g.ok === false) throw new Error(`getInjectScript 失败：${(g && g.error) || '未知'}`);
@@ -607,8 +612,8 @@ window.__ModuleLoader__.load({
               say('info', `批注层源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
             }
             await target.executeJavaScript(annotSourceCache.source, true);
-            const ok = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined"', true);
-            if (ok !== true) throw new Error('批注层注入后 API 缺失');
+            const ok = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && window.__dshKitAnnotatorVersion === "' + EXPECTED_ANNOT_VERSION + '"', true);
+            if (ok !== true) throw new Error('批注层注入后 API/版本不符');
             return target;
           };
 
@@ -1286,14 +1291,12 @@ window.__ModuleLoader__.load({
             };
             stateRef.ensureToolbarButtons = ensureToolbarButtons;
             ensureToolbarButtons();
-            // 守卫：新工具条出现 / 按钮被框架重渲染移除 → 自动补挂（3s 轮询 + 变更观察双保险）
-            let tbPending = null;
-            let tbLeft = 2000;
+            // 守卫：工具条被框架重渲染（按钮被移除/新标签出现）→ **同步**重挂，无去抖
+            //（去抖会让按钮肉眼可见地消失重现=闪烁；微任务级重挂肉眼无感）
             const tbObserver = new MutationObserver(() => {
               if (tbLeft <= 0) return;
               tbLeft -= 1;
-              clearTimeout(tbPending);
-              tbPending = setTimeout(() => { try { ensureToolbarButtons(); } catch { /* ignore */ } }, 600);
+              try { ensureToolbarButtons(); } catch { /* ignore */ }
             });
             tbObserver.observe(document.body, { childList: true, subtree: true });
             if (typeof ctx?.effect === 'function') {
