@@ -595,6 +595,23 @@ window.__ModuleLoader__.load({
             return max;
           };
 
+          /** 确保批注层已注入目标面板（重复注入会打断活动会话，故先查 API 存在性）。 */
+          const ensureAnnotator = async (svc, targetEl) => {
+            const target = targetEl || pickGuestEl();
+            const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
+            if (has === true) return target;
+            if (!annotSourceCache) {
+              const g = unwrap(await svc.getInjectScript());
+              if (!g || g.ok === false) throw new Error(`getInjectScript 失败：${(g && g.error) || '未知'}`);
+              annotSourceCache = { mtime: g.mtime, source: g.source };
+              say('info', `批注层源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
+            }
+            await target.executeJavaScript(annotSourceCache.source, true);
+            const ok = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined"', true);
+            if (ok !== true) throw new Error('批注层注入后 API 缺失');
+            return target;
+          };
+
           const sessionSettled = async (winner) => {
             const st = stateRef.annot;
             if (!st || !st.active) return;
