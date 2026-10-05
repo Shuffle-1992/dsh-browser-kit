@@ -660,4 +660,49 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /return \(function \(document\) \{\\n\$\{code\}\\n\}\)\(\$\{docExpr\}\)/);
     assert.match(clientSource, /docExpr/);
   });
+
+  await t.test("发送前防呆横条（待实施会话实机验收；规格 .local/feature-send-guard.md）", () => {
+    // T1：ensureAwayBanner —— saved 模型在场且不在归属会话时渲染被动横条（与胶囊天然互斥）
+    assert.match(clientSource, /dsh-kit-annot-away/);
+    assert.match(clientSource, /const ensureAwayBanner = \(\) =>/);
+    // 渲染条件（规格钉死）：saved 模型 + 当前不在归属会话（无需新状态，直接读现有模型）
+    assert.match(clientSource, /m\.mode === 'saved' && m\.convo !== convoTitle\(\)/);
+    // 文案模板串（规格原文）：归属会话名 + 条数（count 容错取数）
+    assert.match(clientSource, /⏸ 会话「\$\{stateRef\.chip\.convo\}」有 \$\{Number\(stateRef\.chip\.count\) \|\| 0\} 条批注待发送/);
+    // 锚定复用：ensureChipSpacer + spacer rect（与胶囊同位不同时）；挂 body fixed
+    assert.match(clientSource, /const spacer = ensureChipSpacer\(ce\);\r?\n\s*let banner = existing;/);
+    assert.match(clientSource, /banner\.style\.left = `\$\{Math\.max\(8, sr\.left \+ 12\)\}px`;/);
+    // P37 认领戳必盖 + 退让分支（更新实例的横条在场：本实例不挂不改不删）
+    assert.match(clientSource, /banner\.dataset\.ownerBoot = String\(stateRef\.clientBootAt\)/);
+    assert.match(clientSource, /if \(existing && !iAmNewer\(existing\)\) return; \/\/ 更新实例的横条在场：本实例退让/);
+    // 双主题：只走 T 令牌（零字面底色），与胶囊同款纪律
+    assert.match(clientSource, /background:' \+ T\.bg \+ ';border:1px solid ' \+ T\.border/);
+    // tick 接线：ensureAnnotChip/ensureConvoChips 之后
+    assert.match(clientSource, /ensureAwayBanner\(\); \/\/ 发送前防呆/);
+  });
+
+  await t.test("消息引用插入（待实施会话实机验收；规格 .local/feature-message-quote.md）", () => {
+    // T1：buildQuoteBlock 纯函数 + 300 字截断常量 + 时间戳提取（规格正则）
+    assert.match(clientSource, /const buildQuoteBlock = \(rowText, senderLabel, timeText\) =>/);
+    assert.match(clientSource, /const QUOTE_MAX_CHARS = 300;/);
+    assert.match(clientSource, /const extractTime = \(rowText\) =>/);
+    assert.match(clientSource, /\[01\]\?\\d\|2\[0-3\]\):\[0-5\]\\d/);
+    // 摘录：去尾部时间戳 → 空白归一 → 空 → ''（调用方跳过追加）；输出 `> [头] 摘录\n`
+    assert.match(clientSource, /excerpt\.replace\(\/\\s\+\/g, ' '\)\.trim\(\)/);
+    assert.match(clientSource, /if \(!excerpt\) return '';/);
+    assert.match(clientSource, /return `> \[\$\{head\}\] \$\{clipped\}\\n`;/);
+    // T2：引用按钮浮层——单例 id、P37 认领戳、hover 行内挂载（position:relative 内联兜底）
+    assert.match(clientSource, /dsh-kit-quote-btn/);
+    assert.match(clientSource, /btn\.textContent = '❝ 引用';/);
+    assert.match(clientSource, /btn\.dataset\.ownerBoot = String\(stateRef\.clientBootAt\); \/\/ P37 认领戳/);
+    assert.match(clientSource, /row\.style\.position = 'relative'/);
+    // 点击 → primeSessionInput（只追加管线，P30）；连续引用 = 追加多个块（非空补空行由 quoteLeadIfNeeded 负责）
+    assert.match(clientSource, /if \(block\) primeSessionInput\(quoteLeadIfNeeded\(block\)\)/);
+    assert.match(clientSource, /const quoteLeadIfNeeded = \(block\) =>/);
+    // assistant 行兜底：语义后缀匹配（_body 且含 _content），勿按全类名（哈希前缀随构建变化）
+    assert.match(clientSource, /cls\.includes\('_body'\) && cur\.querySelector\('\[class\*="_content"\]'\)/);
+    // tick 接线：仅 hover 态行补挂（不做全量常驻）+ capture 委托
+    assert.match(clientSource, /ensureQuoteButtons\(\); \/\/ 消息引用/);
+    assert.match(clientSource, /document\.addEventListener\('mouseover', onQuoteOver, true\)/);
+  });
 });

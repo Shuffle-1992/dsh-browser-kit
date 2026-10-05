@@ -924,6 +924,55 @@ window.__ModuleLoader__.load({
             } catch { /* 胶囊失败不影响主流程 */ }
           };
 
+          /* ─────────────── 发送前防呆横条（用户需求 2026-10-06，规格 .local/feature-send-guard.md） ───────────────
+           *  待发胶囊（saved 模型）不在其归属会话时，在**当前会话**的输入框卡片 spacer 行上
+           *  叠一条被动横条，提醒「该批注属于别的会话」——防切会话后遗忘待发批注。归属会话
+           *  内显示胶囊、非归属显示横条（convo 判定天然互斥，两者从不同时出现）；胶囊被消耗
+           *  或撤回后横条随之消失。锚定复用 ensureChipSpacer + spacer rect（与 ensureAnnotChip
+           *  同构：模型→挂载→重定位→P37 认领戳）；绝不写入输入框内容（P30 纪律）。
+           *  实机验收（切会话观察横条出现/消失、toggle 热换、多实例）由实施会话负责。 */
+          const AWAY_ID = 'dsh-kit-annot-away';
+          const ensureAwayBanner = () => {
+            try {
+              const existing = document.getElementById(AWAY_ID);
+              /* P37 认领制（与胶囊同款）：ownerBoot 盖戳、新者胜旧者让——旧实例见到更新实例
+               *  的横条一律退让，不挂不改不删。 */
+              const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
+              const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
+              const m = stateRef.chip;
+              // 渲染条件（规格钉死，无需新状态）：saved 模型在场且当前不在归属会话
+              const away = m && m.mode === 'saved' && m.convo !== convoTitle();
+              if (!away) {
+                // 无待发胶囊 / 已回归属会话：移除（仅本实例或无主横条可移——P37）
+                if (existing && iAmNewer(existing)) existing.remove();
+                return;
+              }
+              if (existing && !iAmNewer(existing)) return; // 更新实例的横条在场：本实例退让
+              const ce = findComposer();
+              if (!ce) return; // 输入框暂不可见：不锚定（模型保留，下轮再试）
+              const spacer = ensureChipSpacer(ce);
+              let banner = existing;
+              if (!banner) {
+                banner = document.createElement('div');
+                banner.id = AWAY_ID;
+                // 双主题：只走 T 令牌（零字面色值）；纯提示无交互 → pointer-events:none 不挡输入框
+                banner.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;'
+                  + 'pointer-events:none;user-select:none;background:' + T.bg + ';border:1px solid ' + T.border
+                  + ';border-radius:999px;padding:4px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                  + 'color:' + T.text + ';box-shadow:' + T.shadow + ';';
+                document.body.appendChild(banner);
+              }
+              banner.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
+              // 文案模板（规格钉死；count 容错取数）
+              const text = `⏸ 会话「${stateRef.chip.convo}」有 ${Number(stateRef.chip.count) || 0} 条批注待发送`;
+              if (banner.textContent !== text) banner.textContent = text; // 幂等：内容不变不重排
+              // 定位：与胶囊同位不同时——叠在 spacer 行上（每轮 tick 重定位）
+              const sr = spacer.getBoundingClientRect();
+              banner.style.left = `${Math.max(8, sr.left + 12)}px`;
+              banner.style.top = `${Math.max(8, sr.top + 3)}px`;
+            } catch { /* 横条失败不影响主流程 */ }
+          };
+
           /* ─────────────── 发送消耗 + 会话内消息胶囊（用户需求 2026-10-05） ───────────────
            *  批注为单次消耗：输入框胶囊是「待发送」态；检测到用户**发出了新消息**（会话内
            *  userRow 行数增长/末行变化）→ 输入框胶囊消耗移除，改为在该条消息气泡尾部挂
@@ -1112,6 +1161,133 @@ window.__ModuleLoader__.load({
               }
             } catch { /* 失败不影响主流程 */ }
           };
+
+          /* ─────────────── 消息引用插入（用户需求 2026-10-06，规格 .local/feature-message-quote.md） ───────────────
+           *  悬浮历史消息行（用户行/assistant 行）→ 行内浮出「引用」按钮 → 点击把引用块
+           *  `> [发送者 · 时间] 摘录` 追加进会话输入框（走 primeSessionInput 只追加管线，
+           *  P30 纪律：绝不清空/改写草稿，光标由管线落在末尾；连续引用 = 追加多个块）。
+           *  按钮仅存在于 hover 态行（不做全量常驻），React 重渲染吞掉后由 tick 幂等补挂；
+           *  P37 认领戳防多实例互删。assistant 行结构未实机确认——按规格兜底（语义后缀
+           *  _body/_content + userRow 平级兄弟），实机复核与选择器修正为实施会话专责。 */
+          const QUOTE_BTN_ID = 'dsh-kit-quote-btn';
+          const QUOTE_MAX_CHARS = 300;
+          /** 行文本内首个 HH:MM 时间戳（规格正则；无则空串）。 */
+          const extractTime = (rowText) => {
+            const m = /\b([01]?\d|2[0-3]):[0-5]\d\b/.exec(String(rowText || ''));
+            return m ? m[0] : '';
+          };
+          /** 引用块组装（纯函数）：摘录 = rowText 去掉尾部时间戳后的纯文本（空白归一），
+           *  300 字截断带 …；输出 `> [发送者 · 时间] 摘录\n`（时间可缺席；末尾单换行、
+           *  不带空行——拼接由调用方控制）；摘录为空 → ''（调用方跳过追加）。 */
+          const buildQuoteBlock = (rowText, senderLabel, timeText) => {
+            const raw = String(rowText || '');
+            let excerpt = raw.replace(/\s*\b(?:[01]?\d|2[0-3]):[0-5]\d\b\s*$/, '');
+            excerpt = excerpt.replace(/\s+/g, ' ').trim();
+            if (!excerpt) return '';
+            const clipped = excerpt.length > QUOTE_MAX_CHARS ? excerpt.slice(0, QUOTE_MAX_CHARS) + '…' : excerpt;
+            const head = `${String(senderLabel || '')}${timeText ? ' · ' + timeText : ''}`;
+            return `> [${head}] ${clipped}\n`;
+          };
+          /** 消息行识别：userRow 已知稳定；assistant 行按语义后缀兜底——自 target 向上取
+           *  最外层含 _content 的 _body 行（勿按全类名匹配，哈希前缀随构建变化）。 */
+          const quoteRowOf = (el) => {
+            if (!el || el.nodeType !== 1 || !el.closest) return null;
+            const ur = el.closest('[class*="_userRow"]');
+            if (ur) return ur;
+            let best = null;
+            for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) {
+              const cls = (cur.getAttribute && cur.getAttribute('class')) || '';
+              if (cls.includes('_body') && cur.querySelector('[class*="_content"]')) best = cur;
+            }
+            return best && !best.closest('[class*="_userRow"]') ? best : null;
+          };
+          const quoteOwnerOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
+          const quoteIAmNewer = (el) => !quoteOwnerOf(el) || String(stateRef.clientBootAt) >= quoteOwnerOf(el);
+          let quoteHoverRow = null; // 当前 hover 的消息行（引用按钮的唯一宿主，单例按钮随之挪动）
+          /** 按钮挂进 hover 行（幂等单例：换行即挪；P37：更新实例的按钮在场则退让）。 */
+          const mountQuoteBtn = (row) => {
+            if (!row || !row.isConnected) return;
+            const existing = document.getElementById(QUOTE_BTN_ID);
+            if (existing && !quoteIAmNewer(existing)) return; // P37 退让
+            if (existing && existing.parentElement === row) {
+              existing.dataset.ownerBoot = String(stateRef.clientBootAt);
+              return;
+            }
+            if (existing) existing.remove();
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = QUOTE_BTN_ID;
+            btn.textContent = '❝ 引用';
+            btn.style.cssText = 'position:absolute;top:4px;right:6px;z-index:2147483646;border:1px solid ' + T.border
+              + ';background:' + T.bg + ';color:' + T.text + ';border-radius:999px;padding:2px 8px;cursor:pointer;'
+              + 'font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;box-shadow:' + T.shadow + ';';
+            btn.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
+            btn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              const rowNow = ev.currentTarget.parentElement;
+              if (!rowNow) return;
+              const label = ((rowNow.getAttribute('class') || '').includes('_userRow')) ? '用户' : 'AI';
+              const rowText = rowNow.textContent || '';
+              // 引用点击时即时取行文本（规格：无需持久状态）；非空先补空行（§3.2），P30 只追加
+              const block = buildQuoteBlock(rowText, label, extractTime(rowText));
+              if (block) primeSessionInput(quoteLeadIfNeeded(block));
+            });
+            if (getComputedStyle(row).position === 'static') row.style.position = 'relative'; // 行内 absolute 锚定
+            row.appendChild(btn);
+          };
+          const removeQuoteBtn = () => {
+            const btn = document.getElementById(QUOTE_BTN_ID);
+            if (btn && quoteIAmNewer(btn)) btn.remove(); // 仅本实例（或无主）可移除（P37）
+          };
+          /** 输入框非空先补一个空行再写引用块（primeSessionInput 的 join 是单换行）。
+           *  探测只读 contenteditable——DSH 会话输入框实测形态；textarea 场景按空输入处理。 */
+          const quoteLeadIfNeeded = (block) => {
+            try {
+              const ce = findComposer();
+              if (ce && String(ce.innerText || '').trim()) return `\n${block}`;
+            } catch { /* 探测失败按空输入处理 */ }
+            return block;
+          };
+          /** hover 事件委托（capture：页面 stopPropagation 也拦得住）。 */
+          const onQuoteOver = (e) => {
+            const row = quoteRowOf(e.target);
+            if (row === quoteHoverRow) return;
+            quoteHoverRow = row;
+            if (row) mountQuoteBtn(row);
+            else removeQuoteBtn();
+          };
+          const onQuoteOut = (e) => {
+            const row = quoteHoverRow;
+            if (!row) return;
+            const to = e.relatedTarget;
+            if (to && row.contains(to)) return; // 行内移动不触发
+            quoteHoverRow = null;
+            removeQuoteBtn();
+          };
+          /** tick repair（规格：仅 hover 态行补挂，不做全量常驻）：React 重渲染吞按钮的兜底。 */
+          const ensureQuoteButtons = () => {
+            try {
+              const btn = document.getElementById(QUOTE_BTN_ID);
+              if (btn && !quoteIAmNewer(btn)) return; // P37 退让
+              const row = quoteHoverRow;
+              if (!row || !row.isConnected || !row.matches(':hover')) {
+                quoteHoverRow = null; // 事件漏网兜底：以 :hover 真值为准
+                if (btn) btn.remove();
+                return;
+              }
+              if (!btn || btn.parentElement !== row) mountQuoteBtn(row);
+            } catch { /* 失败不影响主流程 */ }
+          };
+          document.addEventListener('mouseover', onQuoteOver, true);
+          document.addEventListener('mouseout', onQuoteOut, true);
+          if (typeof ctx !== 'undefined' && ctx && typeof ctx.effect === 'function') {
+            ctx.effect(() => () => { // 实例 dispose：摘除委托监听与按钮（旧实例 interval 永生不受此控，P37）
+              document.removeEventListener('mouseover', onQuoteOver, true);
+              document.removeEventListener('mouseout', onQuoteOut, true);
+              removeQuoteBtn();
+            });
+          }
 
           /** 提交成功 → 挂「N 条批注 · 已保存」胶囊（× 可撤回）；输入框找不到才退回文本提示。 */
           const announceSubmission = (r) => {
@@ -2237,6 +2413,8 @@ window.__ModuleLoader__.load({
               refreshPanes();
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
               ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
+              ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
+              ensureQuoteButtons(); // 消息引用：hover 行的引用按钮补挂/移除（.local/feature-message-quote.md）
               const activeIds = (st && st.active && Array.isArray(st.panes))
                 ? new Set(st.panes.map(paneIdOf))
                 : new Set();
