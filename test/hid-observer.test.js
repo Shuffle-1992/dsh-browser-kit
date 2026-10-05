@@ -163,7 +163,7 @@ test("registerDecoder：命中填充 op/note，追溯 + 新条目即时生效，
   await dev.sendReport(0x00, [0x0c, 0x00]); // 应答
 
   const log = sandbox.window.__hidLog;
-  log.registerDecoder("keysion", (entry) =>
+  log.registerDecoder("demo", (entry) =>
     entry.hex && entry.hex.startsWith("a1 0c") ? { op: "READ_PRESET#12", note: "preset query" } : null,
   );
 
@@ -184,7 +184,7 @@ test("registerDecoder：命中填充 op/note，追溯 + 新条目即时生效，
   assert.equal(dumpOf(sandbox, { op: "READ_PRESET#12" }).length, 3);
 
   // 同名覆盖：仅此前无 op 的条目被追溯
-  log.registerDecoder("keysion", (entry) => (entry.hex ? { op: "ANY" } : null));
+  log.registerDecoder("demo", (entry) => (entry.hex ? { op: "ANY" } : null));
   assert.equal(dumpOf(sandbox, { op: "ANY" }).length, 1);
 
   assert.throws(() => log.registerDecoder("nope", "not-a-function"), /fn must be a function/);

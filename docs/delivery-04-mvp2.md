@@ -6,7 +6,7 @@
 ## 1. 一句话结论
 
 **MVP-2 机器全链路验收通过**：client 面板/命令通道把 `element-annotator.js`（45KB IIFE）注入
-keysion.cn guest → 合成事件驱动完整批注流（点选 3 元素：2 条带 Note + 1 条留空）→ 面板提交 →
+公网 Vue 站点 guest → 合成事件驱动完整批注流（点选 3 元素：2 条带 Note + 1 条留空）→ 面板提交 →
 协议块经 face `saveAnnotations` 落盘 `annotations/20261005-001932.md`（1871B）→ 任务01 解析器
 round-trip 无损还原（note/selector/rect 逐字段核对）。人手真实批注通道同按钮可用（[批注] 键）。
 

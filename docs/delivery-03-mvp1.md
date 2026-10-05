@@ -6,13 +6,13 @@
 ## 1. 一句话结论
 
 **MVP-1 验收达成**：client `capturePage()` → dataURL → host face `saveShot()` → `shots/<时间戳>-<标题>.png`
-→ agent `read_image` 正确描述页面内容（实测 keysion.cn 登录页：品牌头/表单/主题切换/双 APP 下载卡/
+→ agent `read_image` 正确描述页面内容（实测 目标站点登录页：品牌头/表单/主题切换/双 APP 下载卡/
 备案页脚全部识别）。全程**零重启**——face 新方法经 typertGateway SRC 标记路径即时路由。
 
 ## 2. 实测证据（2026-10-04 23:47）
 
-- `shots/20261004-234750-KEYSION.png`（175,766 字节，299×1284）+ `shots/index.jsonl` 元数据行：
-  `{"at":"2026-10-04T15:47:50.396Z","file":"...","url":"https://www.keysion.cn/","title":"KEYSION","bytes":175766}`
+- `shots/20261004-234750-示例站.png`（175,766 字节，299×1284）+ `shots/index.jsonl` 元数据行：
+  `{"at":"2026-10-04T15:47:50.396Z","file":"...","url":"https://www.目标公网站点/","title":"目标站点","bytes":175766}`
 - 触发方式：client 模块重载后「首个 guest 出现」的一次性自动截图（`autoShotLeft=1`）；
   面板 [截图] 按钮可随时手动触发，路径点击复制。
 - agent 侧 `read_image` 描述（验收点）：登录页视觉结构、控件层级、版本号、备案号均正确读出。

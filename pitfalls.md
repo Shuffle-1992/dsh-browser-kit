@@ -116,7 +116,7 @@
 ## MVP-4 实施期（2026-10-05）
 
 ### P22 document.write 整页写入：页面未静止时 executeJavaScript 永久悬挂
-- **现象**：对 keysion.cn guest 执行含 `document.open(); document.write(html); document.close()` 的 guest-eval，命令被取走后**既无结果也无 30s 超时回报**（旧实例无超时防线时整个轮询饿死）；换时段重试又能成功（cmd-22b/51 ✓ vs cmd-41/63 ✗）。
+- **现象**：对 公网 Vue 站点 guest 执行含 `document.open(); document.write(html); document.close()` 的 guest-eval，命令被取走后**既无结果也无 30s 超时回报**（旧实例无超时防线时整个轮询饿死）；换时段重试又能成功（cmd-22b/51 ✓ vs cmd-41/63 ✗）。
 - **根因**：页面仍在加载/框架活跃时，`document.open` 触发的解析器重入让 executeJavaScript 的完成信号被吞（Electron 层面表现为 Promise 永不决）。
 - **对策**：① 页面注入一律用 **innerHTML 原语**（同步赋值，多次实测可靠；注意活跃 SPA 的响应式刷新可能在注入后重绘覆盖——注入后立即使用/截图）；② `document.write` 类操作永不进入命令集；③ 30s 超时竞速 + 45s 看门狗 + takeCommand 10s 竞速三重保险（本条落实后轮询自愈）。
 
@@ -126,7 +126,7 @@
 - **对策**：guest-eval 包装改为 `(function (document) { ${code} })(DOC || document)`——**document 经函数参数传入**（参数无提升问题）。此类错误的 "Script failed to execute" 文案不带位置信息，见此文案先查脚本内变量遮蔽。
 
 ### P24 iframe srcdoc 沙箱：宿主页 CSP 拦截 + SPA 重绘覆盖，两道墙
-- **现象**：在 keysion.cn（公网 Vue 站）页面上建 `iframe srcdoc` 沙箱注入 demo 页：① srcdoc 被页面 CSP（frame-src/default-src）拦成空文档（contentDocument bodyLen=15，cmd-70/77）；② 顶层 innerHTML 注入的 demo DOM 在 Vue 响应式刷新窗口内被重绘清空（cmd-78→79 count 4→0）。
+- **现象**：在 某公网 Vue 站点页面上建 `iframe srcdoc` 沙箱注入 demo 页：① srcdoc 被页面 CSP（frame-src/default-src）拦成空文档（contentDocument bodyLen=15，cmd-70/77）；② 顶层 innerHTML 注入的 demo DOM 在 Vue 响应式刷新窗口内被重绘清空（cmd-78→79 count 4→0）。
 - **根因**：公网页面自带 CSP 与框架生命周期，agent 对其 DOM 的「整页替换」是天然的对抗场景。
 - **对策**：整页注入/沙箱只用于**用户自有 dev 页面**（无 CSP 对抗、框架行为可控）；公网页面只做 snapshot/click/type/guest-eval（对既有 DOM 操作，实测稳定）。snapshot/click/type 已针对「顶层文档 + 可选 kit 沙箱文档」双目标实现（TARGET_DOC_SNIPPET）。
 

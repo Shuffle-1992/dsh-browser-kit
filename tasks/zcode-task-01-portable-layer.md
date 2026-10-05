@@ -16,7 +16,7 @@
 ## 2. 硬边界（越界即返工）
 
 - **只写**：`F:\My Code\dsh-browser-kit\` 下的 `src/`、`test/`、`NOTICE.md`、`package.json`、`pitfalls.md`、`README.md`（仅允许更新「目录结构」段）；
-- **禁止**：改动 `keysion dac vue` / `dsh-plugins` / `F:\My Code\ZCode`（只读参照）/ `D:\DeepSeek` 任何内容；
+- **禁止**：改动 `业务 Vue 项目` / `dsh-plugins` / `F:\My Code\ZCode`（只读参照）/ `D:\DeepSeek` 任何内容；
 - **依赖策略**：优先零 npm 依赖（Node ≥ 22 原生 WebSocket / 内置 `node:test`）；确需引入依赖（如 `ws`）必须在交付说明记录理由；
 - 不起长驻服务；集成冒烟用临时 `--user-data-dir` 的 Chrome，脚本结束必须关闭进程并清理临时目录；
 - 移植 ZCode 代码：文件头保留 Apache-2.0 归属注释（来源文件路径），并在 `NOTICE.md` 登记。
@@ -109,5 +109,5 @@ window.__dshKitAnnotator = {
 
 - DSH 插件接入与 Path A/B 验证（MVP-0，主会话负责）；
 - composer/剪贴板宿主集成、DSH GUI 悬浮工具条；
-- keysion dac vue 仓库任何改动（含 L2 语义解码器——后续单独任务）；
+- 业务前端仓库任何改动（含 L2 语义解码器——后续单独任务）；
 - 真实硬件断言（属 MVP-5 用户验收环节）。

@@ -6,7 +6,7 @@
 ## 已确认的关键事实（本轮新收获）
 
 1. **guest 不能被脚本导航到任意源**：`location.href = 'http://127.0.0.1:8123/'` 被宿主
-   allowedNavigation 守卫静默拒绝（cmd-21 证实 href 仍为 keysion.cn）。
+   allowedNavigation 守卫静默拒绝（cmd-21 证实 href 仍为 目标公网站点）。
    ⇒ 5173 工作流必须由用户在 DSH UI 手动导航；agent 侧自主方案 = `document.write` 写入
    当前页（已验证可行，不触发守卫，且 JS realm 存活 → `__dshKitAnnotator` 免重注）。
 2. **批注跨会话保留在内存**（契约）：换页面后先 `clear()` 防旧批注混入（cmd-23 count=6 教训）。
@@ -28,7 +28,7 @@
    返回值校验 hint 含「v2」+ `gap: 24px`。
 4. `screenshot` 命令 → `read_image` 确认：间距 24px、按钮加大、hint=v2、无批注层 UI。
 5. 更新 delivery-05（MVP-3 闭环验收）+ README §6 + pitfalls（如需）+ git 提交。
-6. MVP-3 剩余项（人工环节）：用户在真实项目（keysion dac vue 5173）手动导航后走
+6. MVP-3 剩余项（人工环节）：用户在真实项目（业务 Vue 项目（localhost:5173））手动导航后走
    「批注→修改→截图」连续 3 轮——README 口径的完整验收。
 
 ## 运维备忘

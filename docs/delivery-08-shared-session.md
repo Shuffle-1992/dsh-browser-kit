@@ -78,7 +78,7 @@
 - **批注层新 API**：`addExternal(items)`（按 gid 合并/更新，外部条目 el 按 selector best-effort
   解析、失败按 element.rect 定位灰徽标）、`removeExternal(gid)`、`__dshKitDeletedGids` 删除日志、
   `__dshKitAnnotatorVersion` 版本标记（client 检测不符自动重注入）；
-- **实测证据**（panes-probe，2026-10-05 13:37）：tab0(keysion.cn) 与 tab1(5173) 各 **7 条、
+- **实测证据**（panes-probe，2026-10-05 13:37）：tab0(目标公网站点) 与 tab1(5173) 各 **7 条、
   gid 序列完全一致**——窗口1 的批注实时出现在窗口2（含跨页条目的灰徽标定位）；
 - **提交去重**：`saveMergedImpl` 按 gid 去重（同步后两面板持有相同集合，合并不产生重复），
   单测覆盖（40/40）。
@@ -91,4 +91,4 @@
 | 图标一直闪烁 | 去掉守卫 600ms 去抖 → 微任务级同步重挂（无可见间隙）；3s 轮询兜底补挂 |
 | 计数徽标宽度 | 面板头改 flex（原 grid 1fr 列拉伸徽标 + chevron 换行）；徽标贴身 14px |
 | 展开/收起不明显 | chevron 移至面板右上角（marginLeft:auto），▸/▾ 三角箭头，默认收起 |
-| 窗口2 编号从 3 起（应 2） | 测试数据污染共享计数器（keysion realm 残留 [1,2]）+ 同步引擎缺失；同步引擎上线后计数以成员列表实况为准 |
+| 窗口2 编号从 3 起（应 2） | 测试数据污染共享计数器（目标站点 realm 残留 [1,2]）+ 同步引擎缺失；同步引擎上线后计数以成员列表实况为准 |

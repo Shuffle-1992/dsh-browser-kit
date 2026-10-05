@@ -1487,7 +1487,7 @@ window.__ModuleLoader__.load({
                   // document.write——后者在页面资源未静止时 executeJavaScript 会永久悬挂
                   // （cmd-41/63 实测，P22）；实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；
                   // iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
-                  // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（keysion.cn 实测一次），
+                  // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（公网 Vue 站点实测一次），
                   // 注入后应立即使用/截图。历史教训：本 case 曾被复制成重复分支（switch 首个匹配生效，
                   // 第二个是死代码、改它不生效）——case 唯一性已由静态契约钉死（§3.9）。
                   const target = pickGuestEl();

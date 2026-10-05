@@ -31,7 +31,7 @@
 | F1b 批注模式（主形态） | 批注态下连续点选多个元素，每个元素就地钉编号标记 + 就地输入修改意见（可留空）；意见与元素一一绑定；一键提交打包全部批注 | agent 收到 N 条批注，每条「意见→元素」配对明确，能在源码中逐条定位（如 localhost:5173 的多个组件） |
 | F2 截图 | 一键截取浏览器当前可视页面 → agent 获得图像做视觉识别 | agent 通过 `read_image` 类工具读取 PNG 并正确描述页面内容 |
 | F3（远期/可选） | agent 主动操作内置浏览器：navigate / click / type / snapshot / screenshot | 参照 ZCode BrowserCommand 协议裁剪 |
-| F4 设备通讯观测（SDK 无关） | hook 在平台 API 层（`navigator.hid`，Serial/USB 预留）——**任意项目、任意 SDK** 通用；agent 能获取通讯记录（方向/时间/reportId/原始字节/可选语义），用于自动化测试断言（例：切预设 → 应见对应下行帧 + 设备应答帧） | 对一个非 keysion 的第三方 WebHID 页面同样抓到配对 TX/RX；keysion 页面切预设的帧字节与协议一致 |
+| F4 设备通讯观测（SDK 无关） | hook 在平台 API 层（`navigator.hid`，Serial/USB 预留）——**任意项目、任意 SDK** 通用；agent 能获取通讯记录（方向/时间/reportId/原始字节/可选语义），用于自动化测试断言（例：切预设 → 应见对应下行帧 + 设备应答帧） | 对一个非业务站点 的第三方 WebHID 页面同样抓到配对 TX/RX；业务页面切预设的帧字节与协议一致 |
 | F5 控制台调试 | agent 能读取页面 console 流，并能执行调试操作（查内部状态、evaluate JS、注入 mock） | agent 经控制台通道发现一条报错并定位原因；evaluate 读到应用内部状态 |
 
 ### 1.2 用户故事
@@ -375,7 +375,7 @@ CDP 增强（Path B 可用时）: webContents.debugger.attach('1.3')
 | 层 | 手段 | 改 app？ | 得到什么 | 定位 |
 |---|---|---|---|---|
 | **L1 通用报文观测** | CDP `Page.addScriptToEvaluateOnNewDocument` 在页面脚本执行前把 wrapper 注入 main world——对被调试 Chrome 的**所有页面**生效 | **否** | TX/RX 原始帧（reportId + hex + len + 时序） | 主推 |
-| **L2 语义标注** | keysion sdkjs **封装层**（本体禁改）给帧打 op 名 | 是（可选） | `READ_PRESET#12` 等语义 | 增强，省 token 少猜错 |
+| **L2 语义标注** | 业务 SDK 封装层 **封装层**（本体禁改）给帧打 op 名 | 是（可选） | `READ_PRESET#12` 等语义 | 增强，省 token 少猜错 |
 | **L3 OS 层兜底** | Windows `USBPcap` + tshark 脚本化抓 USB 总线，按设备地址 + interrupt transfer 过滤 | 否（装驱动+管理员） | 浏览器无关的 ground truth，连非浏览器 HID 流量也能看 | 疑难仲裁，不进常规链路（蓝牙 HID 不适用） |
 
 - **L1 wrapper 技术要点**：代理 `navigator.hid` getter；wrap `HIDDevice.prototype.sendReport`（TX）；对 `addEventListener('inputreport')` 做镜像监听——DOM 事件多播，镜像监听器不消费、不干扰页面自己的监听；`oninputreport` 属性 setter 兜底；connect/disconnect 同法。`document_start` 时机保证页面拿到 HID 对象前 wrapper 已就位；
@@ -384,7 +384,7 @@ CDP 增强（Path B 可用时）: webContents.debugger.attach('1.3')
 - 三个层的采集格式与暴露通道完全共用（`console.debug("[HID]",…)` + `window.__hidLog`，见下）。
 
 **SDK 无关性（设计原则，硬要求）**：
-- L1 hook 在**平台 API 边界**（`navigator.hid`），不感知任何 SDK——keysion sdkjs、未来厂商 SDK、第三方 demo 页一律被观测；批注/截图能力同理，本来就是页面无关的；
+- L1 hook 在**平台 API 边界**（`navigator.hid`），不感知任何 SDK——业务 SDK 封装层、未来厂商 SDK、第三方 demo 页一律被观测；批注/截图能力同理，本来就是页面无关的；
 - wrapper 覆盖面从 WebHID 扩到**全部 Web 设备 API**：`navigator.hid` + `navigator.serial`（Web Serial）+ `navigator.usb`（WebUSB）——wrap 模式完全同构（prototype 方法 + 事件镜像监听），一次实现三类通用，后续项目换传输协议零改造；
 - 多设备/多 SDK 共存：每条记录带设备标识 `{vendorId, productId, serialNumber}`，`__hidLog.filter({device})` 按设备切片——同页多设备（如 DAC + 调试板）互不混淆；
 - L2 做成**解码器注册表**而非硬编码：`__hidLog.registerDecoder(name, fn)`（可按 vendorId/productId 自动匹配）——哪个 SDK 想要语义就注册哪个解码器，通用层保持「哑」；未来新项目至多写一个解码器文件，观测底座零改动。
@@ -413,18 +413,18 @@ CDP 增强（Path B 可用时）: webContents.debugger.attach('1.3')
   - `Runtime.enable` → `consoleAPICalled` 事件 = 全量 console 流（log/warn/error + 参数序列化）；
   - `Runtime.evaluate` = 调试操作：查 `__hidLog.dump()`、调 app 内部 API、注入 mock、触发动作；
   - `Log.entryAdded`（浏览器日志）/ `Network`（HTTP）/ `Page.captureScreenshot`（视觉，与本项目截图能力同源）。
-  - 现成封装：chrome-devtools-mcp（agent 直接用 MCP 工具），或轻量自写 CDP 脚本（keysion 项目 `scripts/collab/双栈视觉对比` 已有 CDP 使用先例）。
+  - 现成封装：chrome-devtools-mcp（agent 直接用 MCP 工具），或轻量自写 CDP 脚本（目标站点 项目 `scripts/collab/双栈视觉对比` 已有 CDP 使用先例）。
 - DSH 内置浏览器流（非 HID 页面调试）：main 侧 `webContents.on("console-message")` 可直听 guest 控制台 + `executeJavaScript` 调试（Path B 可用时）；恰好不需要动权限。
-- 无硬件回归：实现 `VirtualHidDevice`（同接口 mock），脚本化喂 input report → UI 渲染可离线断言（建议 keysion 侧排期，agent 全链路自动化可脱离硬件跑 CI）。
+- 无硬件回归：实现 `VirtualHidDevice`（同接口 mock），脚本化喂 input report → UI 渲染可离线断言（建议 业务侧排期，agent 全链路自动化可脱离硬件跑 CI）。
 
 **F4/F5 验收样例（并入 §6）**：
 1. agent 经 CDP evaluate `__hidLog.dump()`，读到一次 UI「切预设 12」产生的配对 `TX READ_PRESET#12` / `RX` 应答帧，字节与协议文档一致；
 2. UI 操作后 2s 内 `__hidLog` 出现配对帧（时序断言）；
 3. agent 注入 mock 应答 → UI 正确渲染（无硬件回归路径）；
 4. 故意断开设备 → console 流出现错误，agent 能引用该错误定位代码；
-5. **SDK 无关性验证**：换任意第三方 WebHID demo 页（非 keysion），L1 注入后同样抓到 TX/RX 配对帧——证明观测层与被测 SDK 解耦。
+5. **SDK 无关性验证**：换任意第三方 WebHID demo 页（非业务站点），L1 注入后同样抓到 TX/RX 配对帧——证明观测层与被测 SDK 解耦。
 
-**跨项目落点说明**：F4 的 **L1 通用 wrapper 与 F5 的 CDP 驱动脚本全部落本项目**（`dsh-browser-kit/`），零 keysion 改动即可工作；仅 L2 语义标注（可选增强）落 **keysion dac vue**（web 侧 sdkjs 封装层）——实施会话开工时确认是否排期。
+**跨项目落点说明**：F4 的 **L1 通用 wrapper 与 F5 的 CDP 驱动脚本全部落本项目**（`dsh-browser-kit/`），零业务仓改动即可工作；仅 L2 语义标注（可选增强）落 **业务 Vue 项目**（web 侧 sdkjs 封装层）——实施会话开工时确认是否排期。
 **交付形态定为可复用资产**：`hid-observer.js`（通用注入 wrapper，HID + Serial + USB 三 API 同构覆盖）+ CDP 驱动脚本，后续任何设备项目直接复用；新项目唯一可能要写的只是一个 L2 解码器（可选项）。
 
 ---
@@ -438,7 +438,7 @@ CDP 增强（Path B 可用时）: webContents.debugger.attach('1.3')
 | **MVP-2 批注模式** | picker 脚本扩展为批注层：编号钉标 + 就地意见输入（可留空）+ 批注列表 + `# Web page annotations:` 协议（§5.2） | 对 5173 的 3 处元素各留意见、一次提交；agent 逐条定位并完成对应修改，无歧义 |
 | **MVP-3 体验** | 落盘注释索引 + （可行则）composer chip；turn 末自动截图 | 连续 3 轮「批注→修改→截图确认」闭环无需人工搬运信息 |
 | **MVP-4 自动化**（可选） | 裁剪版 BrowserCommand（navigate/click/type/snapshot/screenshot/evaluate）+ ref 解析 | agent 独立完成一次表单填写并截图验证 |
-| **MVP-5 HID 观测 + 控制台调试**（F4/F5） | **L1 通用注入 wrapper**（CDP `addScriptToEvaluateOnNewDocument`，零 app 改动）+ 可选 L2 语义标注（keysion）+ CDP 控制台/evaluate 通道（§5.5） | §5.5 验收样例 1-4 全过（配对帧断言、mock 无硬件回归、断连错误定位） |
+| **MVP-5 HID 观测 + 控制台调试**（F4/F5） | **L1 通用注入 wrapper**（CDP `addScriptToEvaluateOnNewDocument`，零 app 改动）+ 可选 L2 语义标注（业务项目）+ CDP 控制台/evaluate 通道（§5.5） | §5.5 验收样例 1-4 全过（配对帧断言、mock 无硬件回归、断连错误定位） |
 | 暂缓 | 后台 tab surface 协调、CSS 像素归一化、fullPage CDP、元素级截图 | — |
 
 **工作纪律建议**（沿用本项目习惯）：每步踩坑记 `pitfalls.md`；DSH 升级后回归 MVP-0 清单；移植 ZCode 代码保留 Apache-2.0 版权与 NOTICE 声明。

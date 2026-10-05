@@ -53,7 +53,7 @@
 ## 6. 未决问题与建议（不阻塞验收）
 
 1. **DSH 接入（MVP-0）**：本任务不含；`inject()` 的 `addScriptToEvaluateOnNewDocument + evaluate 兜底` 双保险即为 Path A/B 预留的接入口。
-2. **L2 语义解码器**：`__hidLog.registerDecoder` 注册表已就绪，keysion 解码器属后续独立任务（keysion dac vue 仓，本任务未触碰）。
+2. **L2 语义解码器**：`__hidLog.registerDecoder` 注册表已就绪，业务解码器属后续独立任务（业务前端仓，本任务未触碰）。
 3. **真实硬件断言**：属 MVP-5 用户验收环节；现有冒烟已覆盖无硬件全链路，接入真机后仅需补一条配对帧断言脚本。
 4. **杂项**：`textarea` 围栏内容若含 ``` 串会破坏协议围栏（ZCode v1 同款已知限制，未在 v2 处理，样本页可规避）；如需支持可改用转义或缩进围栏（建议保持与 ZCode 兼容，暂不动）。
 5. **git**：按所有者裁决以本目录为独立仓库初始化并提交（见 §7）。

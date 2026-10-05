@@ -45,5 +45,5 @@
 
 1. `saveAnnotations` 的 meta.url 落 index.jsonl 为 null（title 正常）——meta 第二参在网关 SRC 路径的
    传递待查（不阻塞：协议块内每条批注自带 URL 行）；
-2. README 完整口径的「连续 3 轮」需真实项目（keysion dac vue 5173，用户手动导航）——归人工验收；
+2. README 完整口径的「连续 3 轮」需真实项目（业务 Vue 项目（localhost:5173），用户手动导航）——归人工验收；
 3. ZCode 派发的单测任务（j-muu2u9rf-0-b0c4）结果待回收（tasks/zcode-task-02-plugin-tests.md）。

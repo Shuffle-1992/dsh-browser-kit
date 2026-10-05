@@ -6,7 +6,7 @@
 ## 1. 一句话结论
 
 **MVP-4 命令集落地并实测**：`snapshot`（可交互元素快照 + ref 手柄）在真实公网页面
-（keysion.cn）一次捕获 21 个元素（含输入框/按钮/链接，带 placeholder/type/text）；`click`/`type`
+（目标公网站点）一次捕获 21 个元素（含输入框/按钮/链接，带 placeholder/type/text）；`click`/`type`
 （合成事件 + 原生 setter，机制与已验证的批注驱动脚本同源）；`reload`/`page-inject`/`page-open`/
 `page-close`/`guest-eval(frame)` 全部接通。**导航受宿主白名单限制**（脚本只能同源 reload）——
 跨源导航须用户在 DSH UI 手动执行，已如实写进命令返回值。
@@ -27,7 +27,7 @@
 
 ## 3. 实测证据
 
-- cmd-81 `snapshot` on keysion.cn：21 项全捕获——`input#loginAccount(text)`、
+- cmd-81 `snapshot` on 目标公网站点：21 项全捕获——`input#loginAccount(text)`、
   `input#loginPassword(password)`、登录提交按钮、`styleLightLogin/styleDarkLogin`（暖晨/夜黑）、
   `downloadAndroidBtn(版本：1.4.0)`、`downloadHarmonyBtn(版本：1.3.8)`、备案/协议链接、
   DAC 工作模式区块（Class-H / Class-AB）——**ref 体系可直接驱动 click/type**；
