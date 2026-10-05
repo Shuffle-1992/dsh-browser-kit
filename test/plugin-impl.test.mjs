@@ -25,6 +25,7 @@ const {
   saveShotImpl,
   saveAnnotationsImpl,
   saveMergedImpl,
+  deleteAnnotationsImpl,
   takeCommandImpl,
   commandResultImpl,
   shapeOf,
@@ -365,14 +366,14 @@ test("dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩
 /* ─────────────── 3.7 wire.host.mjs TYPERT ─────────────── */
 
 test("wire TYPERT 清单形状（不触网）", async (t) => {
-  await t.test("package/service 固定，invocations 恰 7 个且 id 形如 pkg#face/method", () => {
+  await t.test("package/service 固定，invocations 恰 8 个且 id 形如 pkg#face/method", () => {
     assert.equal(FACE_NAME, "dshBrowserKit");
     assert.equal(TYPERT.package, "@local/dsh-browser-kit");
     assert.equal(TYPERT.service, FACE_NAME);
-    assert.equal(TYPERT.invocations.length, 7);
+    assert.equal(TYPERT.invocations.length, 8);
     assert.deepEqual(
       TYPERT.invocations.map((i) => i.id),
-      ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "getInjectScript", "takeCommand", "commandResult"].map(
+      ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "deleteAnnotations", "getInjectScript", "takeCommand", "commandResult"].map(
         (m) => `@local/dsh-browser-kit#dshBrowserKit/${m}`,
       ),
     );
@@ -393,7 +394,51 @@ test("wire TYPERT 清单形状（不触网）", async (t) => {
   });
 });
 
-/* ─────────────── 3.8 client.js 共享会话静态契约（P25/P26 回归钉） ─────────────── */
+/* ─────────────── 3.8 deleteAnnotationsImpl（撤回：删文件 + 清索引行 / 越界拒绝） ─────────────── */
+
+test("deleteAnnotationsImpl：撤回回环 / 越界拒绝 / 缺文件 / 空 path", async (t) => {
+  await t.test("正常撤回：saveAnnotations → delete → 文件消失 + 索引行清掉", (t) => {
+    const { pluginDir } = makePaths(t);
+    const save = saveAnnotationsImpl(
+      { pluginDir },
+      "# Web page annotations: 1\n\n## Annotation 1\nTag: button\n",
+      { url: "https://example.com/a", title: "T" },
+    );
+    assert.equal(save.ok, true);
+    const del = deleteAnnotationsImpl({ pluginDir }, save.path);
+    assert.equal(del.ok, true);
+    assert.equal(del.removedFile, save.path);
+    assert.ok(del.removedIndexEntries >= 1, "至少清掉一行索引");
+    assert.equal(existsSync(save.path), false, "批注文件应已删除");
+    const indexRaw = readFileSync(join(pluginDir, "..", "annotations", "index.jsonl"), "utf8");
+    assert.equal(indexRaw.trim(), "", "索引应为空");
+  });
+
+  await t.test("越界拒绝：annotations/ 之外一律不删（安全线）", (t) => {
+    const { pluginDir } = makePaths(t);
+    const r = deleteAnnotationsImpl({ pluginDir }, join(pluginDir, ".data", "command.json"));
+    assert.equal(r.ok, false);
+    assert.match(r.error, /越界/);
+    const r2 = deleteAnnotationsImpl({ pluginDir }, pluginDir);
+    assert.equal(r2.ok, false);
+  });
+
+  await t.test("annotations/ 内不存在的文件 → ok:false 文件不存在", (t) => {
+    const { pluginDir } = makePaths(t);
+    const r = deleteAnnotationsImpl({ pluginDir }, join(pluginDir, "..", "annotations", "nope.md"));
+    assert.equal(r.ok, false);
+    assert.match(r.error, /不存在/);
+  });
+
+  await t.test("空 path → ok:false", (t) => {
+    const { pluginDir } = makePaths(t);
+    assert.equal(deleteAnnotationsImpl({ pluginDir }, "").ok, false);
+    assert.equal(deleteAnnotationsImpl({ pluginDir }, "   ").ok, false);
+    assert.equal(deleteAnnotationsImpl({ pluginDir }, null).ok, false);
+  });
+});
+
+/* ─────────────── 3.9 client.js 共享会话静态契约（P25/P26 回归钉） ─────────────── */
 
 /** 读 client.js 源码（普通 script，非 ESM——静态契约为最经济的守护面）。 */
 const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8");
@@ -463,5 +508,13 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /\['saveMerged', \['sets', 'meta'\]/);
     assert.match(clientSource, /case 'gui-eval'/);
     assert.match(clientSource, /lastPrime: stateRef\.lastPrime/);
+  });
+
+  await t.test("胶囊（ZCode 式）：双模式 chip + × 撤回走 deleteAnnotations face（两端装配）", () => {
+    assert.match(clientSource, /dsh-kit-annot-chip/);
+    assert.match(clientSource, /mode: 'saved', count/); // announceSubmission 挂 saved 模型
+    assert.match(clientSource, /const ensureAnnotChip = \(\) =>/);
+    assert.match(clientSource, /svc\.deleteAnnotations\(m\.path\)/); // × 撤回
+    assert.match(clientSource, /clearAll \? window\.__dshKitAnnotator\.clearAll\(\) : undefined/); // × 清除（会话中）
   });
 });

@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
         ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
         ['saveAnnotations', ['markdown', 'meta'], 'saveAnnotations(markdown, meta?): Promise<{ok:true, path, bytes}|{ok:false, error}>', ['meta']],
         ['saveMerged', ['sets', 'meta'], 'saveMerged(sets, meta?): Promise<{ok:true, path, bytes, count}|{ok:false, error}>（多面板合并：sets=[{url,title,annotations[]}]，host 重编号构建单个协议文件）', ['meta']],
+        ['deleteAnnotations', ['path'], 'deleteAnnotations(path): Promise<{ok:true, removedFile, removedIndexEntries}|{ok:false, error}>（撤回：仅限 annotations/ 目录内，删文件 + 清对应索引行）', []],
         ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
         ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
         ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
@@ -489,6 +490,7 @@ window.__ModuleLoader__.load({
             report: null,
             lastShot: null,
             annot: null, // { active, count, startedAt, lastSaved, error }
+            chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path }（live 模式由 annot 派生）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
             toolbarBtn: null,
@@ -731,12 +733,105 @@ window.__ModuleLoader__.load({
             }
           };
 
-          /** 提交成功 → 会话输入框写入「N 条 + 路径」提示，用户可直接补一句发送给助手。 */
+          /** ZCode 式胶囊（用户指定形态）：输入框上方悬浮「N 条批注 ×」。
+           *  - 会话进行中：实时计数（st.annot.count，syncPanes 维护）；× = 清空全部成员批注
+           *    （clearAll 全量进删除日志，广播所有窗口同步移除）；
+           *  - 提交成功后：saved 模型（stateRef.chip），显示「N 条批注 · 已保存」；× = 撤回
+           *    （face 第 8 方法 deleteAnnotations：删文件 + 清索引行，仅限 annotations/ 目录）。
+           *  胶囊挂在 document.body（fixed 定位，React 重渲染不吞）；找不到输入框则不锚定，
+           *  saved 模型保留，下一轮 tick 输入框出现再挂。绝不写入/清理用户输入框内容（P30 纪律）。 */
+          const CHIP_ID = 'dsh-kit-annot-chip';
+          const findComposer = () => {
+            const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
+            const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(visible);
+            return ces[ces.length - 1] || null;
+          };
+          const removeAnnotChip = () => {
+            stateRef.chip = null;
+            const old = document.getElementById(CHIP_ID);
+            if (old) old.remove();
+          };
+          const ensureAnnotChip = () => {
+            try {
+              const st = stateRef.annot;
+              const saved = (stateRef.chip && stateRef.chip.mode === 'saved') ? stateRef.chip : null;
+              const liveCount = (st && st.active && typeof st.count === 'number') ? st.count : 0;
+              const model = saved || (liveCount > 0 ? { mode: 'live', count: liveCount } : null);
+              const existing = document.getElementById(CHIP_ID);
+              if (!model) {
+                if (existing) existing.remove();
+                return;
+              }
+              const ce = findComposer();
+              if (!ce) return; // 输入框暂不可见：不锚定（saved 模型保留，下轮再试）
+              let chip = existing;
+              if (!chip) {
+                chip = document.createElement('div');
+                chip.id = CHIP_ID;
+                chip.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;gap:6px;'
+                  + 'background:#171e2c;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
+                  + 'padding:4px 6px 4px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                  + 'color:#e5e7eb;box-shadow:0 6px 16px rgba(0,0,0,0.35);user-select:none;';
+                const label = document.createElement('span');
+                label.setAttribute('data-role', 'label');
+                chip.appendChild(label);
+                const close = document.createElement('button');
+                close.type = 'button';
+                close.setAttribute('data-role', 'close');
+                close.textContent = '×';
+                close.title = '删除批注';
+                close.style.cssText = 'border:0;background:rgba(255,255,255,0.14);color:#e5e7eb;border-radius:999px;'
+                  + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
+                  + 'align-items:center;justify-content:center;padding:0;';
+                chip.appendChild(close);
+                close.addEventListener('click', () => {
+                  const m = stateRef.chip;
+                  const stNow = stateRef.annot;
+                  const isSaved = m && m.mode === 'saved';
+                  const liveOn = stNow && stNow.active && typeof stNow.count === 'number' && stNow.count > 0;
+                  if (isSaved) {
+                    // 撤回：删已保存文件 + 索引行（face 第 8 方法；P29 教训——client/host 两端都已装配）
+                    waitSvc().then((svc) => (svc ? svc.deleteAnnotations(m.path) : { ok: false, error: 'host 远端面未就绪' })).then((r) => {
+                      if (r && r.ok) {
+                        removeAnnotChip();
+                        say('info', `已撤回批注文件：${m.path}`);
+                      } else {
+                        say('warn', `撤回失败：${(r && r.error) || '未知'}`);
+                      }
+                    }).catch((e) => say('warn', `撤回失败：${msgOf(e)}`));
+                  } else if (liveOn) {
+                    // 会话中：清空全部成员批注（clearAll 全量进删除日志，广播所有窗口同步移除）
+                    for (const p of stNow.panes) {
+                      try {
+                        p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.clearAll ? window.__dshKitAnnotator.clearAll() : undefined)', true).catch(() => {});
+                      } catch { /* 死面板由同步循环自愈 */ }
+                    }
+                    say('info', '已清除全部批注（所有窗口同步移除）');
+                  }
+                });
+                document.body.appendChild(chip);
+              }
+              const label = chip.querySelector('[data-role="label"]');
+              const text = model.mode === 'saved' ? `${model.count} 条批注 · 已保存` : `${model.count} 条批注`;
+              if (label.textContent !== text) label.textContent = text;
+              chip.title = model.mode === 'saved' ? `已保存：${model.path}（× 撤回）` : '点 × 清除全部批注';
+              // 定位：输入框上方居左（每轮 tick 重定位，跟随布局变化）
+              const rect = ce.getBoundingClientRect();
+              chip.style.left = `${Math.max(8, rect.left + 10)}px`;
+              chip.style.top = `${Math.max(8, rect.top - 30)}px`;
+            } catch { /* 胶囊失败不影响主流程 */ }
+          };
+
+          /** 提交成功 → 挂「N 条批注 · 已保存」胶囊（× 可撤回）；输入框找不到才退回文本提示。 */
           const announceSubmission = (r) => {
             if (!r || r.ok !== true || !r.path) return;
             const n = Number(r.count);
-            const head = (Number.isFinite(n) && n > 0) ? `已提交 ${n} 条元素批注` : '元素批注已提交';
-            primeSessionInput(`${head}：${r.path}`);
+            stateRef.chip = { mode: 'saved', count: Number.isFinite(n) && n > 0 ? n : 0, path: r.path };
+            ensureAnnotChip();
+            if (!document.getElementById(CHIP_ID)) {
+              const c = Number.isFinite(n) && n > 0 ? n : 0;
+              primeSessionInput(`${c > 0 ? `已提交 ${c} 条元素批注` : '元素批注已提交'}：${r.path}`);
+            }
           };
 
           const sessionSettled = async (winner) => {
@@ -1489,6 +1584,14 @@ window.__ModuleLoader__.load({
             say('warn', `MutationObserver 建立失败：${msgOf(e)}`);
           }
 
+          /* ---- 诊断句柄（gui-eval 可达；state 只读视图 + ensureAnnotChip 供胶囊自检） ---- */
+          try {
+            window.__dshKitClientDiag = {
+              get state() { return stateRef; },
+              ensureAnnotChip,
+            };
+          } catch { /* 全局诊断句柄挂载失败不影响 */ }
+
           /* 槽位注册（list 型：id 必填；order 排在 zcode-dispatch 之后） */
           ctx.slots.inject(SLOT, () => ctx.slots.register(
             { name: SLOT, id: PANEL_ID, order: 30 },
@@ -1603,6 +1706,7 @@ window.__ModuleLoader__.load({
             setInterval(async () => {
               const st = stateRef.annot;
               refreshPanes();
+              ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
               const activeIds = (st && st.active && Array.isArray(st.panes))
                 ? new Set(st.panes.map(paneIdOf))
                 : new Set();

@@ -14,7 +14,7 @@
  * 激活安全：任何异常只记录不抛（绝不阻塞 cordis 激活；同 zcode-dispatch 纪律）。零 npm 依赖。
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve as pathResolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
 
@@ -488,6 +488,52 @@ function commandResultImpl(paths, id, result) {
 }
 
 /**
+ * deleteAnnotations 实现（撤回）：删除 annotations/ 内已保存的批注文件 + 清掉 index.jsonl 对应行。
+ * 安全线：解析后的绝对路径必须位于 <项目>/annotations/ 目录内（拒绝一切越界删除）；
+ * 文件名在 annotations/ 内由 dedupeFile 保证唯一，索引按 file 名整行过滤。
+ */
+function deleteAnnotationsImpl(paths, filePath) {
+  if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+    return { ok: false, error: 'path 为空' };
+  }
+  const dir = pathResolve(join(projectDirOf(paths), 'annotations'));
+  let target;
+  try {
+    target = pathResolve(filePath);
+  } catch (e) {
+    return { ok: false, error: `路径解析失败：${msg(e)}` };
+  }
+  if (target !== dir && !target.startsWith(dir + sep)) {
+    return { ok: false, error: '路径越界：仅允许删除 annotations/ 目录内的文件' };
+  }
+  if (!existsSync(target)) {
+    return { ok: false, error: '文件不存在（可能已删除）' };
+  }
+  try {
+    unlinkSync(target);
+  } catch (e) {
+    return { ok: false, error: `删除失败：${msg(e)}` };
+  }
+  let removedIndexEntries = 0;
+  try {
+    const indexFile = join(dir, 'index.jsonl');
+    const base = target.split(/[\\/]/).pop();
+    const kept = [];
+    for (const line of readFileSync(indexFile, 'utf8').split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      let match = true;
+      try {
+        match = JSON.parse(line).file === base;
+      } catch { /* 坏行保留 */ }
+      if (match) removedIndexEntries += 1;
+      else kept.push(line);
+    }
+    writeFileSync(indexFile, kept.length > 0 ? `${kept.join('\n')}\n` : '', 'utf8');
+  } catch { /* 索引清理失败不影响撤回主交付 */ }
+  return { ok: true, removedFile: target, removedIndexEntries };
+}
+
+/**
  * impl 入口（index.js 薄壳动态调用）。async：wire.host.mjs 需带 ?ts= 动态 import（见文件头）。
  * @param {object} ctx cordis Context
  * @param {object} _config 插件 config（本插件暂无字段）
@@ -577,6 +623,11 @@ export async function apply(ctx, _config = {}, paths = {}) {
     onGetInjectScript: () => getInjectScriptImpl(paths),
     onTakeCommand: () => takeCommandImpl(paths),
     onCommandResult: (id, result) => commandResultImpl(paths, id, result),
+    onDeleteAnnotations: (p) => {
+      const r = deleteAnnotationsImpl(paths, p);
+      log(r.ok ? 'info' : 'warn', `deleteAnnotations → ${r.ok ? `${r.removedFile}（索引行 -${r.removedIndexEntries}）` : r.error}`);
+      return Promise.resolve(r);
+    },
   });
   try {
     if (ctx && typeof ctx.provide === 'function') {
@@ -612,6 +663,7 @@ export const _internals = {
   saveShotImpl,
   saveAnnotationsImpl,
   saveMergedImpl,
+  deleteAnnotationsImpl,
   takeCommandImpl,
   commandResultImpl,
 };
