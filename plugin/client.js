@@ -597,7 +597,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.2.0';
+          const EXPECTED_ANNOT_VERSION = '1.3.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);

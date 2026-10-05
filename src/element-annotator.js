@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.2.0"; // 面板头 flex 布局 + 列表展开收起 + startIndex + 跨面板同步 API
+  window.__dshKitAnnotatorVersion = "1.3.0"; // 密码框可批注（载荷白名单排除 value，无泄露）+ 面板 v1.2 全部能力
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -1298,10 +1298,8 @@
     if (inputState) {
       commitNoteInput(); // 点新元素前自动落定上一条意见
     }
-    if (target.matches && target.matches('input[type="password" i]')) {
-      showToast("已跳过密码框");
-      return;
-    }
+    // 密码框不再跳过（2026-10-05 用户反馈移除）：批注载荷只含选择器/样式/白名单属性，
+    // 输入值永不被采集（attributes 白名单显式排除 value）——开发评审场景无敏感泄露。
     var record = {
       gid: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), // 跨面板同步标识（宿主广播用）
       index: nextIndex(),
