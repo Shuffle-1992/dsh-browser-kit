@@ -1077,6 +1077,65 @@ window.__ModuleLoader__.load({
             })),
           ));
 
+          /* 尽力而为的临时入口：把批注图标注进浏览器工具条（宿主未开放该位置插槽，DOM 注入 +
+           * MutationObserver 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。 */
+          try {
+            const ensureToolbarButton = () => {
+              if (document.getElementById('dsh-kit-toolbar-btn')) return true;
+              const form = document.querySelector('form[class*="toolbar"]');
+              if (!form) return false;
+              const rootEl = form.parentElement;
+              if (!rootEl || !rootEl.querySelector('webview')) return false; // 只挂带 webview 的浏览器工具条
+              const btn = document.createElement('button');
+              btn.id = 'dsh-kit-toolbar-btn';
+              btn.type = 'button';
+              btn.title = '元素批注（点击开启/关闭）';
+              btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
+              btn.innerHTML =
+                '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+                '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+                '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
+                '</svg>';
+              btn.addEventListener('click', () => {
+                if (stateRef.annot && stateRef.annot.active) {
+                  stopAnnotSession().catch(() => {});
+                } else {
+                  startAnnotSession().catch(() => {});
+                }
+              });
+              form.appendChild(btn);
+              stateRef.toolbarBtn = btn;
+              return true;
+            };
+            stateRef.ensureToolbarButton = ensureToolbarButton;
+            ensureToolbarButton();
+            // 守卫：按钮被框架重渲染移除后自动重挂（去抖 600ms，上限 200 次）
+            let tbPending = null;
+            let tbLeft = 200;
+            const tbObserver = new MutationObserver(() => {
+              if (tbLeft <= 0) return;
+              if (document.getElementById('dsh-kit-toolbar-btn')) return;
+              tbLeft -= 1;
+              clearTimeout(tbPending);
+              tbPending = setTimeout(() => { try { ensureToolbarButton(); } catch { /* ignore */ } }, 600);
+            });
+            tbObserver.observe(document.body, { childList: true, subtree: true });
+            if (typeof ctx?.effect === 'function') {
+              ctx.effect(() => () => { try { tbObserver.disconnect(); } catch { /* ignore */ } });
+            }
+            // 激活态外观同步（2s）
+            setInterval(() => {
+              const btn = stateRef.toolbarBtn;
+              if (!btn || !btn.isConnected) return;
+              const active = stateRef.annot && stateRef.annot.active;
+              btn.style.background = active
+                ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb))'
+                : 'transparent';
+            }, 2000);
+          } catch (e) {
+            say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);
+          }
+
           /* 正式形态入口：内置浏览器标签 ⋯ 菜单里的「元素批注」项（官方插槽
            * sidebar.right.tab.menu.item，list 型；工具条图标位官方未开放插槽——见 delivery-08）。
            * 独立 try/catch：菜单项失败不拖累调试面板。 */
