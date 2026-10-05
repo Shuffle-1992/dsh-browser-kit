@@ -596,7 +596,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.1.0';
+          const EXPECTED_ANNOT_VERSION = '1.2.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -627,6 +627,8 @@ window.__ModuleLoader__.load({
               st.lastSaved = r && r.ok ? r : null;
               if (r && r.ok === false) st.error = r.error;
               await stopAllPanes(true);
+              st.origins = {}; // 编号来源表随会话结束清空
+              st.pending = [];
               say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
             } else {
               // 该面板退出（Esc/关闭/导航），其余成员继续
@@ -718,19 +720,10 @@ window.__ModuleLoader__.load({
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
-            stateRef.annot = { active: true, panes: [target], pending: [], count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
-            stateRef.annot.timer = setInterval(() => {
-              let sum = 0;
-              for (const p of stateRef.annot.panes) {
-                p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.list ? window.__dshKitAnnotator.list().length : 0)', true)
-                  .then((n) => { sum += typeof n === 'number' && n > 0 ? n : 0; })
-                  .catch(() => {});
-              }
-              setTimeout(() => { if (stateRef.annot) stateRef.annot.count = sum; }, 300);
-            }, 1200);
+            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
             await startPaneInSession(target, 0); // 首个成员：编号从 1 起（startIndex 为下限）
             runSessionLoop();
-            say('info', '共享批注会话开始（本窗口已加入；其他窗口点图标加入）');
+            say('info', '共享批注会话开始（本窗口已加入；其他窗口点图标加入，批注实时同步）');
             return { ok: true, started: true };
           };
 
@@ -742,6 +735,84 @@ window.__ModuleLoader__.load({
               .then((winner) => { sessionSettled(winner).catch((e) => say('warn', `会话收尾异常：${msgOf(e)}`)); })
               .catch(() => {});
           };
+
+          /**
+           * 跨面板同步循环（会话活跃时每 1.5s）：以 gid 为唯一标识，实现「同一批注板块」——
+           *  - 新 gid：登记来源面板 → addExternal 广播到其他成员（缺失即推送）；
+           *  - note/index 变更：addExternal 幂等更新（同 gid）；
+           *  - 删除：union(各窗口删除日志) + 来源面板消失 → 全员 removeExternal；
+           *  - 同一页面开两个窗口时 selector 在两边都命中 → 徽标实时出现在两个窗口（用户核心诉求）。
+           */
+          let syncBusy = false;
+          const syncPanes = async () => {
+            const st = stateRef.annot;
+            if (!st || !st.active || syncBusy || st.panes.length < 2) return;
+            syncBusy = true;
+            try {
+              const states = [];
+              for (const p of st.panes) {
+                let list = [];
+                let deleted = [];
+                try {
+                  list = (await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true)) || [];
+                  deleted = (await p.executeJavaScript('(window.__dshKitDeletedGids || [])', true)) || [];
+                } catch { states.push({ pane: p, list, deleted, dead: true }); continue; }
+                states.push({ pane: p, list: Array.isArray(list) ? list : [], deleted: Array.isArray(deleted) ? deleted : [] });
+              }
+              // 登记新 gid 的来源面板（首次出现处）
+              for (const s of states) {
+                for (const a of s.list) {
+                  if (a.gid && !(a.gid in st.origins)) st.origins[a.gid] = s.pane;
+                }
+              }
+              // 删除判定：gid 出现在任意删除日志，或来源面板已无此 gid
+              const removedGids = {};
+              for (const s of states) for (const g of s.deleted) removedGids[g] = true;
+              for (const gid of Object.keys(st.origins)) {
+                const origin = st.origins[gid];
+                const originState = states.find((s) => s.pane === origin);
+                if (originState && !originState.dead && !originState.list.some((a) => a.gid === gid)) removedGids[gid] = true;
+              }
+              // 合并视图（未被删除的 gid）
+              const union = [];
+              const seen = {};
+              for (const s of states) {
+                for (const a of s.list) {
+                  if (a.gid && !seen[a.gid] && !removedGids[a.gid]) {
+                    seen[a.gid] = true;
+                    union.push({ item: a, origin: st.origins[a.gid] || null });
+                  }
+                }
+              }
+              // 推送缺失/落后项到各面板（addExternal 按 gid 幂等）
+              for (const s of states) {
+                const mine = {};
+                for (const a of s.list) if (a.gid) mine[a.gid] = true;
+                const toPush = union.filter((u) => u.origin !== s.pane && !mine[u.item.gid]).map((u) => u.item);
+                if (toPush.length) {
+                  try {
+                    await s.pane.executeJavaScript('window.__dshKitAnnotator.addExternal(' + JSON.stringify(toPush) + ')', true);
+                  } catch { /* 推送失败下轮重试 */ }
+                }
+              }
+              // 删除广播
+              for (const gid of Object.keys(removedGids)) {
+                for (const s of states) {
+                  if (s.dead) continue;
+                  if (s.list.some((a) => a.gid === gid)) {
+                    try {
+                      await s.pane.executeJavaScript('window.__dshKitAnnotator.removeExternal(' + JSON.stringify(gid) + ')', true);
+                    } catch { /* 下轮重试 */ }
+                  }
+                }
+                delete st.origins[gid];
+              }
+              st.count = union.length;
+            } finally {
+              syncBusy = false;
+            }
+          };
+          setInterval(() => { syncPanes().catch(() => {}); }, 1500);
 
           /* ─────────────── MVP-4 种子：命令通道（实施会话写 .data/command.json 驱动） ─────────────── */
 
@@ -765,6 +836,16 @@ window.__ModuleLoader__.load({
                     say('info', `批注（命令触发）：${JSON.stringify(r).slice(0, 120)}`);
                   }).catch(() => {});
                   return { ok: true, started: true };
+                }
+                case 'toggle-pane': {
+                  // 指定面板加入/退出共享会话（tab 0 起；省略 = 第一个）
+                  const els = Array.from(document.querySelectorAll('webview'));
+                  const pane = els[Number(c.tab) || 0];
+                  if (!pane) return { ok: false, error: 'no pane: tab=' + c.tab };
+                  togglePaneAnnot(pane).then((r) => {
+                    say('info', `面板 ${c.tab} 批注：${JSON.stringify(r).slice(0, 120)}`);
+                  }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+                  return { ok: true, toggling: true };
                 }
                 case 'stop-annotator': {
                   const target = pickGuestEl();

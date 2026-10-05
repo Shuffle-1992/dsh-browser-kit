@@ -404,9 +404,16 @@ function saveMergedImpl(paths, sets, meta) {
   }
   const m = meta && typeof meta === 'object' ? meta : {};
   const combined = [];
+  const seenGids = {};
   for (const g of groups) {
     for (const a of g.annotations) {
-      if (a && typeof a === 'object') combined.push(a);
+      if (!a || typeof a !== 'object') continue;
+      // 同步后的两面板会持有相同 gid（跨面板共享）——按 gid 去重，合并不产生重复条目
+      if (a.gid) {
+        if (seenGids[a.gid]) continue;
+        seenGids[a.gid] = true;
+      }
+      combined.push(a);
     }
   }
   combined.sort((a, b) => {

@@ -294,6 +294,16 @@ test("saveMergedImpl：跨组合并 + 按创建时间重编号 + 索引 merged �
   // 空组 / sets 缺失 → 拒绝
   assert.equal(saveMergedImpl(paths, [{ url: "x", annotations: [] }]).ok, false);
   assert.equal(saveMergedImpl(paths, null).ok, false);
+  // 同步场景：两面板持相同 gid → 按 gid 去重（不产生重复条目）
+  const dupSets = [
+    { url: "https://a.example/", title: "A", annotations: [ann(1, 1000, "#dup1"), ann(2, 2000, "#dup2")] },
+    { url: "https://a.example/", title: "A", annotations: [ann(1, 1000, "#dup1"), ann(2, 2000, "#dup2")] },
+  ];
+  const rd = saveMergedImpl(paths, dupSets, { title: "A" });
+  assert.equal(rd.ok, true);
+  assert.equal(rd.count, 2);
+  const dupLines = jsonl(join(paths.pluginDir, "..", "annotations", "index.jsonl"));
+  assert.equal(dupLines[dupLines.length - 1].count, 2);
 });
 
 /* ─────────────── 3.7 shapeOf / extractApi ─────────────── */

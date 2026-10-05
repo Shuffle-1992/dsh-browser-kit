@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.1.0"; // 面板列表展开/收起 + startIndex（宿主按版本决定是否重注入）
+  window.__dshKitAnnotatorVersion = "1.2.0"; // 面板头 flex 布局 + 列表展开收起 + startIndex + 跨面板同步 API
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -507,6 +507,9 @@
 
   function publicAnnotation(record) {
     var out = { index: record.index, element: record.element };
+    if (record.gid) {
+      out.gid = record.gid;
+    }
     if (record.note) {
       out.note = record.note;
     }
@@ -918,8 +921,7 @@
     var header = makeElement("div", {
       alignItems: "center",
       columnGap: "6px",
-      display: "grid",
-      gridTemplateColumns: "auto auto minmax(0, 1fr)",
+      display: "flex",
       marginBottom: "6px",
     });
     var icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -960,6 +962,7 @@
     panelChevron.textContent = "▸";
     panelChevron.title = "展开批注列表";
     panelChevron.setAttribute("data-dsh-kit-panel-chevron", "");
+    panelChevron.style.marginLeft = "auto";
     panelChevron.addEventListener("click", function (event) {
       event.stopPropagation();
       listExpanded = !listExpanded;
@@ -1186,6 +1189,11 @@
       record.badge.remove();
       record.badge = null;
     }
+    if (record.gid) {
+      // 删除日志（跨面板同步）：宿主轮询合并各窗口的删除记录，广播移除
+      window.__dshKitDeletedGids = window.__dshKitDeletedGids || [];
+      window.__dshKitDeletedGids.push(record.gid);
+    }
     renderPanel();
   }
 
@@ -1295,6 +1303,7 @@
       return;
     }
     var record = {
+      gid: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), // 跨面板同步标识（宿主广播用）
       index: nextIndex(),
       note: "",
       element: collectElement(target),
@@ -1457,6 +1466,72 @@
         removeBadges();
         renderPanel();
       }
+    },
+    /** 跨面板同步：按 gid 合并外部批注（已存在则同步 note/index），返回是否有变更。 */
+    addExternal: function (items) {
+      var changed = false;
+      (items || []).forEach(function (item) {
+        if (!item || !item.gid) {
+          return;
+        }
+        var existing = null;
+        for (var i = 0; i < annotations.length; i++) {
+          if (annotations[i].gid === item.gid) {
+            existing = annotations[i];
+            break;
+          }
+        }
+        var index = Number(item.index) || (existing ? existing.index : nextIndex());
+        if (existing) {
+          if (existing.note !== (item.note || "")) {
+            existing.note = item.note || "";
+            changed = true;
+          }
+          if (existing.index !== index) {
+            existing.index = index;
+            changed = true;
+            if (existing.badge) {
+              existing.badge.textContent = String(index);
+            }
+          }
+          return;
+        }
+        var el = null;
+        try {
+          el = item.element && item.element.selector ? document.querySelector(item.element.selector) : null;
+        } catch (_) {
+          el = null;
+        }
+        var record = {
+          gid: item.gid,
+          index: index,
+          note: item.note || "",
+          element: item.element,
+          el: el,
+          badge: null,
+        };
+        annotations.push(record);
+        renderBadge(record);
+        if (!record.el && item.element && item.element.rect) {
+          record.badge.style.left = Math.max(0, Number(item.element.rect.x) || 0) + "px";
+          record.badge.style.top = Math.max(0, Number(item.element.rect.y) || 0) + "px";
+        }
+        changed = true;
+      });
+      if (changed) {
+        renderPanel();
+      }
+      return { changed: changed };
+    },
+    /** 跨面板同步：按 gid 移除批注（其他窗口删除时广播）。 */
+    removeExternal: function (gid) {
+      for (var i = 0; i < annotations.length; i++) {
+        if (annotations[i].gid === gid) {
+          removeRecord(annotations[i]);
+          return { removed: true };
+        }
+      }
+      return { removed: false };
     },
     // 非契约字段：仅供 parity 测试对拍内嵌协议 builder（勿在宿主代码中使用）
     _protocol: { buildAnnotationsMarkdown: buildAnnotationsMarkdown },
