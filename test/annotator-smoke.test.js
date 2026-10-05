@@ -1,6 +1,6 @@
 /**
  * test/annotator-smoke.test.js — element-annotator Chrome 冒烟：
- * 批注状态机（点击钉标 → 就地意见 → 面板/API 提交 → Esc 取消）+ capture 拦截 + 密码框跳过
+ * 批注状态机（点击钉标 → 就地意见 → 面板/API 提交 → Esc 取消）+ capture 拦截 + 密码框可批注（1.3.0）
  * + stale 标注 + 协议 round-trip 对拍（任务书 §3.6-4）
  */
 
@@ -66,25 +66,27 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 2);
 
-    // 密码框跳过
+    // 密码框可批注（1.3.0：移除跳过逻辑；载荷白名单排除 value，无泄露）
     await drive.evalJs(cdp, 'document.getElementById("pwd").click()');
-    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 2, "密码框不得入列");
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 3, "密码框应正常入列");
 
     // SPA 式移除已标注元素 → stale
     await drive.evalJs(cdp, 'document.querySelectorAll(".card")[1].remove()');
 
     // API submit：纯打包，不结束会话
     const packed = JSON.parse(await drive.evalJs(cdp, "JSON.stringify(window.__dshKitAnnotator.submit())"));
-    assert.ok(packed.markdown.startsWith("# Web page annotations: 2"), packed.markdown.slice(0, 40));
-    assert.equal(packed.annotations.length, 2);
+    assert.ok(packed.markdown.startsWith("# Web page annotations: 3"), packed.markdown.slice(0, 40));
+    assert.equal(packed.annotations.length, 3);
     assert.equal(packed.annotations[0].note, "按钮太小，加大 padding");
     assert.equal(packed.annotations[1].note, undefined);
     assert.equal(packed.annotations[1].stale, true, "被移除元素的批注应判 stale");
+    assert.equal(packed.annotations[2].element.tagName, "input", "密码框应作为第 3 条入列");
     assert.ok(packed.markdown.includes("[element no longer matched]"));
 
     // Node 侧协议 parse 对拍 + round-trip
     const parsed = parseAnnotationsMarkdown(packed.markdown);
-    assert.equal(parsed.annotations.length, 2);
+    assert.equal(parsed.annotations.length, 3);
     assert.equal(parsed.annotations[0].element.tagName, "button");
     assert.equal(parsed.annotations[0].element.selector, "#btn-a");
     assert.equal(parsed.annotations[0].element.accessibleName, "保存表单");
@@ -111,7 +113,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     await drive.evalJs(cdp, "window.__p2 = window.__dshKitAnnotator.start(); 'ok'");
     await drive.evalJs(cdp, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
     assert.equal(await drive.evalJs(cdp, "window.__p2"), "cancelled");
-    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 2, "stop 保留已收集批注");
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 3, "stop 保留已收集批注");
 
     // clear 清空
     await drive.evalJs(cdp, "window.__dshKitAnnotator.clear()");
