@@ -633,7 +633,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.3.0';
+          const EXPECTED_ANNOT_VERSION = '1.4.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -654,6 +654,50 @@ window.__ModuleLoader__.load({
             return target;
           };
 
+          /** 提交后把提示写入会话输入框（不自动发送）：找 GUI 聊天输入框（可见 textarea 优先，
+           *  contenteditable 兜底），原生 value setter + input 事件保证 React 受控组件同步；
+           *  输入框已有内容则换行追加，不覆盖用户正在输入的话。 */
+          const primeSessionInput = (text) => {
+            try {
+              const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
+              const tas = Array.from(document.querySelectorAll('textarea')).filter((el) => visible(el) && !el.disabled && !el.readOnly);
+              const ta = tas[tas.length - 1] || null;
+              if (ta) {
+                const cur = ta.value || '';
+                const next = cur ? `${cur}\n${text}` : text;
+                const desc = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+                if (desc && desc.set) desc.set.call(ta, next);
+                else ta.value = next;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                try { ta.focus(); } catch { /* 聚焦失败不影响 */ }
+                return { ok: true, target: 'textarea' };
+              }
+              const ces = Array.from(document.querySelectorAll('[contenteditable="true"]')).filter(visible);
+              const ce = ces[ces.length - 1] || null;
+              if (ce) {
+                const cur = (ce.innerText || '').replace(/\n+$/, '');
+                ce.textContent = cur ? `${cur}\n${text}` : text;
+                ce.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                try { ce.focus(); } catch { /* 聚焦失败不影响 */ }
+                return { ok: true, target: 'contenteditable' };
+              }
+              return { ok: false, error: '未找到会话输入框' };
+            } catch (e) {
+              return { ok: false, error: msgOf(e) };
+            }
+          };
+
+          /** 提交成功 → 会话输入框写入「N 条 + 路径」提示，用户可直接补一句发送给助手。 */
+          const announceSubmission = (r) => {
+            if (!r || r.ok !== true || !r.path) return;
+            const n = Number(r.count);
+            const head = (Number.isFinite(n) && n > 0) ? `已提交 ${n} 条元素批注` : '元素批注已提交';
+            const pr = primeSessionInput(`${head}：${r.path}`);
+            say(pr.ok ? 'info' : 'warn', pr.ok
+              ? '提交提示已写入会话输入框（未自动发送）'
+              : `会话输入框提示失败：${pr.error}`);
+          };
+
           const sessionSettled = async (winner) => {
             const st = stateRef.annot;
             if (!st || !st.active) return;
@@ -667,6 +711,7 @@ window.__ModuleLoader__.load({
               st.origins = {}; // 编号来源表随会话结束清空
               st.pending = [];
               if (st.leftIds) st.leftIds.clear(); // 显式退出记忆随会话结束清空
+              announceSubmission(r); // 会话输入框提示（N 条 + 路径）
               say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
             } else {
               // 取消/Esc/重启动：**成员身份保留**（退出必须走 leavePane 显式开关）——
@@ -1198,6 +1243,7 @@ window.__ModuleLoader__.load({
                   // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
                   if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
                     const r = await mergeAndSave(null);
+                    if (r && r.ok) announceSubmission(r);
                     return r && r.ok ? { ok: true, path: r.path, bytes: r.bytes, count: r.count } : { ok: false, error: (r && r.error) || '保存失败' };
                   }
                   const target = await ensureAnnotator(svc);
@@ -1210,6 +1256,7 @@ window.__ModuleLoader__.load({
                     if (m && typeof m === 'object') meta = { url: m.url ?? m.href ?? null, title: m.title ?? null };
                   } catch { /* 元数据失败不拦保存 */ }
                   const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
+                  if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
                   return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
                 }
                 default:

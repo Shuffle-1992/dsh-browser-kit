@@ -119,6 +119,37 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     await drive.evalJs(cdp, "window.__dshKitAnnotator.clear()");
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 0);
 
+    // clearAll（1.4.0）：清空 + 全量 gid 写删除日志（共享会话跨窗口广播移除的依据）
+    await drive.evalJs(cdp, "window.__p4 = window.__dshKitAnnotator.start(); 'ok'");
+    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1);
+    await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 0, "clearAll 清空列表");
+    assert.equal(
+      await drive.evalJs(cdp, "(window.__dshKitDeletedGids || []).length"),
+      1,
+      "clearAll 应把该 gid 写入删除日志（否则其他窗口会被 addExternal 推回来）",
+    );
+
+    // 面板「清除」按钮（1.4.0）：存在、位于展开/收起图标左侧、点击即 clearAll 语义
+    await drive.evalJs(cdp, "window.__p5 = window.__dshKitAnnotator.start(); 'ok'");
+    const domOrder = await drive.evalJs(
+      cdp,
+      '(function () { var c = document.querySelector("[data-dsh-kit-panel-clear]"); var v = document.querySelector("[data-dsh-kit-panel-chevron]"); if (!c || !v) return "missing"; return (c.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) ? "chevron-after-clear" : "wrong-order"; })()',
+    );
+    assert.equal(domOrder, "chevron-after-clear", "清除按钮应在展开/收起图标左侧（DOM 顺序）");
+    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1);
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-panel-clear]").click()');
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 0, "面板清除按钮应清空全部");
+    assert.equal(
+      await drive.evalJs(cdp, "(window.__dshKitDeletedGids || []).length"),
+      2,
+      "面板清除按钮与 clearAll 同源：gid 进删除日志",
+    );
+
     await cdp.close();
   } finally {
     await drive.close();

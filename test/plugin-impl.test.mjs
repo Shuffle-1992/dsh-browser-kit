@@ -427,4 +427,26 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /getWebContentsId/);
     assert.match(clientSource, /const refreshPanes = \(\) =>/);
   });
+
+  await t.test("1.4.0：版本锁同步 + 提交提示写入会话输入框 + 清除按钮契约", () => {
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.4\.0'/);
+    // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
+    assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
+    assert.match(clientSource, /announceSubmission\(r\)/);
+    const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.4\.0"/);
+    // 清除按钮：存在于面板、append 顺序在 chevron 之前（DOM 顺序 = 图标左侧）
+    assert.match(annotSource, /data-dsh-kit-panel-clear/);
+    assert.match(
+      annotSource,
+      /header\.append\(icon, title, panelCount, clearBtn, panelChevron\)/,
+      "清除按钮必须 append 在展开/收起图标左侧（悬浮 popout 的 header.append 不算）",
+    );
+    // clearAll 语义：写删除日志（否则共享会话下其他窗口 1.5s 后会被推回来）
+    assert.match(annotSource, /function clearAllAnnots\(/);
+    assert.match(annotSource, /clearAll: function \(/);
+    const clearAllBody = annotSource.match(/function clearAllAnnots\(\) \{[\s\S]*?\n  \}/);
+    assert.ok(clearAllBody, "clearAllAnnots 函数体可定位");
+    assert.match(clearAllBody[0], /__dshKitDeletedGids/);
+  });
 });

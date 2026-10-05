@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.3.0"; // 密码框可批注（载荷白名单排除 value，无泄露）+ 面板 v1.2 全部能力
+  window.__dshKitAnnotatorVersion = "1.4.0"; // 面板「清除」按钮：全量清除 + 删除日志广播（跨窗口同步移除）
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -968,7 +968,26 @@
       listExpanded = !listExpanded;
       renderPanel();
     });
-    header.append(icon, title, panelCount, panelChevron);
+    // 「清除」按钮：位于展开/收起图标左侧（用户指定位置）；清空本面板全部批注，
+    // gid 全量进删除日志 → 宿主广播 removeExternal，共享会话下所有窗口同步移除
+    var clearBtn = makeElement("button", {
+      background: "transparent",
+      border: "1px solid rgba(255,255,255,0.24)",
+      borderRadius: "6px",
+      color: "rgba(255,255,255,0.72)",
+      cursor: "pointer",
+      font: "10px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+      padding: "3px 6px",
+    });
+    clearBtn.type = "button";
+    clearBtn.textContent = "清除";
+    clearBtn.title = "清除全部批注（共享会话下所有窗口同步移除）";
+    clearBtn.setAttribute("data-dsh-kit-panel-clear", "");
+    clearBtn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      clearAllAnnots();
+    });
+    header.append(icon, title, panelCount, clearBtn, panelChevron);
     panel.append(header);
 
     panelList = makeElement("div", { overflowY: "auto", minHeight: "24px" });
@@ -1195,6 +1214,34 @@
       window.__dshKitDeletedGids.push(record.gid);
     }
     renderPanel();
+  }
+
+  /** 清除全部批注（面板「清除」按钮 / clearAll API）：本面板清空 + 全部 gid 进删除日志。
+   *  共享会话下必须写删除日志——否则其他窗口的批注 1.5s 后会被 addExternal 推回来；
+   *  宿主 syncPanes 合并各窗口删除日志后广播 removeExternal，实现全窗口同步移除。 */
+  function clearAllAnnots() {
+    var count = annotations.length;
+    window.__dshKitDeletedGids = window.__dshKitDeletedGids || [];
+    annotations.slice().forEach(function (record) {
+      if (record.gid && window.__dshKitDeletedGids.indexOf(record.gid) < 0) {
+        window.__dshKitDeletedGids.push(record.gid);
+      }
+      if (record.badge) {
+        record.badge.remove();
+        record.badge = null;
+      }
+    });
+    annotations.length = 0;
+    if (inputState) {
+      // 正开着的批注输入框一并收掉（与 discardRecord 的关闭分支同构，但不走 removeRecord）
+      var container = inputState.container;
+      inputState = null;
+      if (container) {
+        container.remove();
+      }
+    }
+    renderPanel();
+    showToast(count > 0 ? "已清除 " + count + " 条批注（所有窗口同步移除）" : "当前没有批注");
   }
 
   function discardRecord(record) {
@@ -1464,6 +1511,11 @@
         removeBadges();
         renderPanel();
       }
+    },
+    /** 清除全部批注 + 全量 gid 进删除日志（共享会话跨窗口广播移除；面板「清除」按钮同源）。 */
+    clearAll: function () {
+      clearAllAnnots();
+      return { cleared: true };
     },
     /** 跨面板同步：按 gid 合并外部批注（已存在则同步 note/index），返回是否有变更。 */
     addExternal: function (items) {
