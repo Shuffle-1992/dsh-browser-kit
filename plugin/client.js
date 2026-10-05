@@ -631,10 +631,9 @@ window.__ModuleLoader__.load({
               st.pending = [];
               say('info', `共享批注会话提交完成：${r && r.ok ? r.path : r.error}`);
             } else {
-              // 该面板退出（Esc/关闭/导航），其余成员继续
-              st.panes = st.panes.filter((p) => p !== winner.pane);
-              if (st.panes.length === 0) st.active = false;
-              else runSessionLoop();
+              // 取消/Esc/重启动：**成员身份保留**（退出必须走 leavePane 显式开关）——
+              // 否则 drive 自愈式 start 重启会把自己踢出成员表，跨面板同步随即失效。
+              runSessionLoop(); // 其余 pending 继续
             }
           };
 
