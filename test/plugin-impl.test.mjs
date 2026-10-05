@@ -520,9 +520,11 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
     assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.5\.0"/);
-    // 同页门控：sync 快照带 href、来源页 URL 登记、推送附 _originUrl；annotator 按 pageOk 抑制徽标
+    // 同页门控（A1 抽取后）：sync 快照带 href、判定走 planPaneSync 纯函数（annotator-sync.test.mjs
+    // 全分支单测 + parity 对拍），此处只钉接线；annotator 按 pageOk 抑制徽标
     assert.match(clientSource, /href: location\.href/);
-    assert.match(clientSource, /st\.originUrls\[a\.gid\] = s\.url/);
+    assert.match(clientSource, /const plan = planPaneSync\(/);
+    assert.match(clientSource, /st\.origins = plan\.nextOrigins/);
     assert.match(clientSource, /_originUrl/);
     assert.match(clientSource, /originUrls: \{\}/);
     assert.match(annotSource, /function samePageHref\(/);

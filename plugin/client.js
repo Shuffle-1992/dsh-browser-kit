@@ -1068,6 +1068,71 @@ window.__ModuleLoader__.load({
            *  - 删除：union(各窗口删除日志) + 来源面板消失 → 全员 removeExternal；
            *  - 同一页面开两个窗口时 selector 在两边都命中 → 徽标实时出现在两个窗口（用户核心诉求）。
            */
+          /* @annotator-sync-canonical-begin（A1：与 src/annotator-sync.mjs 的 planPaneSync 同源，
+           * test/annotator-sync-parity 双实现对拍防漂移；本文件是普通脚本不能 import ESM。
+           * 身份约定：states[].id = paneIdOf(webview)，origins 值域同域（C4）。） */
+          const planPaneSync = (states, origins, originUrls) => {
+            const nextOrigins = { ...origins };
+            const nextOriginUrls = { ...originUrls };
+            // 登记新 gid 的来源面板与来源页 URL（首次出现处）
+            for (const s of states) {
+              for (const a of s.list || []) {
+                if (a.gid && !(a.gid in nextOrigins)) {
+                  nextOrigins[a.gid] = s.id;
+                  nextOriginUrls[a.gid] = s.url || '';
+                }
+              }
+            }
+            // 删除判定：gid 出现在任意删除日志，或来源面板已无此 gid（dead 面板不参与判定）
+            const removedGids = {};
+            for (const s of states) {
+              for (const g of s.deleted || []) removedGids[g] = true;
+            }
+            for (const gid of Object.keys(nextOrigins)) {
+              const origin = nextOrigins[gid];
+              const originState = states.find((s) => s.id === origin);
+              if (originState && !originState.dead && !(originState.list || []).some((a) => a.gid === gid)) {
+                removedGids[gid] = true;
+              }
+            }
+            // 合并视图（未被删除的 gid；先到先得去重——顺序即 states 顺序）
+            const union = [];
+            const seen = {};
+            for (const s of states) {
+              for (const a of s.list || []) {
+                if (a.gid && !seen[a.gid] && !removedGids[a.gid]) {
+                  seen[a.gid] = true;
+                  union.push({ item: a, origin: nextOrigins[a.gid] || null });
+                }
+              }
+            }
+            // 推送计划：每个面板缺的、且来源不是它自己的项（附 _originUrl 供同页门控）
+            const pushes = [];
+            for (const s of states) {
+              if (s.dead) continue;
+              const mine = {};
+              for (const a of s.list || []) if (a.gid) mine[a.gid] = true;
+              const items = union
+                .filter((u) => u.origin !== s.id && !mine[u.item.gid])
+                .map((u) => ({ ...u.item, _originUrl: nextOriginUrls[u.item.gid] || null }));
+              if (items.length > 0) pushes.push({ id: s.id, items });
+            }
+            // 删除广播计划 + 来源表清理（originUrls 一并清，防泄漏）
+            const removals = [];
+            for (const gid of Object.keys(removedGids)) {
+              const targets = [];
+              for (const s of states) {
+                if (s.dead) continue;
+                if ((s.list || []).some((a) => a.gid === gid)) targets.push(s.id);
+              }
+              if (targets.length > 0) removals.push({ gid, targets });
+              delete nextOrigins[gid];
+              delete nextOriginUrls[gid];
+            }
+            return { union, removedGids, pushes, removals, nextOrigins, nextOriginUrls };
+          };
+          /* @annotator-sync-canonical-end */
+
           let syncBusy = false;
           const syncPanes = async () => {
             const st = stateRef.annot;
@@ -1084,74 +1149,45 @@ window.__ModuleLoader__.load({
                   // url+list+deleted 一次往返取回；url 用于同页门控（徽标只渲染在 origin 同页，防串窗）
                   const snap = await p.executeJavaScript('({ href: location.href, list: (window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : []), deleted: (window.__dshKitDeletedGids || []) })', true);
                   const o = (snap && typeof snap === 'object') ? snap : {};
-                  states.push({ pane: p, url: String(o.href || ''), list: Array.isArray(o.list) ? o.list : [], deleted: Array.isArray(o.deleted) ? o.deleted : [] });
+                  states.push({ pane: p, id: paneIdOf(p), url: String(o.href || ''), list: Array.isArray(o.list) ? o.list : [], deleted: Array.isArray(o.deleted) ? o.deleted : [] });
                 } catch {
-                  states.push({ pane: p, url: '', list: [], deleted: [], dead: true });
+                  states.push({ pane: p, id: paneIdOf(p), url: '', list: [], deleted: [], dead: true });
                   continue;
                 }
               }
-              // 登记新 gid 的来源面板与来源页 URL（首次出现处）。C4：存 paneId 而非元素引用——
-              // 重渲染换节点后元素身份失配会使「来源排除/来源消失判定」静默失效
-              for (const s of states) {
-                for (const a of s.list) {
-                  if (a.gid && !(a.gid in st.origins)) {
-                    st.origins[a.gid] = paneIdOf(s.pane);
-                    if (st.originUrls) st.originUrls[a.gid] = s.url;
-                  }
-                }
+              // 同步判定抽为纯函数（A1，src/annotator-sync.mjs 正典 + 此处内嵌副本，parity 测试防漂移）：
+              // 登记/删除判定/合并/推送/广播计划全部可单测；此处只做 I/O 执行。C4：origins 值域 = paneId。
+              const plan = planPaneSync(
+                states.map((s) => ({ id: s.id, url: s.url, list: s.list, deleted: s.deleted, dead: !!s.dead })),
+                st.origins || {},
+                st.originUrls || {},
+              );
+              st.origins = plan.nextOrigins;
+              st.originUrls = plan.nextOriginUrls;
+              // 执行推送（addExternal 按 gid 幂等；_originUrl 供同页门控防串窗）
+              for (const push of plan.pushes) {
+                const target = states.find((s) => s.id === push.id);
+                if (!target) continue;
+                try {
+                  await target.pane.executeJavaScript('window.__dshKitAnnotator.addExternal(' + JSON.stringify(push.items) + ')', true);
+                } catch { /* 推送失败下轮重试 */ }
               }
-              // 删除判定：gid 出现在任意删除日志，或来源面板已无此 gid
-              const removedGids = {};
-              for (const s of states) for (const g of s.deleted) removedGids[g] = true;
-              for (const gid of Object.keys(st.origins)) {
-                const origin = st.origins[gid];
-                const originState = states.find((s) => paneIdOf(s.pane) === origin);
-                if (originState && !originState.dead && !originState.list.some((a) => a.gid === gid)) removedGids[gid] = true;
-              }
-              // 合并视图（未被删除的 gid）
-              const union = [];
-              const seen = {};
-              for (const s of states) {
-                for (const a of s.list) {
-                  if (a.gid && !seen[a.gid] && !removedGids[a.gid]) {
-                    seen[a.gid] = true;
-                    union.push({ item: a, origin: st.origins[a.gid] || null });
-                  }
-                }
-              }
-              // 推送缺失/落后项到各面板（addExternal 按 gid 幂等）；附 _originUrl 供
-              // annotator 同页门控：非同页共享项只进共享板块列表，不渲染徽标（防串窗）
-              for (const s of states) {
-                const sid = paneIdOf(s.pane);
-                const mine = {};
-                for (const a of s.list) if (a.gid) mine[a.gid] = true;
-                const toPush = union
-                  .filter((u) => u.origin !== sid && !mine[u.item.gid])
-                  .map((u) => ({ ...u.item, _originUrl: (st.originUrls && st.originUrls[u.item.gid]) || null }));
-                if (toPush.length) {
+              // 执行删除广播
+              for (const rm of plan.removals) {
+                for (const tid of rm.targets) {
+                  const target = states.find((s) => s.id === tid);
+                  if (!target) continue;
                   try {
-                    await s.pane.executeJavaScript('window.__dshKitAnnotator.addExternal(' + JSON.stringify(toPush) + ')', true);
-                  } catch { /* 推送失败下轮重试 */ }
+                    await target.pane.executeJavaScript('window.__dshKitAnnotator.removeExternal(' + JSON.stringify(rm.gid) + ')', true);
+                  } catch { /* 下轮重试 */ }
                 }
               }
-              // 删除广播
-              for (const gid of Object.keys(removedGids)) {
-                for (const s of states) {
-                  if (s.dead) continue;
-                  if (s.list.some((a) => a.gid === gid)) {
-                    try {
-                      await s.pane.executeJavaScript('window.__dshKitAnnotator.removeExternal(' + JSON.stringify(gid) + ')', true);
-                    } catch { /* 下轮重试 */ }
-                  }
-                }
-                delete st.origins[gid];
-              }
-              st.count = union.length;
+              st.count = plan.union.length;
               st.syncDiag = {
                 at: new Date().toISOString(),
                 panes: states.map((s) => ({ dead: !!s.dead, count: s.list.length })),
-                unionLen: union.length,
-                removed: Object.keys(removedGids).length,
+                unionLen: plan.union.length,
+                removed: Object.keys(plan.removedGids).length,
               };
             } finally {
               syncBusy = false;
@@ -1729,7 +1765,9 @@ window.__ModuleLoader__.load({
               const refresh = () => {
                 const svc = stateRef.getRemote ? stateRef.getRemote() : null;
                 if (!svc || typeof svc.getStats !== 'function') { setStats({ error: 'host 远端面未就绪' }); return; }
-                svc.getStats().then((r) => {
+                // face 代理返回 {ok,value} 信封——必须 unwrap（漏了 = 永远显示「—」，实测踩坑）
+                svc.getStats().then((raw) => {
+                  const r = unwrap(raw);
                   setStats(r && r.ok ? r : { error: (r && r.error) || '统计失败' });
                   try { stateRef.cardRender = { at: new Date().toISOString(), view: String(view), stats: r }; } catch { /* ignore */ }
                 }).catch((e) => {
@@ -1747,7 +1785,7 @@ window.__ModuleLoader__.load({
                 setBusy(true);
                 const svc = stateRef.getRemote ? stateRef.getRemote() : null;
                 const run = svc && typeof svc.clearArtifacts === 'function'
-                  ? svc.clearArtifacts(kind)
+                  ? Promise.resolve(svc.clearArtifacts(kind)).then((raw) => unwrap(raw))
                   : Promise.resolve({ ok: false, error: 'host 远端面未就绪' });
                 run.then((r) => {
                   setBusy(false);
