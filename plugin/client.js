@@ -698,6 +698,7 @@ window.__ModuleLoader__.load({
             if (!svc) throw new Error('host 远端面未就绪');
             await ensureAnnotator(svc, target);
             await startPaneInSession(target, nextIndex);
+            if (!stateRef.annot.panes.includes(target)) stateRef.annot.panes.push(target); // 成为同步成员（遗漏=不参与同步）
           };
 
           /** 面板退出共享会话（stop 由其 watcher 收尾）。 */
