@@ -108,6 +108,7 @@ dsh-browser-kit/
 - ✅ 任务05（主会话）：**MVP-3 闭环体验**——「批注→agent 修改→截图确认」单轮闭环全自主跑通（demo 页实物验证）；面板 ZCode 式批注图标开关 + 左下角定位；关键约束发现：guest 导航受 allowedNavigation 白名单（agent 侧用 document.write 替代）（docs/delivery-05-mvp3.md）。
 - ✅ 任务06（ZCode 派发 + 主会话落地）：**host impl 单元测试**——39 项全绿（全量 83/83）；P21：headless 派发会话无许可客户端，读写类派发须 mode=yolo 或交互会话执行（docs/delivery-06-plugin-tests.md）。
 - ✅ 任务07（主会话）：**MVP-4 agent 自动化命令集**——snapshot（真实页面 21 元素实测）/ click / type / reload / navigate / page-inject / page-open / guest-eval(frame)；P22 document.write 悬挂、P23 var 遮蔽、P24 iframe CSP 两道墙（docs/delivery-07-mvp4.md）。
-- ⏭️ 下一步：**人工验收包**——① keysion dac vue（localhost:5173）连续 3 轮「批注→修改→截图」；② 真实表单上走一遍 snapshot→type→click→screenshot 组合；③ `saveAnnotations` meta.url 小 bug 已修待复验。
+- ✅ 任务08（主会话）：**共享批注会话 + 正式形态入口**——同会话多窗口共用批注（编号跨窗口延续、saveMerged 合并单文件）、工具条批注图标（每标签一个，尽力而为注入）+ 标签菜单项 + 面板最小化；自诊断体系（kit-status/PanelBoundary/findings.gui）（docs/delivery-08-shared-session.md）。
+- ⏭️ 下一步：**人工验收包**——① keysion dac vue（localhost:5173）连续 3 轮「批注→修改→截图」；② 双窗口共享批注人工确认（窗口2 编号从窗口1 最大号+1 延续）；③ 真实表单走 snapshot→type→click→screenshot 组合；④ 调试面板 config 门控（正式版默认隐藏）；⑤ 向 DSH 官方提浏览器工具条插槽需求。
 - 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——真实 Chrome 主路径已有 `cdp/drive.mjs` + `hid-observer.js` 全套资产；DSH 内置浏览器侧的注入走 client 插件（同 MVP-1 通道）。
 - 关键修正（推翻调研文档 §4.4 预判）：host plugin 无 main 进程能力；`browserUse`/`computerUse` 等自动化属 DSH 主进程自有服务，第三方插件无门（F3 远期需求届时再评估）。
