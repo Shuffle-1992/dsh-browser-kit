@@ -504,16 +504,29 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'remote', 'typert'],
       apply(ctx) {
         try {
+          /* ---- stateRef 字段总览（运行期状态单一出口；后置字段一并登记）----
+           *  探测/上报：findings(探测结果) / report(落盘报告) / lastShot(最近截图)
+           *  批注会话：annot { active, count, startedAt, lastSaved, error, panes[], origins,
+           *             originUrls, pending[], leftIds, base? } —— 共享会话全部运行态
+           *  胶囊/横条：chip(saved 待发模型 {mode,count,path,items,convo,bornAt,base,
+           *             attachedKey?,retracted?}) / sentChips[](已随消息发出的模型 FIFO) /
+           *             chipAwayFrom(预留) / chipGate(P37 门控诊断，触发时写)
+           *  输入框管线：lastPrime(primeSessionInput 回读校验结果)
+           *  工具条：lastToggleError / toolbarBtnCount(已挂按钮数)
+           *  诊断：clientBootAt(实例身份，P37 认领戳数据源) / tickAt(2s tick 心跳) /
+           *        mountOk / mountError / panelCollapsed
+           *  探测节奏：autoLeft(自动补测余量) / autoShotLeft(自动截图余量) / autoProbeTimer(补测防抖定时器)
+           *  远端 face：remoteSvc + getRemote()
+           */
           const stateRef = {
             findings: null,
             report: null,
             lastShot: null,
             annot: null, // { active, count, startedAt, lastSaved, error }
-            chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path, items, convo, bornAt }（live 模式由 annot 派生）
-            sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按序配对到会话消息）
+            chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path, items, convo, bornAt, base, attachedKey?, retracted? }（live 模式由 annot 派生）
+            sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按归属行补挂）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
-            toolbarBtn: null,
             panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
@@ -660,6 +673,7 @@ window.__ModuleLoader__.load({
           const joinFloorIndex = (maxUsed) => (Number(maxUsed) || 0);
 
           const sessionMaxIndex = async () => {
+            refreshPanes(); // R1-08：与 mergeAndSave 同款纪律——死节点 executeJavaScript 抛错被静默跳过会致取号偏小
             let max = 0;
             for (const p of stateRef.annot.panes) {
               try {
@@ -775,6 +789,13 @@ window.__ModuleLoader__.load({
             }
           };
 
+          /* P37 认领制共享助手：dataset.ownerBoot 记挂载者 clientBootAt（ISO 字符串可比），
+           *  新者胜旧者让——多实例（P37：toggle 热换旧实例 interval 永生）各自 tick 时，
+           *  只有最新实例可挂/改/删自绘浮层，旧实例一律退让。胶囊/横条同源复用；
+           *  例外：工具条按钮对「无主/更旧」按钮拆除重挂以接管 click 路由，不走退让分支。 */
+          const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
+          const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
+
           /** ZCode 式胶囊（用户指定形态）：**输入框卡片内部**左上角「N 条批注 ×」。
            *  - 会话进行中：实时计数（st.annot.count，syncPanes 维护）；× = 清空全部成员批注
            *    （clearAll 全量进删除日志，广播所有窗口同步移除）；
@@ -826,12 +847,8 @@ window.__ModuleLoader__.load({
               const liveModel = (liveCount > 0 && st.convo) ? { mode: 'live', count: liveCount, convo: st.convo } : null;
               const model = saved || liveModel;
               const existing = document.getElementById(CHIP_ID);
-              /* P37 多实例共存：toggle 热换后旧实例的 interval 不被清理（clientModules.rebuilt
-               *  不触发旧 effect dispose；removespy 实证三 rev 并存互删）——胶囊认领制：
-               *  dataset.ownerBoot = 挂载者 clientBootAt（ISO 字符串可比），仅最新实例可
-               *  挂/改/删；旧实例见到别人的胶囊一律退让，消除「挂上即被删」的拉锯。 */
-              const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
-              const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
+              /* P37 多实例共存（机制详见共享助手 ownerBootOf 处注释）：认领制，
+               *  仅最新实例可挂/改/删；旧实例见到别人的胶囊一律退让。 */
               if (!model) {
                 if (existing && iAmNewer(existing)) { existing.remove(); removeChipSpacer(); }
                 return;
@@ -935,10 +952,7 @@ window.__ModuleLoader__.load({
           const ensureAwayBanner = () => {
             try {
               const existing = document.getElementById(AWAY_ID);
-              /* P37 认领制（与胶囊同款）：ownerBoot 盖戳、新者胜旧者让——旧实例见到更新实例
-               *  的横条一律退让，不挂不改不删。 */
-              const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
-              const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
+              /* P37 认领制（与胶囊同款，机制见共享助手处注释）：新者胜旧者让。 */
               const m = stateRef.chip;
               // 渲染条件（规格钉死，无需新状态）：saved 模型在场且当前不在归属会话
               const away = m && m.mode === 'saved' && m.convo !== convoTitle();
@@ -1130,7 +1144,8 @@ window.__ModuleLoader__.load({
               const queue = (stateRef.sentChips = stateRef.sentChips || []);
               if (queue.length > 100) queue.splice(0, queue.length - 100);
               const rows = userRows();
-              const sig = { n: rows.length, first: rowKey(rows[0] || null), last: rowKey(rows[rows.length - 1] || null) };
+              const rowKeys = rows.map(rowKey); // R1-03：键数组单次计算——消耗判定与补挂共用，勿逐模型重算
+              const sig = { n: rows.length, first: rowKeys[0] || '', last: rowKeys[rows.length - 1] || '' };
               // 1) 发送消耗检测（视图签名基线）
               const m = stateRef.chip;
               if (m && m.mode === 'saved' && m.convo === convo) {
@@ -1153,7 +1168,8 @@ window.__ModuleLoader__.load({
               // 2) 归属行补挂（只认 attachedKey；撤回模型/他会话模型一律跳过，不外溢）
               for (const model of queue) {
                 if (!model.attachedKey || model.retracted || model.convo !== convo) continue;
-                const target = rows.find((r) => rowKey(r) === model.attachedKey);
+                const idx = rowKeys.indexOf(model.attachedKey);
+                const target = idx >= 0 ? rows[idx] : null;
                 if (!target) continue; // 归属行不在 DOM（虚拟化/他会话）：跳过
                 const holder = target.querySelector('[class*="_bubble"]') || target;
                 if (holder.querySelector('[data-dsh-kit-ann-msg]')) continue;
@@ -1235,16 +1251,9 @@ window.__ModuleLoader__.load({
             return howPromise;
           };
 
-          const stopAllPanes = async (withClear) => {
-            for (const p of stateRef.annot.panes) {
-              try {
-                await p.executeJavaScript(withClear
-                  ? '(window.__dshKitAnnotator ? (window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined), window.__dshKitAnnotator.clear ? window.__dshKitAnnotator.clear() : undefined, undefined) : undefined'
-                  : '(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
-              } catch { /* 面板已关闭等 */ }
-            }
-            stateRef.annot.panes = [];
-          };
+          // （旧实现 stopAllPanes 已删：其 stop()+clear() 组合在 stop 后 session=null 时
+          //   不写删除日志，1.5s 同步圈会从其他窗口把成员批注推回——单次消耗改造后由
+          //   sessionSettled 的逐面板 stop+clearAll + syncPanes 广播取代，见上）
 
           /** 收集全部成员批注 → host saveMerged 合并落盘。 */
           const mergeAndSave = async () => {
@@ -1999,8 +2008,8 @@ window.__ModuleLoader__.load({
               } catch { /* ignore */ }
               if (!has) return;
               stateRef.autoLeft -= 1;
-              clearTimeout(stateRef._t);
-              stateRef._t = setTimeout(() => {
+              clearTimeout(stateRef.autoProbeTimer);
+              stateRef.autoProbeTimer = setTimeout(() => {
                 probeAndPublish('mutation').then((f) => {
                   if (f && f.webviewCount > 0) maybeAutoActions();
                 }).catch(() => {});
@@ -2020,6 +2029,7 @@ window.__ModuleLoader__.load({
               get state() { return stateRef; },
               ensureAnnotChip,
               ensureConvoChips,
+              ensureAwayBanner,
             };
           } catch { /* 全局诊断句柄挂载失败不影响 */ }
 
@@ -2206,10 +2216,10 @@ window.__ModuleLoader__.load({
               for (const form of toolbarForms()) {
                 const owned = form.querySelector('#dsh-kit-toolbar-btn');
                 if (owned) {
-                  /* P37 认领制（与胶囊同款）：click 闭包归属创建实例——不接管则批注动作永远
-                   * 路由进旧实例（旧代码旧状态）。自己/更新实例的按钮保留；无戳（P37 前旧按钮）
-                   * 或更旧实例的按钮拆除重挂，让动作路由进最新实例。 */
-                  const owner = (owned.dataset && owned.dataset.ownerBoot) || '';
+                  /* P37 认领制（戳同款，判定**有意差异**：工具条对无主/更旧按钮拆除重挂——
+                   *  click 闭包归属创建实例，不接管则批注动作永远路由进旧实例；故不用
+                   *  共享 iAmNewer 的退让分支，仅复用 ownerBootOf 取戳）。 */
+                  const owner = ownerBootOf(owned);
                   const myBoot = String(stateRef.clientBootAt);
                   if (owner === myBoot || (owner && owner > myBoot)) { attached += 1; continue; }
                   owned.remove();
@@ -2278,16 +2288,15 @@ window.__ModuleLoader__.load({
               Promise.resolve(p),
               new Promise((_, rej) => setTimeout(() => rej(new Error(`${tag || 'op'} 超时(${ms}ms)`)), ms)),
             ]);
-            trackInterval(setInterval(async () => {
-              try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
-              const st = stateRef.annot;
+            /* tick 职责拆分（R1-02）：周期 2000ms 与执行顺序逐字不变；前半同步段无失败域
+             *  交叉；后半自愈/自动加入段保留 autoJoinBusy 守卫与 withTimeout 语义原样。 */
+            const tickChipLifecycle = () => {
               refreshPanes();
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
               ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
               ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
-              const activeIds = (st && st.active && Array.isArray(st.panes))
-                ? new Set(st.panes.map(paneIdOf))
-                : new Set();
+            };
+            const tickToolbarStyles = (activeIds) => {
               for (const form of toolbarForms()) {
                 const btn = form.querySelector('#dsh-kit-toolbar-btn');
                 if (!btn) continue;
@@ -2299,6 +2308,8 @@ window.__ModuleLoader__.load({
                 btn.style.color = active ? TOOLBAR_ACCENT_TEXT : '';
                 btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
               }
+            };
+            const tickSelfHealAndAutoJoin = async (st, activeIds) => {
               if (!st || !st.active || autoJoinBusy) return;
               autoJoinBusy = true;
               try {
@@ -2328,6 +2339,16 @@ window.__ModuleLoader__.load({
               } finally {
                 autoJoinBusy = false;
               }
+            };
+            trackInterval(setInterval(async () => {
+              try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
+              const st = stateRef.annot;
+              tickChipLifecycle();
+              const activeIds = (st && st.active && Array.isArray(st.panes))
+                ? new Set(st.panes.map(paneIdOf))
+                : new Set();
+              tickToolbarStyles(activeIds);
+              await tickSelfHealAndAutoJoin(st, activeIds);
             }, 2000));
           } catch (e) {
             say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);

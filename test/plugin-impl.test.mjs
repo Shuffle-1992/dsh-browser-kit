@@ -593,7 +593,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // 2a-2) 归属行锁定：消耗瞬间记 attachedKey，补挂只认归属行（禁止「末尾 N 条」再配对——
     //       否则同一模型随新消息扩散；跨会话模型 convo 不匹配一律跳过）
     assert.match(clientSource, /m\.attachedKey = sig\.last;/);
-    assert.match(clientSource, /rows\.find\(\(r\) => rowKey\(r\) === model\.attachedKey\)/);
+    assert.match(clientSource, /const idx = rowKeys\.indexOf\(model\.attachedKey\);\s*const target = idx >= 0 \? rows\[idx\] : null;/);
     assert.match(clientSource, /if \(!model\.attachedKey \|\| model\.retracted \|\| model\.convo !== convo\) continue;/);
     // 2b) P36 回归钉：primeSessionInput 的可见性过滤必须是 isVisibleEl（曾误写未定义的 visible）
     assert.doesNotMatch(clientSource, /filter\(visible\)/);

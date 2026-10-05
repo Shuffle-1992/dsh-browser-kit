@@ -684,7 +684,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
     },
     onClearArtifacts: (kind) => {
       const r = clearArtifactsImpl(paths, kind);
-      log(r.ok ? 'warn' : 'warn', `clearArtifacts(${kind}) → ${r.ok ? JSON.stringify(r.removed) : r.error}`);
+      log(r.ok ? 'info' : 'warn', `clearArtifacts(${kind}) → ${r.ok ? JSON.stringify(r.removed) : r.error}`);
       return Promise.resolve(r);
     },
   });
