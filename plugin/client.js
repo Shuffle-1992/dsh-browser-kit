@@ -932,6 +932,11 @@ window.__ModuleLoader__.load({
                     webviewCount: document.querySelectorAll('webview').length,
                   };
                 }
+                case 'report-now': {
+                  // 诊断：立即跑一轮探测并刷新 probe-report.json（含 gui/syncDiag 诊断）
+                  probeAndPublish('command').then(() => reportNow()).catch(() => {});
+                  return { ok: true, reporting: true };
+                }
                 case 'toolbar-probe': {
                   // 诊断：直接测 ensureToolbarButton 的每一步判定
                   const bySelector = !!document.querySelector('form[class*="toolbar"]');
