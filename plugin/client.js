@@ -1760,16 +1760,19 @@ window.__ModuleLoader__.load({
                 }).catch((e) => { setBusy(false); setMsg(`清除失败：${msgOf(e)}`); });
               };
               const ok = stats && stats.ok === true;
+              const statOf = (k) => (ok && stats[k] && typeof stats[k].count === 'number' ? stats[k] : null);
               // view==='summary'：仅渲染一行摘要（详情页顶部一行）；'page' 才给完整表单
               if (view === 'summary') {
+                const a = statOf('annotations');
+                const sh = statOf('shots');
                 return h('span', { style: { color: T.text2, fontSize: 12 } },
-                  ok ? `批注 ${stats.annotations.count} 个 · 截图 ${stats.shots.count} 张` : '统计不可用');
+                  ok ? `批注 ${a ? a.count : 0} 个 · 截图 ${sh ? sh.count : 0} 张` : '统计加载中…');
               }
               const row = (label, stat, kind, clearLabel) => h(
                 'div',
                 { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' } },
                 h('span', { style: { width: 52, color: T.text2 } }, label),
-                ok
+                stat
                   ? h('span', { style: { color: T.text, fontFamily: T.mono, fontSize: 11 } }, `${stat.count} 个 · ${fmtBytes(stat.bytes)}`)
                   : h('span', { style: { color: T.text3, fontSize: 11 } }, '—'),
                 h('button', {
@@ -1786,8 +1789,8 @@ window.__ModuleLoader__.load({
                 'div',
                 { style: { display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0' } },
                 h('div', { style: { fontWeight: 700, fontSize: 12, color: T.text } }, '浏览器工件（dsh-browser-kit）'),
-                row('批注', stats && stats.annotations, 'annotations', '清除批注'),
-                row('截图', stats && stats.shots, 'shots', '清除截图'),
+                row('批注', statOf('annotations'), 'annotations', '清除批注'),
+                row('截图', statOf('shots'), 'shots', '清除截图'),
                 h(
                   'div',
                   { style: { display: 'flex', alignItems: 'center', gap: 8 } },
@@ -1811,14 +1814,18 @@ window.__ModuleLoader__.load({
                 return null;
               }
             };
-            // 双注册（参照 dsh-connect-trae）：bundle 页配置区 + bundle 行内「配置」入口
+            // 双注册（参照 dsh-connect-trae）：
+            //  - plugins.bundle.config：bundle 页「描述与行之间」的配置区（key = 包名）
+            //  - plugins.row.config：bundle 行的「配置」入口（key = `<包名>#<patch 行 id>`；
+            //    行 id 是本插件 cordis.patch.yml 声明的 `dsh-browser-kit`，不是包名——写错则挂不上）
+            const BUNDLE_ROW_ID = 'dsh-browser-kit';
             ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
               { name: 'plugins.bundle.config', key: BUNDLE_KEY, priority: 40, inject: () => ({}) },
               CARD_BOUNDARY,
             ));
             try {
               ctx.slots.inject('plugins.row.config', () => ctx.slots.register(
-                { name: 'plugins.row.config', key: `${BUNDLE_KEY}#${BUNDLE_KEY}`, priority: 40, inject: () => ({}) },
+                { name: 'plugins.row.config', key: `${BUNDLE_KEY}#${BUNDLE_ROW_ID}`, priority: 40, inject: () => ({}) },
                 CARD_BOUNDARY,
               ));
             } catch (e) {
