@@ -555,6 +555,7 @@ window.__ModuleLoader__.load({
               annotActive: !!(stateRef.annot && stateRef.annot.active),
               annotPaneCount: (stateRef.annot && Array.isArray(stateRef.annot.panes)) ? stateRef.annot.panes.length : 0,
               lastToggleError: stateRef.lastToggleError || null,
+              syncDiag: (stateRef.annot && stateRef.annot.syncDiag) || null,
             };
             stateRef.findings = findings;
             mirrorLocally(findings);
@@ -808,6 +809,12 @@ window.__ModuleLoader__.load({
                 delete st.origins[gid];
               }
               st.count = union.length;
+              st.syncDiag = {
+                at: new Date().toISOString(),
+                panes: states.map((s) => ({ dead: !!s.dead, count: s.list.length })),
+                unionLen: union.length,
+                removed: Object.keys(removedGids).length,
+              };
             } finally {
               syncBusy = false;
             }
