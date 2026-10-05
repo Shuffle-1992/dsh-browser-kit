@@ -155,3 +155,19 @@
 - **现象**：提交提示写入后 `ce.innerText` 同步回读为空 → 误报「写入失败」；数秒后再读，文本明明在（Lexical `data-lexical-editor`，全文档 0 个 textarea、唯一 contenteditable）。
 - **根因**：Lexical 接受 execCommand insertText 但走自己的事务管线异步 reconcile DOM；同步回读发生在 reconcile 前。同族坑：合成 paste 事件 Lexical 不认（需可信事件）；受控 textarea 也可能回滚。
 - **对策**：写入后**延迟回读**（textarea 300ms / contenteditable 350ms），lastPrime 记 `at/verifiedAt/ok` 随 kit-status 上报；写入期返回 `{ok:true, pending:true}`。另立纪律：**输入框是用户领地**——只追加不覆盖，清理类 DOM 操作（selectAll+delete）一律禁止（1.4.x 验证期曾误清用户正在输入的草稿）。GUI 侧诊断用新增 `gui-eval` 命令（GUI 文档内求值，只应实施会话使用）。
+### P31 输入框胶囊跨会话泄漏：DSH 页面路由无会话 id，用 document.title 作会话指纹
+- **现象**：胶囊（plugins.bundle.config 之外的自绘 overlay）在所有 DSH 会话里都显示。
+- **根因**：GUI 路由是固定 `dsh-app://app/`（无会话 id），胶囊挂 body 层不随会话视图切换消失。
+- **对策**：创建胶囊时捕获 `document.title`（DSH 每会话写入标题，去 ` — DeepSeek Harness` 后缀），渲染前比对——不匹配即隐藏。**边界**：会话标题被自动改名后指纹失配需重新提交一次。
+### P32 工具条 MutationObserver 的 tbLeft 未声明：同步重挂快速路径整体失效
+- **现象**：review 静态审出（无运行时报障可见——异常被观察器回调吞掉）：新标签打开最长 3s 无图标（只剩 3s setInterval 兜底）。
+- **根因**：`tbLeft <= 0` 读取未声明标识符 → 回调首次执行即抛 ReferenceError，observer 形同虚设。
+- **对策**：`let tbLeft = Infinity`（observer 生命周期即预算，ctx.effect 挂 disconnect）。
+### P33 bundle config schema 必须是 schemastery 实例：JSON 字面量 → status=unsupported → fiberPhase=failed
+- **现象**：为让详情页渲染配置区（plugins.bundle.config 卡片的宿主），在入口 `export const Config = {…JSON 字面量…}` → 重启后组件状态「异常」、host 半边整体不加载、命令通道停摆、卡片统计恒 `—`。
+- **根因**：Config provider 对无 schema 报 `absent`（配置区不渲染），对**形状不对的 schema** 报 `unsupported` 并使整个插件条目加载失败——后者比前者严重得多。
+- **对策**：`plugin-config.schema.mjs` 走**四级候选链**解析 schemastery（裸 import → resourcesPath 推导 asar/unpacked×dsh 段 → env 逃生口 → 本机开发位），拿到 `z.object({...})` 才导出 Config；全部失败返回 undefined → 入口不导出 → 退回 absent（宁缺勿 failed）。**教训**：给 DSH 加「声明型」字段前先对照 Config provider 的 status 语义（absent/schema/unsupported 三态后果完全不同）。
+### P34 插件列表/详情的标题与说明来自 locale/*.json 的 meta 段，不是 package.json
+- **现象**：package.json 补了 displayName/description、重启后列表与详情的说明仍空白（回退显示包名）。
+- **根因**：宿主 `dsh-app-boot` 构建词典：`dictionaries.set(id, { title: meta?.title, description: meta?.description })`——**读插件包 `locale/zh.json` + `locale/en.json` 的 meta 段**（按语言取），package.json 顶层字段不参与。
+- **对策**：补 `plugin/locale/zh.json` + `locale/en.json`（meta.title/meta.description 双语都要写，缺的那份回退）+ package.json exports 声明 `"./locale/*.json"`。诊断手法：Cordis Inspect client/Slots 的 listSubTree 可直接看插槽占用与 catalog（ownerProps/契约原文），比读 asar 源码快。
