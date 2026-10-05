@@ -510,11 +510,17 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /lastPrime: stateRef\.lastPrime/);
   });
 
-  await t.test("胶囊（ZCode 式）：双模式 chip + × 撤回走 deleteAnnotations face（两端装配）", () => {
+  await t.test("胶囊（ZCode 式）：输入框卡片内侧 + 会话指纹门控（P31 跨会话不泄漏）", () => {
     assert.match(clientSource, /dsh-kit-annot-chip/);
     assert.match(clientSource, /mode: 'saved', count/); // announceSubmission 挂 saved 模型
     assert.match(clientSource, /const ensureAnnotChip = \(\) =>/);
     assert.match(clientSource, /svc\.deleteAnnotations\(m\.path\)/); // × 撤回
     assert.match(clientSource, /clearAll \? window\.__dshKitAnnotator\.clearAll\(\) : undefined/); // × 清除（会话中）
+    // 会话指纹：document.title（去宿主后缀）建模时捕获、渲染前比对，切会话即隐藏
+    assert.match(clientSource, /const convoTitle = \(\) => \(document\.title \|\| ''\)\.replace/);
+    assert.match(clientSource, /model\.convo !== convoTitle\(\)/);
+    assert.match(clientSource, /convo: convoTitle\(\)/);
+    // 位置：输入框卡片（data-composer-card；dataset 键 composerCard 的真实属性名）内侧左上
+    assert.match(clientSource, /ce\.closest\('\[data-composer-card\]'\)/);
   });
 });

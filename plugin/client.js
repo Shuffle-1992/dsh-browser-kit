@@ -733,14 +733,18 @@ window.__ModuleLoader__.load({
             }
           };
 
-          /** ZCode 式胶囊（用户指定形态）：输入框上方悬浮「N 条批注 ×」。
+          /** ZCode 式胶囊（用户指定形态）：**输入框卡片内部**左上角「N 条批注 ×」。
            *  - 会话进行中：实时计数（st.annot.count，syncPanes 维护）；× = 清空全部成员批注
            *    （clearAll 全量进删除日志，广播所有窗口同步移除）；
            *  - 提交成功后：saved 模型（stateRef.chip），显示「N 条批注 · 已保存」；× = 撤回
            *    （face 第 8 方法 deleteAnnotations：删文件 + 清索引行，仅限 annotations/ 目录）。
-           *  胶囊挂在 document.body（fixed 定位，React 重渲染不吞）；找不到输入框则不锚定，
-           *  saved 模型保留，下一轮 tick 输入框出现再挂。绝不写入/清理用户输入框内容（P30 纪律）。 */
+           *  胶囊挂在 document.body（fixed 定位，React 重渲染不吞），锚定 data-composerCard
+           *  内侧左上；找不到输入框则不锚定，saved 模型保留，下一轮 tick 输入框出现再挂。
+           *  绝不写入/清理用户输入框内容（P30 纪律）。
+           *  会话指纹（P31）：DSH 把当前会话标题写进 document.title（后缀 " — DeepSeek Harness"），
+           *  切会话即变——胶囊只在与创建时相同的会话显示，跨会话不再泄漏（用户实测反馈）。 */
           const CHIP_ID = 'dsh-kit-annot-chip';
+          const convoTitle = () => (document.title || '').replace(/\s*[—–-]\s*DeepSeek Harness\s*$/, '').trim();
           const findComposer = () => {
             const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
             const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(visible);
@@ -756,9 +760,15 @@ window.__ModuleLoader__.load({
               const st = stateRef.annot;
               const saved = (stateRef.chip && stateRef.chip.mode === 'saved') ? stateRef.chip : null;
               const liveCount = (st && st.active && typeof st.count === 'number') ? st.count : 0;
-              const model = saved || (liveCount > 0 ? { mode: 'live', count: liveCount } : null);
+              const liveModel = (liveCount > 0 && st.convo) ? { mode: 'live', count: liveCount, convo: st.convo } : null;
+              const model = saved || liveModel;
               const existing = document.getElementById(CHIP_ID);
               if (!model) {
+                if (existing) existing.remove();
+                return;
+              }
+              // P31 会话门控：胶囊只属于创建它的那个会话（标题指纹），切会话即隐藏
+              if (model.convo && model.convo !== convoTitle()) {
                 if (existing) existing.remove();
                 return;
               }
@@ -815,10 +825,11 @@ window.__ModuleLoader__.load({
               const text = model.mode === 'saved' ? `${model.count} 条批注 · 已保存` : `${model.count} 条批注`;
               if (label.textContent !== text) label.textContent = text;
               chip.title = model.mode === 'saved' ? `已保存：${model.path}（× 撤回）` : '点 × 清除全部批注';
-              // 定位：输入框上方居左（每轮 tick 重定位，跟随布局变化）
-              const rect = ce.getBoundingClientRect();
-              chip.style.left = `${Math.max(8, rect.left + 10)}px`;
-              chip.style.top = `${Math.max(8, rect.top - 30)}px`;
+              // 定位：输入框卡片（data-composer-card，dataset 键 composerCard 转_kebab）内侧左上——ZCode 式第一行；每轮 tick 重定位
+              const card = ce.closest('[data-composer-card]') || ce;
+              const rect = card.getBoundingClientRect();
+              chip.style.left = `${Math.max(8, rect.left + 12)}px`;
+              chip.style.top = `${Math.max(8, rect.top + 8)}px`;
             } catch { /* 胶囊失败不影响主流程 */ }
           };
 
@@ -826,7 +837,7 @@ window.__ModuleLoader__.load({
           const announceSubmission = (r) => {
             if (!r || r.ok !== true || !r.path) return;
             const n = Number(r.count);
-            stateRef.chip = { mode: 'saved', count: Number.isFinite(n) && n > 0 ? n : 0, path: r.path };
+            stateRef.chip = { mode: 'saved', count: Number.isFinite(n) && n > 0 ? n : 0, path: r.path, convo: convoTitle() };
             ensureAnnotChip();
             if (!document.getElementById(CHIP_ID)) {
               const c = Number.isFinite(n) && n > 0 ? n : 0;
@@ -960,7 +971,7 @@ window.__ModuleLoader__.load({
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
-            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: convoTitle(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
             startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
             runSessionLoop();
             say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标退出/重进本窗口）');
