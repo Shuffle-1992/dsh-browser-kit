@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Browser Kit",
+    "description": "Adds coding-assistant collaboration to the built-in DSH browser: element annotations (multi-window shared sessions, cross-window numbering, merged submission to disk), screenshot feedback (agent-readable images), device traffic observation (HID/Serial/USB), and an implementation-session-driven command channel."
+  }
+}
