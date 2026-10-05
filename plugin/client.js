@@ -670,7 +670,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.5.0';
+          const EXPECTED_ANNOT_VERSION = '1.6.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1202,16 +1202,15 @@ window.__ModuleLoader__.load({
           /** guest 内取「自动化目标文档」：优先 kit 沙箱 iframe（page-open 建立），否则顶层。 */
           const TARGET_DOC_SNIPPET =
             'var DOC = (function () { var f = document.querySelector("iframe[data-dsh-kit-frame]"); try { return f && f.contentDocument ? f.contentDocument : document; } catch (e) { return document; } })();';
-          const executeCommand = async (svc, command) => {
-            const c = command && typeof command === 'object' ? command : {};
-            const action = String(c.action || '');
-            try {
-              switch (action) {
-                case 'inject-annotator': {
+          /* 命令处理器分域清单（C2 拆表）：action → async (svc, c) => result。
+           * 动作全量清单与唯一性由静态契约钉死（plugin-impl §3.9）；case 体与拆表前逐字一致。 */
+          const commandHandlers = {
+            'inject-annotator': async function (svc, c) {
                   await ensureAnnotator(svc);
                   return { ok: true, injected: true };
                 }
-                case 'start-annotator': {
+            ,
+            'start-annotator': async function (svc, c) {
                   // 不能 await：会话直到提交/Esc 才结束，await 会卡死命令轮询（cmdBusy）
                   const target = pickGuestEl();
                   togglePaneAnnot(target).then((r) => {
@@ -1219,7 +1218,8 @@ window.__ModuleLoader__.load({
                   }).catch(() => {});
                   return { ok: true, started: true };
                 }
-                case 'toggle-pane': {
+            ,
+            'toggle-pane': async function (svc, c) {
                   // 指定面板加入/退出共享会话（tab 0 起；省略 = 第一个）
                   const els = Array.from(document.querySelectorAll('webview'));
                   const pane = els[Number(c.tab) || 0];
@@ -1229,7 +1229,8 @@ window.__ModuleLoader__.load({
                   }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
                   return { ok: true, toggling: true };
                 }
-                case 'stop-annotator': {
+            ,
+            'stop-annotator': async function (svc, c) {
                   const target = pickGuestEl();
                   await leavePane(target);
                   if (stateRef.annot) {
@@ -1240,12 +1241,14 @@ window.__ModuleLoader__.load({
                   }
                   return { ok: true };
                 }
-                case 'annotator-status': {
+            ,
+            'annotator-status': async function (svc, c) {
                   const target = pickGuestEl();
                   const st = await target.executeJavaScript('(function(){ if (typeof window.__dshKitAnnotator === "undefined") return { injected: false }; return { injected: true, count: window.__dshKitAnnotator.list().length, first: window.__dshKitAnnotator.list()[0] || null }; })()', true);
                   return { ok: true, ...st };
                 }
-                case 'guest-eval': {
+            ,
+            'guest-eval': async function (svc, c) {
                   // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
                   // tab（0 起）指定目标面板（默认第一个）——多浏览器窗口分别驱动。
                   // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
@@ -1262,7 +1265,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, value };
                 }
-                case 'page-open': {
+            ,
+            'page-open': async function (svc, c) {
                   // MVP-4：iframe srcdoc 沙箱——独立 document（免疫宿主 SPA 重渲染，cmd-70 教训）、
                   // 不触发导航白名单（cmd-68 实测）、无 document.open 解析器悬挂（P22）。
                   // 重复调用 = 换页；page-close 移除沙箱恢复原页面视图。
@@ -1285,7 +1289,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'kit-status': {
+            ,
+            'kit-status': async function (svc, c) {
                   // 自诊断：回报 client 内部状态（实施会话经命令通道读取，定位「点击无效」类问题）
                   return {
                     ok: true,
@@ -1313,12 +1318,14 @@ window.__ModuleLoader__.load({
                     webviewCount: document.querySelectorAll('webview').length,
                   };
                 }
-                case 'report-now': {
+            ,
+            'report-now': async function (svc, c) {
                   // 诊断：立即跑一轮探测并刷新 probe-report.json（含 gui/syncDiag 诊断）
                   probeAndPublish('command').then(() => reportNow()).catch(() => {});
                   return { ok: true, reporting: true };
                 }
-                case 'gui-eval': {
+            ,
+            'gui-eval': async function (svc, c) {
                   // GUI 文档内求值（诊断输入框/面板 DOM 等 client 侧问题；guest 侧用 guest-eval）。
                   // 只应实施会话使用：表达式在 GUI 页全局作用域执行。
                   const expr = String(c.expr || '');
@@ -1331,14 +1338,16 @@ window.__ModuleLoader__.load({
                   } else out = v;
                   return { ok: true, value: out };
                 }
-                case 'panel-toggle': {
+            ,
+            'panel-toggle': async function (svc, c) {
                   // 调试面板显隐切换（默认隐藏、功能保留；持久化跨刷新）
                   const next = readPanelHidden() ? '0' : '1';
                   try { localStorage.setItem(PANEL_HIDDEN_KEY, next); } catch { /* 持久化失败仅本次生效 */ }
                   window.dispatchEvent(new CustomEvent(PANEL_TOGGLE_EVENT));
                   return { ok: true, hidden: next === '1' };
                 }
-                case 'toolbar-probe': {
+            ,
+            'toolbar-probe': async function (svc, c) {
                   // 诊断：直接测 ensureToolbarButton 的每一步判定
                   const bySelector = !!document.querySelector('form[class*="toolbar"]');
                   const allForms = Array.from(document.querySelectorAll('form')).map((f) => f.className.slice(0, 60));
@@ -1351,7 +1360,8 @@ window.__ModuleLoader__.load({
                   }
                   return { ok: true, bySelector, allForms, btnById, rootHasWebview, rootCls };
                 }
-                case 'panes-probe': {
+            ,
+            'panes-probe': async function (svc, c) {
                   // 诊断：枚举全部 webview 的批注层状态（injected/版本/条数/gid）
                   const els = Array.from(document.querySelectorAll('webview'));
                   const out = [];
@@ -1370,7 +1380,8 @@ window.__ModuleLoader__.load({
                   }
                   return { ok: true, panes: out };
                 }
-                case 'page-close': {
+            ,
+            'page-close': async function (svc, c) {
                   const target = pickGuestEl();
                   const value = await target.executeJavaScript(
                     `(function () { var old = document.querySelector('iframe[data-dsh-kit-frame]'); if (old) old.remove(); return { closed: true }; })()`,
@@ -1378,7 +1389,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'dom-scan': {
+            ,
+            'dom-scan': async function (svc, c) {
                   // 诊断：扫描 GUI 页（非 guest）里含 webview 的容器结构，定位浏览器工具条 DOM。
                   // 只读，不改任何宿主节点。depth 限制防日志爆炸。
                   const outline = (el, depth, maxDepth) => {
@@ -1402,7 +1414,8 @@ window.__ModuleLoader__.load({
                   for (let i = 0; i < 4 && host.parentElement; i++) host = host.parentElement;
                   return { ok: true, tree: outline(host, 0, 6) };
                 }
-                case 'snapshot': {
+            ,
+            'snapshot': async function (svc, c) {
                   // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
                   const target = pickGuestEl();
                   const value = await target.executeJavaScript(
@@ -1430,7 +1443,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'click': {
+            ,
+            'click': async function (svc, c) {
                   const target = pickGuestEl();
                   const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
                   if (!sel) return { ok: false, error: '需要 ref 或 selector' };
@@ -1440,7 +1454,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'type': {
+            ,
+            'type': async function (svc, c) {
                   const target = pickGuestEl();
                   const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
                   if (!sel) return { ok: false, error: '需要 ref 或 selector' };
@@ -1466,7 +1481,8 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'page-inject': {
+            ,
+            'page-inject': async function (svc, c) {
                   // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）替代
                   // document.write——后者在页面资源未静止时 executeJavaScript 会永久悬挂
                   // （cmd-41/63 实测，P22）；实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；
@@ -1493,13 +1509,15 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
-                case 'reload': {
+            ,
+            'reload': async function (svc, c) {
                   // 同源刷新（不跨白名单）；不 await 完成事件（P19：跨导航的 Promise 永不决）
                   const target = pickGuestEl();
                   target.executeJavaScript('location.reload()', true).catch(() => {});
                   return { ok: true, reloading: true };
                 }
-                case 'navigate': {
+            ,
+            'navigate': async function (svc, c) {
                   // 白名单内的源才可能成功（实测跨源被宿主静默拒绝）；fire-and-forget，两秒后回报 href
                   const url = String(c.url || '');
                   if (!url) return { ok: false, error: '需要 url' };
@@ -1512,10 +1530,12 @@ window.__ModuleLoader__.load({
                   } catch { /* 导航成功时旧上下文已销毁，取不到属正常 */ }
                   return { ok: true, requested: url, currentHref: href, note: '跨源导航受宿主白名单限制，可能被静默拒绝（须用户在 DSH UI 手动导航）' };
                 }
-                case 'screenshot': {
+            ,
+            'screenshot': async function (svc, c) {
                   return await captureShot();
                 }
-                case 'submit-annotations': {
+            ,
+            'submit-annotations': async function (svc, c) {
                   // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
                   if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
                     const r = await mergeAndSave();
@@ -1534,14 +1554,21 @@ window.__ModuleLoader__.load({
                   if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
                   return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
                 }
-                default:
-                  return { ok: false, error: `未知命令 action=${action}` };
-              }
+
+          };
+
+          /** 命令分发：查表执行；未知 action 显式报错（不静默）。 */
+          const executeCommand = async (svc, command) => {
+            const c = command && typeof command === 'object' ? command : {};
+            const action = String(c.action || '');
+            try {
+              const handler = commandHandlers[action];
+              if (!handler) return { ok: false, error: `未知命令 action=${action}` };
+              return await handler(svc, c);
             } catch (e) {
               return { ok: false, error: msgOf(e) };
             }
           };
-
           const pollCommands = async () => {
             if (cmdBusy) return;
             const svc = stateRef.getRemote ? stateRef.getRemote() : null;

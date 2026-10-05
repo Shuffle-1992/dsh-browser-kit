@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.5.0"; // 跨窗口共享加「同页门控」：非同页共享项只进列表不渲染徽标（防串窗，用户实测反馈）
+  window.__dshKitAnnotatorVersion = "1.6.0"; // review 轮：hover 同目标跳过重建（B5）、清除收口复用 closeNoteInput（B3）、addExternal 脏输入兜底（B6）等
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -742,6 +742,8 @@
     appendPopoverRow("Font", truncate([style.fontSize, style.fontFamily].filter(Boolean).join(" "), 96));
   }
 
+  var hoverTarget = null; // B5：最近一次已渲染 popover 的目标（同目标跳过重建，消除高频强制布局）
+
   function updateOverlay(target) {
     if (
       !target ||
@@ -752,12 +754,14 @@
     ) {
       overlay.style.display = "none";
       popover.style.display = "none";
+      hoverTarget = null;
       return;
     }
     var rect = target.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
       overlay.style.display = "none";
       popover.style.display = "none";
+      hoverTarget = null;
       return;
     }
     overlay.style.display = "block";
@@ -767,7 +771,12 @@
     overlay.style.height = rect.height + "px";
 
     popover.style.display = "block";
-    renderPopover(target, rect);
+    // B5：同目标只更新位置、不重建 popover（mousemove 高频——旧实现每次全量
+    // replaceChildren + getComputedStyle + offsetWidth 强制布局）；目标变化才重建
+    if (target !== hoverTarget) {
+      renderPopover(target, rect);
+      hoverTarget = target;
+    }
     var labelWidth = popover.offsetWidth || 240;
     var labelHeight = popover.offsetHeight || 90;
     var position = getPopoverPosition(rect, labelWidth, labelHeight);
@@ -1488,6 +1497,7 @@
     var current = session;
     session = null;
     removeAllLayers();
+    hoverTarget = null; // B5：会话结束重置 hover 状态（防止新会话首 hover 跳过渲染）
     if (current) {
       try {
         current.resolve(status);

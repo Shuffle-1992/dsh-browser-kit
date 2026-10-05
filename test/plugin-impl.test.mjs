@@ -513,13 +513,13 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const refreshPanes = \(\) =>/);
   });
 
-  await t.test("1.5.0：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.5\.0'/);
+  await t.test("1.6.0：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）", () => {
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.0'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.5\.0"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.0"/);
     // 同页门控（A1 抽取后）：sync 快照带 href、判定走 planPaneSync 纯函数（annotator-sync.test.mjs
     // 全分支单测 + parity 对拍），此处只钉接线；annotator 按 pageOk 抑制徽标
     assert.match(clientSource, /href: location\.href/);
@@ -548,7 +548,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // 1.4.x 实测：wire.host 有 7 方法但 client 只 mount 6 个 → mergeAndSave 抛
     // 「svc.saveMerged is not a function」→ 提交静默失败、输入框提示永不触发
     assert.match(clientSource, /\['saveMerged', \['sets', 'meta'\]/);
-    assert.match(clientSource, /case 'gui-eval'/);
+    assert.match(clientSource, /'gui-eval': async function \(svc, c\)/);
     assert.match(clientSource, /lastPrime: stateRef\.lastPrime/);
   });
 
@@ -573,7 +573,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /--dsw-alias-interactive-bg-hover/);
     // 调试面板：默认隐藏可唤出（panel-toggle 命令 + localStorage 持久化；探测/上报等功能保留）
     assert.match(clientSource, /dsh-browser-kit:panel:hidden:v1/);
-    assert.match(clientSource, /case 'panel-toggle'/);
+    assert.match(clientSource, /'panel-toggle': async function \(svc, c\)/);
     assert.match(clientSource, /PANEL_TOGGLE_EVENT/);
   });
 
@@ -597,11 +597,14 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.deepEqual(clientMethods, wireMethods, "client descriptors 与 wire TYPERT 必须逐字一致（方法序、参数名、可选标记）");
   });
 
-  await t.test("A6：switch case 标签唯一性（F2 复发钉）+ guest-eval document 参数遮蔽（P23 回归钉）", () => {
-    // A6a：executeCommand 的 switch 里每个 case 只能出现一次（page-inject 曾复制成死分支）
-    const caseLabels = [...clientSource.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]);
-    const dup = caseLabels.filter((v, i) => caseLabels.indexOf(v) !== i);
-    assert.deepEqual(dup, [], `executeCommand 内重复的 case 标签：${dup.join(",")}`);
+  await t.test("A6：命令处理器映射键唯一性 + 全量动作清单（C2/F2 复发钉）+ guest-eval document 参数遮蔽（P23 回归钉）", () => {
+    // A6a（C2 拆表后）：commandHandlers 的每个 action 键只能出现一次，且全量清单钉死
+    const keyRe = /'([a-z-]+)': async function \(svc, c\) \{/g;
+    const keys = [...clientSource.matchAll(keyRe)].map((m) => m[1]);
+    const expected = ['inject-annotator', 'start-annotator', 'toggle-pane', 'stop-annotator', 'annotator-status', 'guest-eval', 'page-open', 'kit-status', 'report-now', 'gui-eval', 'panel-toggle', 'toolbar-probe', 'panes-probe', 'page-close', 'dom-scan', 'snapshot', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'submit-annotations'];
+    const dup = keys.filter((v, i) => keys.indexOf(v) !== i);
+    assert.deepEqual(dup, [], `commandHandlers 重复键：${dup.join(",")}`);
+    assert.deepEqual(keys, expected, "commandHandlers 动作全量清单必须逐字一致");
     // A6b：guest-eval 的 document 必须经函数参数传入（P23：var 遮蔽会让函数体内 document=undefined）；
     // docExpr 按 frame 分支解析成表达式（cmd-99/101 回归）
     assert.match(clientSource, /return \(function \(document\) \{\\n\$\{code\}\\n\}\)\(\$\{docExpr\}\)/);
