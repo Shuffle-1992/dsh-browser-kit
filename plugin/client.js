@@ -284,6 +284,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          id: 'dsh-kit-panel',
           style: {
             pointerEvents: 'auto',
             position: 'fixed', // 浮层默认从左上排布——钉到左下角（与 zcode-dispatch 右下角面板对称）
@@ -487,6 +488,10 @@ window.__ModuleLoader__.load({
             report: null,
             lastShot: null,
             annot: null, // { active, count, startedAt, lastSaved, error }
+            lastToggleError: null,
+            clientBootAt: new Date().toISOString(),
+            toolbarBtn: null,
+            panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
             mountAttempted: false,
@@ -541,6 +546,15 @@ window.__ModuleLoader__.load({
 
           const probeAndPublish = async (trigger) => {
             const findings = await runProbe();
+            // GUI 侧自诊断（随探测上报：实施会话读报告即可定位面板/工具条问题）
+            findings.gui = {
+              clientBootAt: stateRef.clientBootAt,
+              toolbarBtnConnected: !!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected),
+              panelRootInDom: !!document.getElementById('dsh-kit-panel'),
+              remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
+              annotActive: !!(stateRef.annot && stateRef.annot.active),
+              lastToggleError: stateRef.lastToggleError || null,
+            };
             stateRef.findings = findings;
             mirrorLocally(findings);
             say('info', `探测(${trigger})：webview=${findings.webviewCount} guest=${findings.guest ? 'yes' : 'no'}`);
@@ -695,6 +709,24 @@ window.__ModuleLoader__.load({
                     true,
                   );
                   return { ok: true, ...(value || {}) };
+                }
+                case 'kit-status': {
+                  // 自诊断：回报 client 内部状态（实施会话经命令通道读取，定位「点击无效」类问题）
+                  return {
+                    ok: true,
+                    clientBootAt: stateRef.clientBootAt || null,
+                    annot: stateRef.annot
+                      ? { active: stateRef.annot.active, count: stateRef.annot.count, error: stateRef.annot.error || null, startedAt: stateRef.annot.startedAt || null }
+                      : null,
+                    lastToggleError: stateRef.lastToggleError || null,
+                    toolbarBtnConnected: !!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected),
+                    panelRootInDom: !!document.getElementById('dsh-kit-panel'),
+                    panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
+                    remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
+                    mountOk: stateRef.mountOk === true,
+                    mountError: stateRef.mountError || null,
+                    webviewCount: document.querySelectorAll('webview').length,
+                  };
                 }
                 case 'page-close': {
                   const target = pickGuestEl();
@@ -1097,10 +1129,22 @@ window.__ModuleLoader__.load({
                 '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
                 '</svg>';
               btn.addEventListener('click', () => {
-                if (stateRef.annot && stateRef.annot.active) {
-                  stopAnnotSession().catch(() => {});
-                } else {
-                  startAnnotSession().catch(() => {});
+                try {
+                  if (stateRef.annot && stateRef.annot.active) {
+                    stopAnnotSession().then((r) => {
+                      if (r && r.ok === false) { stateRef.lastToggleError = r.error || null; if (stateRef.toolbarBtn) stateRef.toolbarBtn.title = '关闭失败：' + (r.error || ''); }
+                    }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+                  } else {
+                    stateRef.lastToggleError = null;
+                    startAnnotSession().then((r) => {
+                      if (r && r.ok === false) {
+                        stateRef.lastToggleError = r.error || null;
+                        if (stateRef.toolbarBtn) stateRef.toolbarBtn.title = '批注启动失败：' + (r.error || '');
+                      }
+                    }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+                  }
+                } catch (e) {
+                  stateRef.lastToggleError = msgOf(e);
                 }
               });
               form.appendChild(btn);
