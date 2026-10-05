@@ -939,6 +939,25 @@ window.__ModuleLoader__.load({
                   }
                   return { ok: true, bySelector, allForms, btnById, rootHasWebview, rootCls };
                 }
+                case 'panes-probe': {
+                  // 诊断：枚举全部 webview 的批注层状态（injected/版本/条数/gid）
+                  const els = Array.from(document.querySelectorAll('webview'));
+                  const out = [];
+                  let i = 0;
+                  for (const el of els) {
+                    let info = { tab: i, injected: false };
+                    try {
+                      info.src = el.getAttribute('src') || null;
+                      const v = await el.executeJavaScript('({ v: window.__dshKitAnnotatorVersion || null, n: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().length : null, gids: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().map(function (x) { return x.gid; }) : [] })', true);
+                      if (v && typeof v === 'object') { info.version = v.v; info.count = v.n; info.gids = v.gids; }
+                    } catch (e) {
+                      info.error = msgOf(e);
+                    }
+                    out.push(info);
+                    i += 1;
+                  }
+                  return { ok: true, panes: out };
+                }
                 case 'page-close': {
                   const target = pickGuestEl();
                   const value = await target.executeJavaScript(
