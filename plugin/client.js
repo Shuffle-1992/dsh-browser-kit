@@ -937,6 +937,17 @@ window.__ModuleLoader__.load({
           const userRows = () => Array.from(document.querySelectorAll('[class*="_userRow"]'));
           /** 共享悬浮提示（延续页面徽标 hover 提示；主题令牌配色，pointer-events 关闭）。 */
           const ANN_TIP_ID = 'dsh-kit-ann-tip';
+          /** 选择器美化显示（仅悬浮提示；文件里保持精确原值）：截末两级 + 剔哈希类
+           *  （CSS-module 纯 hex/下划线短 token，如 ._4c2065e/.c994dda2）+ 剔 :nth-of-type 噪音。 */
+          const prettySel = (sel) => {
+            const tail = String(sel || '').split(' > ').slice(-2).join(' > ');
+            const out = tail
+              .replace(/:nth-of-type\(\d+\)/g, '')
+              .replace(/\.([0-9A-Za-z_-]+)/g, (m0, cls) => (/^_?[0-9a-f]{6,}$/i.test(cls) ? '' : m0))
+              .replace(/\s+/g, ' ')
+              .trim();
+            return out || String(sel || '');
+          };
           const hideAnnTip = () => {
             const t = document.getElementById(ANN_TIP_ID);
             if (t) t.style.display = 'none';
@@ -964,14 +975,20 @@ window.__ModuleLoader__.load({
               no.style.cssText = 'color:' + T.accent + ';flex:none;';
               no.textContent = `${it.index}.`;
               const sel = document.createElement('span');
-              sel.style.cssText = 'font-family:' + T.mono + ';color:' + T.text2 + ';flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;';
-              sel.textContent = it.selector || '(无选择器)';
-              const txt = document.createElement('span');
-              txt.style.cssText = 'color:' + T.text3 + ';overflow:hidden;text-overflow:ellipsis;';
-              txt.textContent = it.text || '';
-              row.appendChild(no);
-              row.appendChild(sel);
-              row.appendChild(txt);
+              sel.style.cssText = 'font-family:' + T.mono + ';color:' + T.text2 + ';flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;';
+              sel.textContent = prettySel(it.selector) || '(无选择器)';
+              const txt = String(it.text || '');
+              if (txt) {
+                const txtEl = document.createElement('span');
+                txtEl.style.cssText = 'color:' + T.text3 + ';overflow:hidden;text-overflow:ellipsis;';
+                txtEl.textContent = txt;
+                row.appendChild(no);
+                row.appendChild(sel);
+                row.appendChild(txtEl);
+              } else {
+                row.appendChild(no);
+                row.appendChild(sel);
+              }
               tip.appendChild(row);
             }
             const rest = (model.items || []).length - 8;
@@ -1215,7 +1232,7 @@ window.__ModuleLoader__.load({
                   index: Number(a.index) || 0,
                   gid: a.gid || null,
                   selector: String((a.element && a.element.selector) || ''),
-                  text: String((a.element && a.element.text) || '').slice(0, 60),
+                  text: String((a.element && a.element.text) || (a.element && a.element.accessibleName) || '').slice(0, 60),
                   url: s.url || null,
                 });
               }

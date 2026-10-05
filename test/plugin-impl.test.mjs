@@ -621,6 +621,10 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /items\.sort\(\(x, y\) => x\.index - y\.index\)/);
     // 5) items 摘要与 host saveMerged 同款 gid 去重（多面板同步含重复条目，悬浮提示不能出重复行）
     assert.match(clientSource, /if \(seenGids\[a\.gid\]\) continue;\s*seenGids\[a\.gid\] = true;/);
+    // 6) 悬浮可读性：text 回退 accessibleName；选择器美化（截末两级 + 剔哈希类/nth 噪音，文件保持原值）
+    assert.match(clientSource, /\|\| \(a\.element && a\.element\.accessibleName\) \|\| ''/);
+    assert.match(clientSource, /const prettySel = \(sel\) =>/);
+    assert.match(clientSource, /\/:nth-of-type\\\(/);
   });
 
   await t.test("W3：client descriptors ↔ wire FACE_METHOD_TABLE 逐字对账（P29 防复发）", async () => {
