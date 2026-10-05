@@ -520,7 +520,10 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const convoTitle = \(\) => \(document\.title \|\| ''\)\.replace/);
     assert.match(clientSource, /model\.convo !== convoTitle\(\)/);
     assert.match(clientSource, /convo: convoTitle\(\)/);
-    // 位置：输入框卡片（data-composer-card；dataset 键 composerCard 的真实属性名）内侧左上
-    assert.match(clientSource, /ce\.closest\('\[data-composer-card\]'\)/);
+    // 位置：ZCode 式独占一行——卡片内 data-inputScroll 前插 30px 占位行，胶囊悬于其上，正文不遮挡
+    assert.match(clientSource, /dsh-kit-annot-spacer/);
+    assert.match(clientSource, /ce\.closest\('\[data-inputScroll\]'\)/);
+    assert.match(clientSource, /const removeChipSpacer = \(\) =>/);
+    assert.match(clientSource, /removeChipSpacer\(\)/);
   });
 });

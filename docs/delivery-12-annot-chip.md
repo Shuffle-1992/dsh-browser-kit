@@ -43,3 +43,14 @@
 - 窗口最小化/失焦时 `checkVisibility()` 为 false → 胶囊暂不重锚（模型保留，窗口回前台后下一轮
   tick 自动重现）。
 - 胶囊由 2s tick 驱动，位置/计数更新最大滞后 2s。
+
+## 增补（同日，用户反馈「挡住输入内容」）
+
+- 布局改为 **ZCode 式独占一行**：往输入框卡片 `data-inputScroll` 滚动区之前插 30px 占位行
+  （`dsh-kit-annot-spacer`），卡片自然变高、正文被推到下方，胶囊悬浮在该行——互不遮挡。
+  胶囊消失（撤回/清除/切会话）时占位行一并移除、卡片还原；框架重渲染吞行时 tick 重插
+  （与工具条按钮同款守卫）。
+- 真机闭环：占位行插入 → 卡片 98→128px、`textBelowSpacer=true`；清除 → 占位行移除、还原 98px。
+- 会话指纹门控（P31）真机双向验证：当前会话指纹 → 显示；伪造他会话指纹 → 隐藏。
+- 坑：`dataset.composerCard` 的真实属性名是 `data-composer-card`（JS 设 dataset 转 kebab-case），
+  `data-composerCard` 选择器匹配不到。

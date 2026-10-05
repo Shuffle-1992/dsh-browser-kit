@@ -754,6 +754,28 @@ window.__ModuleLoader__.load({
             stateRef.chip = null;
             const old = document.getElementById(CHIP_ID);
             if (old) old.remove();
+            removeChipSpacer();
+          };
+          /** ZCode 式布局（用户指定）：胶囊独占卡片内第一行，正文在下不重叠——
+           *  往输入框卡片里 data-inputScroll 滚动区之前插一个 30px 占位行，卡片自然变高、
+           *  文本被推到下方；胶囊悬浮在这一行上。框架重渲染吞掉占位行时由 tick 重插
+           *  （与工具条按钮同款守卫）；胶囊消失时占位行一并移除、卡片还原。 */
+          const SPACER_ID = 'dsh-kit-annot-spacer';
+          const removeChipSpacer = () => {
+            const s = document.getElementById(SPACER_ID);
+            if (s) s.remove();
+          };
+          const ensureChipSpacer = (ce) => {
+            let spacer = document.getElementById(SPACER_ID);
+            const scrollEl = ce.closest('[data-inputScroll]') || (ce.closest('[data-composer-card]') || ce).querySelector('[data-inputScroll]') || ce;
+            if (!spacer || !spacer.isConnected || (scrollEl.parentElement && spacer.parentElement !== scrollEl.parentElement)) {
+              if (spacer) spacer.remove();
+              spacer = document.createElement('div');
+              spacer.id = SPACER_ID;
+              spacer.style.cssText = 'height:30px;flex:none;pointer-events:none;';
+              if (scrollEl.parentElement) scrollEl.parentElement.insertBefore(spacer, scrollEl);
+            }
+            return spacer;
           };
           const ensureAnnotChip = () => {
             try {
@@ -765,15 +787,18 @@ window.__ModuleLoader__.load({
               const existing = document.getElementById(CHIP_ID);
               if (!model) {
                 if (existing) existing.remove();
+                removeChipSpacer();
                 return;
               }
               // P31 会话门控：胶囊只属于创建它的那个会话（标题指纹），切会话即隐藏
               if (model.convo && model.convo !== convoTitle()) {
                 if (existing) existing.remove();
+                removeChipSpacer();
                 return;
               }
               const ce = findComposer();
               if (!ce) return; // 输入框暂不可见：不锚定（saved 模型保留，下轮再试）
+              const spacer = ensureChipSpacer(ce); // 胶囊独占一行：正文被推到下方（ZCode 布局）
               let chip = existing;
               if (!chip) {
                 chip = document.createElement('div');
@@ -825,11 +850,10 @@ window.__ModuleLoader__.load({
               const text = model.mode === 'saved' ? `${model.count} 条批注 · 已保存` : `${model.count} 条批注`;
               if (label.textContent !== text) label.textContent = text;
               chip.title = model.mode === 'saved' ? `已保存：${model.path}（× 撤回）` : '点 × 清除全部批注';
-              // 定位：输入框卡片（data-composer-card，dataset 键 composerCard 转_kebab）内侧左上——ZCode 式第一行；每轮 tick 重定位
-              const card = ce.closest('[data-composer-card]') || ce;
-              const rect = card.getBoundingClientRect();
-              chip.style.left = `${Math.max(8, rect.left + 12)}px`;
-              chip.style.top = `${Math.max(8, rect.top + 8)}px`;
+              // 定位：胶囊放进占位行（卡片第一行）——与正文互不遮挡；每轮 tick 重定位
+              const sr = spacer.getBoundingClientRect();
+              chip.style.left = `${Math.max(8, sr.left + 12)}px`;
+              chip.style.top = `${Math.max(8, sr.top + 3)}px`;
             } catch { /* 胶囊失败不影响主流程 */ }
           };
 
