@@ -1267,6 +1267,7 @@ window.__ModuleLoader__.load({
                     lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
                     lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
                     panelHidden: readPanelHidden(),
+                    cardRender: stateRef.cardRender || null, // 插件管理卡片最近一次渲染取证
                     toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
                     panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                     panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
@@ -1718,10 +1719,23 @@ window.__ModuleLoader__.load({
               const [stats, setStats] = useState(null);
               const [msg, setMsg] = useState(null);
               const [busy, setBusy] = useState(false);
+              // 自证留痕（卡片渲染真机取证）：渲染入参/数据/异常挂到诊断句柄，实施会话经 gui-eval 读取
+              useEffect(() => {
+                try {
+                  stateRef.cardRender = { at: new Date().toISOString(), view: String(view), stats: null };
+                } catch { /* ignore */ }
+                say('info', `插件卡片渲染 view=${String(view)}`);
+              }, [view]);
               const refresh = () => {
                 const svc = stateRef.getRemote ? stateRef.getRemote() : null;
                 if (!svc || typeof svc.getStats !== 'function') { setStats({ error: 'host 远端面未就绪' }); return; }
-                svc.getStats().then((r) => setStats(r && r.ok ? r : { error: (r && r.error) || '统计失败' })).catch((e) => setStats({ error: msgOf(e) }));
+                svc.getStats().then((r) => {
+                  setStats(r && r.ok ? r : { error: (r && r.error) || '统计失败' });
+                  try { stateRef.cardRender = { at: new Date().toISOString(), view: String(view), stats: r }; } catch { /* ignore */ }
+                }).catch((e) => {
+                  setStats({ error: msgOf(e) });
+                  try { stateRef.cardRender = { at: new Date().toISOString(), view: String(view), error: msgOf(e) }; } catch { /* ignore */ }
+                });
               };
               useEffect(() => {
                 if (view && view !== 'page') return; // summary 视图不需要数据
@@ -1785,19 +1799,32 @@ window.__ModuleLoader__.load({
                 ),
               );
             }
+            const CARD_BOUNDARY = function KitCardBoundary(props) {
+              // 错误边界（zcode/trae 同款纪律）：渲染异常只留痕，绝不冒泡打崩插件详情页
+              try {
+                return h(KitPanelCard, props);
+              } catch (e) {
+                try {
+                  stateRef.cardRender = { at: new Date().toISOString(), view: String(props && props.view), renderError: msgOf(e) };
+                  console.warn(`${LOG_PREFIX} 插件管理卡片渲染失败:`, e && e.message);
+                } catch { /* ignore */ }
+                return null;
+              }
+            };
+            // 双注册（参照 dsh-connect-trae）：bundle 页配置区 + bundle 行内「配置」入口
             ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
               { name: 'plugins.bundle.config', key: BUNDLE_KEY, priority: 40, inject: () => ({}) },
-              function KitCardBoundary(props) {
-                // 错误边界（zcode/trae 同款纪律）：渲染异常只留痕，绝不冒泡打崩插件详情页
-                try {
-                  return h(KitPanelCard, props);
-                } catch (e) {
-                  try { console.warn(`${LOG_PREFIX} 插件管理卡片渲染失败:`, e && e.message); } catch { /* ignore */ }
-                  return null;
-                }
-              },
+              CARD_BOUNDARY,
             ));
-            say('info', '插件管理卡片已注册（plugins.bundle.config）');
+            try {
+              ctx.slots.inject('plugins.row.config', () => ctx.slots.register(
+                { name: 'plugins.row.config', key: `${BUNDLE_KEY}#${BUNDLE_KEY}`, priority: 40, inject: () => ({}) },
+                CARD_BOUNDARY,
+              ));
+            } catch (e) {
+              say('warn', `row.config 卡片注册失败（bundle.config 不受影响）：${msgOf(e)}`);
+            }
+            say('info', '插件管理卡片已注册（plugins.bundle.config + plugins.row.config）');
           } catch (e) {
             say('warn', `插件管理卡片注册失败（不影响其他功能）：${msgOf(e)}`);
           }
