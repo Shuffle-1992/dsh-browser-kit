@@ -1164,6 +1164,12 @@ window.__ModuleLoader__.load({
               tbPending = setTimeout(() => { try { ensureToolbarButton(); } catch { /* ignore */ } }, 600);
             });
             tbObserver.observe(document.body, { childList: true, subtree: true });
+            // 轮询挂载：浏览器面板晚于插件激活挂载时（boot 瞬间 form 尚不存在），定时补挂
+            setInterval(() => {
+              try {
+                if (!(stateRef.toolbarBtn && stateRef.toolbarBtn.isConnected)) ensureToolbarButton();
+              } catch { /* ignore */ }
+            }, 3000);
             if (typeof ctx?.effect === 'function') {
               ctx.effect(() => () => { try { tbObserver.disconnect(); } catch { /* ignore */ } });
             }
