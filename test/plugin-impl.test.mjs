@@ -585,15 +585,20 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // 2) 发送检测：常规流协议块只进剪贴板、消息不含标记 → 信号用 userRow 结构（行数/末行指纹，
     //    CSS-module 哈希前缀 + 稳定后缀 `_userRow`）；基线在提交时点快照（P36：输入框写入另有修复）
     assert.match(clientSource, /const userRows = \(\) => Array\.from\(document\.querySelectorAll\('\[class\*="_userRow"\]'\)\)/);
-    assert.match(clientSource, /rows\.length > \(Number\(m\.baseline\) \|\| 0\)/);
-    assert.match(clientSource, /baseline: rowsNow\.length/);
-    assert.match(clientSource, /baselineLast: lastUserRowText\(rowsNow\)/);
+    assert.match(clientSource, /const sameView = sig\.first === base\.first;/);
+    assert.match(clientSource, /else if \(!sameView\) \{\s*m\.base = sig;/);
+    assert.match(clientSource, /base: \{ n: rowsNow\.length, first: rowKey\(rowsNow\[0\] \|\| null\), last: rowKey\(rowsNow\[rowsNow\.length - 1\] \|\| null\) \}/);
     assert.match(clientSource, /stateRef\.sentChips = stateRef\.sentChips \|\| \[\]/);
     assert.match(clientSource, /queue\.push\(m\)/);
+    // 2a-2) 归属行锁定：消耗瞬间记 attachedKey，补挂只认归属行（禁止「末尾 N 条」再配对——
+    //       否则同一模型随新消息扩散；跨会话模型 convo 不匹配一律跳过）
+    assert.match(clientSource, /m\.attachedKey = sig\.last;/);
+    assert.match(clientSource, /rows\.find\(\(r\) => rowKey\(r\) === model\.attachedKey\)/);
+    assert.match(clientSource, /if \(!model\.attachedKey \|\| model\.retracted \|\| model\.convo !== convo\) continue;/);
     // 2b) P36 回归钉：primeSessionInput 的可见性过滤必须是 isVisibleEl（曾误写未定义的 visible）
     assert.doesNotMatch(clientSource, /filter\(visible\)/);
     // 2c) 挂载目标 = userRow 内气泡；胶囊用块级容器包一层（气泡内独立一行）；插到文本上方
-    assert.match(clientSource, /row\.querySelector\('\[class\*="_bubble"\]'\)/);
+    assert.match(clientSource, /target\.querySelector\('\[class\*="_bubble"\]'\) \|\| target/);
     assert.match(clientSource, /wrap\.appendChild\(chip\)/);
     assert.match(clientSource, /else if \(holder\.firstChild\) holder\.insertBefore\(wrap, holder\.firstChild\)/);
     // 2d) P37 多实例认领制：ownerBoot 盖戳 + 新者胜旧者退让（removespy 实证多 rev 并存互删的回归钉）
@@ -606,8 +611,6 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // 3) 会话消息胶囊：data 标记 + 幂等重挂 + P31 同款会话门控 + hover 富提示 + × 撤回占位
     assert.match(clientSource, /data-dsh-kit-ann-msg/);
     assert.match(clientSource, /const ensureConvoChips = \(\) =>/);
-    assert.match(clientSource, /queue\.filter\(\(x\) => x\.convo === convo\)/);
-    assert.match(clientSource, /rows2\.length - models\.length/);
     assert.match(clientSource, /const ANN_TIP_ID = 'dsh-kit-ann-tip'/);
     assert.match(clientSource, /chip\.addEventListener\('mouseenter', \(\) => showAnnTip\(chip, model\)\)/);
     assert.match(clientSource, /model\.retracted = true/);

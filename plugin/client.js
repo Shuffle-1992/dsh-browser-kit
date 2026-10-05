@@ -935,7 +935,6 @@ window.__ModuleLoader__.load({
            *  会话门控（P31 同款标题指纹）：模型只在其创建会话内消耗/显示，跨会话不配对。 */
           /** 会话流里的用户消息行（后缀稳定；哈希前缀随构建变化，勿按全类名匹配）。 */
           const userRows = () => Array.from(document.querySelectorAll('[class*="_userRow"]'));
-          const lastUserRowText = (rows) => (rows.length ? (rows[rows.length - 1].textContent || '').slice(0, 100) : '');
           /** 共享悬浮提示（延续页面徽标 hover 提示；主题令牌配色，pointer-events 关闭）。 */
           const ANN_TIP_ID = 'dsh-kit-ann-tip';
           const hideAnnTip = () => {
@@ -1051,35 +1050,46 @@ window.__ModuleLoader__.load({
             else if (holder.firstChild) holder.insertBefore(wrap, holder.firstChild);
             else holder.appendChild(wrap);
           };
-          /** 每轮 tick：发送消耗检测 + 会话胶囊配对挂载（幂等）。 */
+          /** 行身份键（归属跟踪用；空白归一，取前 120 字）。 */
+          const rowKey = (row) => (row && row.textContent ? row.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : '');
+          /** 每轮 tick：发送消耗检测 + 归属行补挂（幂等）。
+           *  消耗判定（视图签名防跨会话误耗）：顶行键未变（同一会话视图）且「行数增长或末行键
+           *  变化」才算发送；顶行键变了 = 切了会话/视图被虚拟化重组 → **重置基线**、胶囊保留
+           *  待命（用户 2026-10-05 报告：跨会话误耗带入旧批注，根因正是末行键跨视图比对）。
+           *  挂载：消耗瞬间定位归属行（末行）并记 attachedKey；此后只补【归属行】缺失的胶囊，
+           *  绝不再做「末尾 N 条」配对——否则同一模型随新消息一路扩散（同报告第二症状）。 */
           const ensureConvoChips = () => {
             try {
               const convo = convoTitle();
               const queue = (stateRef.sentChips = stateRef.sentChips || []);
               if (queue.length > 100) queue.splice(0, queue.length - 100);
-              // 1) 发送消耗检测：saved 胶囊 + 本会话 userRow 增长/末行变化 → 消耗迁入队列。
-              //    用户手动清空草稿不产生新 userRow → 胶囊保留（仍可撤回），不误消耗。
+              const rows = userRows();
+              const sig = { n: rows.length, first: rowKey(rows[0] || null), last: rowKey(rows[rows.length - 1] || null) };
+              // 1) 发送消耗检测（视图签名基线）
               const m = stateRef.chip;
               if (m && m.mode === 'saved' && m.convo === convo) {
-                const rows = userRows();
-                const lastTxt = lastUserRowText(rows);
-                if (rows.length > (Number(m.baseline) || 0) || (lastTxt && lastTxt !== m.baselineLast)) {
+                const base = m.base || { n: rows.length, first: sig.first, last: sig.last };
+                const sameView = sig.first === base.first;
+                if (sameView && (sig.n > base.n || (sig.last !== base.last && sig.n >= base.n))) {
                   queue.push(m);
                   stateRef.chip = null;
                   removeAnnotChip();
+                  const target = rows[rows.length - 1];
+                  if (target) {
+                    m.attachedKey = sig.last; // 锁定归属行：此后只补这一条
+                    const holder = target.querySelector('[class*="_bubble"]') || target;
+                    if (!holder.querySelector('[data-dsh-kit-ann-msg]')) attachMsgChip(holder, m);
+                  }
+                } else if (!sameView) {
+                  m.base = sig; // 视图变更（切会话/虚拟化重组）：重置基线，胶囊保留待命
                 }
               }
-              // 2) 配对挂载：本会话模型 ↔ 末尾 N 条 userRow 的气泡（按序；撤回模型占位防错位；
-              //    重渲染后气泡缺胶囊由本幂等重挂补齐）。
-              const models = queue.filter((x) => x.convo === convo);
-              if (models.length === 0) return;
-              const rows2 = userRows();
-              const start = Math.max(0, rows2.length - models.length);
-              for (let i = start; i < rows2.length; i++) {
-                const model = models[i - start];
-                const row = rows2[i];
-                if (!row || !model || model.retracted) continue;
-                const holder = row.querySelector('[class*="_bubble"]') || row;
+              // 2) 归属行补挂（只认 attachedKey；撤回模型/他会话模型一律跳过，不外溢）
+              for (const model of queue) {
+                if (!model.attachedKey || model.retracted || model.convo !== convo) continue;
+                const target = rows.find((r) => rowKey(r) === model.attachedKey);
+                if (!target) continue; // 归属行不在 DOM（虚拟化/他会话）：跳过
+                const holder = target.querySelector('[class*="_bubble"]') || target;
                 if (holder.querySelector('[data-dsh-kit-ann-msg]')) continue;
                 attachMsgChip(holder, model);
               }
@@ -1090,7 +1100,7 @@ window.__ModuleLoader__.load({
           const announceSubmission = (r) => {
             if (!r || r.ok !== true || !r.path) return;
             const n = Number(r.count);
-            const rowsNow = userRows(); // 发送检测基线（userRow 行数 + 末行指纹，提交时点快照）
+            const rowsNow = userRows(); // 发送检测基线（视图签名：行数 + 顶/末行键，提交时点快照）
             stateRef.chip = {
               mode: 'saved',
               count: Number.isFinite(n) && n > 0 ? n : 0,
@@ -1098,8 +1108,7 @@ window.__ModuleLoader__.load({
               convo: convoTitle(),
               items: Array.isArray(r.items) ? r.items : [], // 会话胶囊 hover 提示数据
               bornAt: new Date().toISOString(),
-              baseline: rowsNow.length,
-              baselineLast: lastUserRowText(rowsNow),
+              base: { n: rowsNow.length, first: rowKey(rowsNow[0] || null), last: rowKey(rowsNow[rowsNow.length - 1] || null) },
             };
             ensureAnnotChip();
             if (!document.getElementById(CHIP_ID)) {
