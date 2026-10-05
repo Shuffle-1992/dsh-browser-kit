@@ -1264,6 +1264,9 @@ window.__ModuleLoader__.load({
                   '</svg>';
                 btn.addEventListener('click', () => {
                   try {
+                    // 即时视觉反馈（2s 同步循环随后校正）
+                    btn.style.background = '#2563eb';
+                    btn.style.color = '#ffffff';
                     stateRef.lastToggleError = null;
                     togglePaneAnnot(pane).then((r) => {
                       if (r && r.ok === false) {
@@ -1308,9 +1311,11 @@ window.__ModuleLoader__.load({
                 if (!btn) continue;
                 const pane = webviewOfForm(form);
                 const active = pane && activePanes.includes(pane);
-                btn.style.background = active
-                  ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb))'
-                  : 'transparent';
+                // 固定高对比配色（蓝底白标）：主题令牌在工具条上下文里可能解析成浅色，
+                // 叠加 color:inherit 的浅色描边 → 白底白标隐形（用户实测反馈，已修）
+                btn.style.background = active ? '#2563eb' : 'transparent';
+                btn.style.color = active ? '#ffffff' : '';
+                btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
               }
             }, 2000);
           } catch (e) {
