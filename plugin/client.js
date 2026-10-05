@@ -704,6 +704,30 @@ window.__ModuleLoader__.load({
                   );
                   return { ok: true, ...(value || {}) };
                 }
+                case 'dom-scan': {
+                  // 诊断：扫描 GUI 页（非 guest）里含 webview 的容器结构，定位浏览器工具条 DOM。
+                  // 只读，不改任何宿主节点。depth 限制防日志爆炸。
+                  const outline = (el, depth, maxDepth) => {
+                    if (!el || depth > maxDepth) return null;
+                    const r = { tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 80) };
+                    if (el.id) r.id = el.id;
+                    if (el.getAttribute('aria-label')) r.aria = el.getAttribute('aria-label');
+                    if (el.title) r.title = el.title;
+                    const kids = [];
+                    for (const c of el.children) {
+                      const k = outline(c, depth + 1, maxDepth);
+                      if (k) kids.push(k);
+                    }
+                    if (kids.length) r.children = kids;
+                    return r;
+                  };
+                  const wv = document.querySelector('webview');
+                  if (!wv) return { ok: false, error: '无 webview' };
+                  // 自 webview 向上找 4 层容器，再从该容器向下展开 6 层
+                  let host = wv;
+                  for (let i = 0; i < 4 && host.parentElement; i++) host = host.parentElement;
+                  return { ok: true, tree: outline(host, 0, 6) };
+                }
                 case 'snapshot': {
                   // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
                   const target = pickGuestEl();
