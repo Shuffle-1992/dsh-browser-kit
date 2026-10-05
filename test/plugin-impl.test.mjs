@@ -271,6 +271,7 @@ test("saveMergedImpl：跨组合并 + 按创建时间重编号 + 索引 merged �
   const ann = (idx, capturedAt, sel, note) => ({
     index: idx,
     note: note || null,
+    gid: "g-" + sel.replace("#", "") + "-" + capturedAt,
     element: { selector: sel, capturedAt },
   });
   const sets = [
