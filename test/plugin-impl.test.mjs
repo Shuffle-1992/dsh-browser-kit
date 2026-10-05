@@ -525,5 +525,9 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /ce\.closest\('\[data-inputScroll\]'\)/);
     assert.match(clientSource, /const removeChipSpacer = \(\) =>/);
     assert.match(clientSource, /removeChipSpacer\(\)/);
+    // 双主题：胶囊只走主题令牌（T.bg/T.border/T.text/T.shadow），零字面底色；× hover 走令牌样式表
+    assert.match(clientSource, /background:' \+ T\.bg \+ ';border:1px solid ' \+ T\.border/);
+    assert.match(clientSource, /dsh-kit-annot-chip-style/);
+    assert.match(clientSource, /--dsw-alias-interactive-bg-hover/);
   });
 });

@@ -803,10 +803,12 @@ window.__ModuleLoader__.load({
               if (!chip) {
                 chip = document.createElement('div');
                 chip.id = CHIP_ID;
+                // 双主题适配：只走 DSH 主题令牌（定义在 body 上，胶囊是其子元素直接继承；
+                // 明暗切换由令牌重解析自动跟随，零字面色值——与面板/工具条同一纪律）
                 chip.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;gap:6px;'
-                  + 'background:#171e2c;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
+                  + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:999px;'
                   + 'padding:4px 6px 4px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
-                  + 'color:#e5e7eb;box-shadow:0 6px 16px rgba(0,0,0,0.35);user-select:none;';
+                  + 'color:' + T.text + ';box-shadow:' + T.shadow + ';user-select:none;';
                 const label = document.createElement('span');
                 label.setAttribute('data-role', 'label');
                 chip.appendChild(label);
@@ -815,10 +817,20 @@ window.__ModuleLoader__.load({
                 close.setAttribute('data-role', 'close');
                 close.textContent = '×';
                 close.title = '删除批注';
-                close.style.cssText = 'border:0;background:rgba(255,255,255,0.14);color:#e5e7eb;border-radius:999px;'
+                close.style.cssText = 'border:0;background:var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.14));'
+                  + 'color:var(--dsw-alias-label-primary, #e5e7eb);border-radius:999px;'
                   + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
                   + 'align-items:center;justify-content:center;padding:0;';
                 chip.appendChild(close);
+                if (!document.getElementById('dsh-kit-annot-chip-style')) {
+                  // × 的 hover 态（内联样式写不了伪类）：悬停转危险色，令牌随主题
+                  const st = document.createElement('style');
+                  st.id = 'dsh-kit-annot-chip-style';
+                  st.textContent = '#dsh-kit-annot-chip [data-role=close]:hover{'
+                    + 'background:var(--dsw-alias-state-error-primary, rgba(220,38,38,0.85))!important;'
+                    + 'color:var(--dsw-alias-label-primary-foreground, #ffffff)!important}';
+                  document.head.appendChild(st);
+                }
                 close.addEventListener('click', () => {
                   const m = stateRef.chip;
                   const stNow = stateRef.annot;
