@@ -18,8 +18,10 @@
  *   provider 里 status="absent"，卡片虽注册成功（active:true）但页面上无内容。
  *   实测对照：dsh-connect-trae / @local/dsh-connect-zcode 均 status="schema" 且卡片可见。
  *   cordis loader 读的是**入口模块的静态导出** Config（动态 import 的 impl 导出不被识别），
- *   故此处静态 re-export schema；schema 本体住 plugin-config.schema.mjs（纯对象字面量、零依赖
- *   ——见该文件头注：schemastery 在 link 插件里裸 import 解析不到，且本项目无需 volatile）。
+ *   故此处静态 re-export schema；schema 本体住 plugin-config.schema.mjs——它必须是
+ *   schemastery 实例（JSON 字面量会被判 status="unsupported" 并使 fiberPhase=failed，
+ *   实测：卡片出现但组件「异常」、host 半边不加载、命令通道停摆）。
+ *   解析不到 schemastery 时该导出为 undefined → 入口不导出 Config → 退回 absent 旧行为。
  */
 import { statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -34,7 +36,7 @@ const REPORT_PATH = join(PLUGIN_DIR, '.data', 'probe-report.json');
 
 export const name = 'dsh-browser-kit';
 
-/** bundle config schema：详情页配置区的存在条件（字段见 plugin-config.schema.mjs）。 */
+/** bundle config schema：详情页配置区的存在条件（schemastery 不可达时为 undefined → DSH 视为无 schema）。 */
 export const Config = DSH_BROWSER_KIT_CONFIG_SCHEMA;
 
 let activationSeq = 0;
