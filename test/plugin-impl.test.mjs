@@ -456,4 +456,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.ok(clearAllBody, "clearAllAnnots 函数体可定位");
     assert.match(clearAllBody[0], /__dshKitDeletedGids/);
   });
+
+  await t.test("P29：REMOTE_CONTRIBUTION 必须声明 saveMerged（face 装配缺口回归钉）+ gui-eval 诊断", () => {
+    // 1.4.x 实测：wire.host 有 7 方法但 client 只 mount 6 个 → mergeAndSave 抛
+    // 「svc.saveMerged is not a function」→ 提交静默失败、输入框提示永不触发
+    assert.match(clientSource, /\['saveMerged', \['sets', 'meta'\]/);
+    assert.match(clientSource, /case 'gui-eval'/);
+    assert.match(clientSource, /lastPrime: stateRef\.lastPrime/);
+  });
 });

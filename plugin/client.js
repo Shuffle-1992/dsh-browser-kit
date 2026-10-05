@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
         ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
         ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
         ['saveAnnotations', ['markdown', 'meta'], 'saveAnnotations(markdown, meta?): Promise<{ok:true, path, bytes}|{ok:false, error}>', ['meta']],
+        ['saveMerged', ['sets', 'meta'], 'saveMerged(sets, meta?): Promise<{ok:true, path, bytes, count}|{ok:false, error}>（多面板合并：sets=[{url,title,annotations[]}]，host 重编号构建单个协议文件）', ['meta']],
         ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
         ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
         ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
@@ -654,10 +655,14 @@ window.__ModuleLoader__.load({
             return target;
           };
 
-          /** 提交后把提示写入会话输入框（不自动发送）：找 GUI 聊天输入框（可见 textarea 优先，
-           *  contenteditable 兜底），原生 value setter + input 事件保证 React 受控组件同步；
-           *  输入框已有内容则换行追加，不覆盖用户正在输入的话。 */
+          /** 提交后把提示写入会话输入框（不自动发送）：可见 textarea 优先（原生 value setter +
+           *  input 事件），contenteditable 兜底（execCommand insertText——DSH 会话输入框实测为
+           *  Lexical 编辑器，此路可用）。**校验必须延迟**：Lexical 异步 reconcile，同步回读必误报
+           *  （P30，1.4.x 实测写入成功但回读为空 → 误报失败）。结果记 stateRef.lastPrime 并随
+           *  kit-status 上报；只追加不覆盖，绝不清理/改写用户已有内容。 */
           const primeSessionInput = (text) => {
+            const startedAt = new Date().toISOString();
+            let r = null;
             try {
               const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
               const tas = Array.from(document.querySelectorAll('textarea')).filter((el) => visible(el) && !el.disabled && !el.readOnly);
@@ -670,19 +675,58 @@ window.__ModuleLoader__.load({
                 else ta.value = next;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
                 try { ta.focus(); } catch { /* 聚焦失败不影响 */ }
-                return { ok: true, target: 'textarea' };
+                r = { target: 'textarea', candidates: { textarea: tas.length } };
+                setTimeout(() => {
+                  const held = (ta.value || '').includes(text); // 延迟回读：受控组件可能回滚
+                  stateRef.lastPrime = { at: startedAt, verifiedAt: new Date().toISOString(), ok: held, target: 'textarea' };
+                  if (!held) say('warn', '会话输入框提示写入未保持（textarea 受控回滚？）');
+                }, 300);
               }
-              const ces = Array.from(document.querySelectorAll('[contenteditable="true"]')).filter(visible);
-              const ce = ces[ces.length - 1] || null;
-              if (ce) {
-                const cur = (ce.innerText || '').replace(/\n+$/, '');
-                ce.textContent = cur ? `${cur}\n${text}` : text;
-                ce.dispatchEvent(new InputEvent('input', { bubbles: true }));
-                try { ce.focus(); } catch { /* 聚焦失败不影响 */ }
-                return { ok: true, target: 'contenteditable' };
+              if (!r) {
+                const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(visible);
+                const ce = ces[ces.length - 1] || null;
+                if (ce) {
+                  try { ce.focus(); } catch { /* ignore */ }
+                  try {
+                    const sel = window.getSelection();
+                    if (sel) {
+                      const range = document.createRange();
+                      range.selectNodeContents(ce);
+                      range.collapse(false); // 光标移到末尾，追加不覆盖
+                      sel.removeAllRanges();
+                      sel.addRange(range);
+                    }
+                  } catch { /* 选区失败按空内容追加 */ }
+                  const cur = (ce.innerText || '').replace(/\n+$/, '');
+                  const insert = cur ? `\n${text}` : text;
+                  let via = 'execCommand';
+                  let done = false;
+                  try { done = document.execCommand('insertText', false, insert); } catch { done = false; }
+                  if (!done) {
+                    via = 'textContent';
+                    ce.textContent = cur + insert;
+                    ce.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                  }
+                  r = { target: 'contenteditable', via, candidates: { contenteditable: ces.length, textarea: tas.length } };
+                  setTimeout(() => {
+                    const held = (ce.innerText || '').includes(text); // 延迟回读：Lexical reconcile 异步
+                    stateRef.lastPrime = { at: startedAt, verifiedAt: new Date().toISOString(), ok: held, target: 'contenteditable', via };
+                    if (!held) say('warn', '会话输入框提示写入未保持（Lexical 未接受 insertText？）');
+                  }, 350);
+                }
               }
-              return { ok: false, error: '未找到会话输入框' };
+              if (!r) {
+                r = { error: '未找到会话输入框', candidates: { textarea: tas.length, contenteditableAny: document.querySelectorAll('[contenteditable]').length } };
+                stateRef.lastPrime = { at: startedAt, ...r };
+                say('warn', `会话输入框提示失败：${r.error}`);
+                return r;
+              }
+              stateRef.lastPrime = { at: startedAt, ...r, ok: null, note: '已写入，延迟回读校验中' };
+              say('info', `提交提示已写入会话输入框（${r.target}${r.via ? '/' + r.via : ''}；回读校验稍后完成，结果见 kit-status lastPrime）`);
+              return { ok: true, pending: true, ...r };
             } catch (e) {
+              stateRef.lastPrime = { at: startedAt, ok: false, error: msgOf(e) };
+              say('warn', `会话输入框提示失败：${msgOf(e)}`);
               return { ok: false, error: msgOf(e) };
             }
           };
@@ -692,10 +736,7 @@ window.__ModuleLoader__.load({
             if (!r || r.ok !== true || !r.path) return;
             const n = Number(r.count);
             const head = (Number.isFinite(n) && n > 0) ? `已提交 ${n} 条元素批注` : '元素批注已提交';
-            const pr = primeSessionInput(`${head}：${r.path}`);
-            say(pr.ok ? 'info' : 'warn', pr.ok
-              ? '提交提示已写入会话输入框（未自动发送）'
-              : `会话输入框提示失败：${pr.error}`);
+            primeSessionInput(`${head}：${r.path}`);
           };
 
           const sessionSettled = async (winner) => {
@@ -1036,6 +1077,8 @@ window.__ModuleLoader__.load({
                         }
                       : null,
                     lastToggleError: stateRef.lastToggleError || null,
+                    lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
+                    lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
                     toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
                     panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                     panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
@@ -1049,6 +1092,19 @@ window.__ModuleLoader__.load({
                   // 诊断：立即跑一轮探测并刷新 probe-report.json（含 gui/syncDiag 诊断）
                   probeAndPublish('command').then(() => reportNow()).catch(() => {});
                   return { ok: true, reporting: true };
+                }
+                case 'gui-eval': {
+                  // GUI 文档内求值（诊断输入框/面板 DOM 等 client 侧问题；guest 侧用 guest-eval）。
+                  // 只应实施会话使用：表达式在 GUI 页全局作用域执行。
+                  const expr = String(c.expr || '');
+                  if (!expr) return { ok: false, error: '需要 expr' };
+                  const v = await (0, eval)(`(${expr})`);
+                  let out;
+                  if (v === undefined) out = null;
+                  else if (typeof v === 'object' && v !== null) {
+                    try { out = JSON.parse(JSON.stringify(v)); } catch { out = String(v); }
+                  } else out = v;
+                  return { ok: true, value: out };
                 }
                 case 'toolbar-probe': {
                   // 诊断：直接测 ensureToolbarButton 的每一步判定

@@ -147,3 +147,11 @@
 - **现象**：窗口1在 A 页密码框批注 #1 → syncPanes 把批注推给窗口2，B 页的密码框 selector 同样命中 → 徽标 #1 挂在 B 页密码框上（annotator 1.4.0 实测反馈）。
 - **根因**：共享同步只认 gid，不管推送目标当前是什么页面；`addExternal` 在目标页 `querySelector(selector)` 命中同类元素就渲染徽标。「同一页面开两个窗口徽标两边出现」的核心诉求，被放大成「任何页面命中就出现」。
 - **对策（同页门控，1.5.0）**：共享板块保持全量（编号延续/互相引用不变）；sync 快照带回各面板 `location.href`，新 gid 登记来源页 URL（`st.originUrls`），推送项附 `_originUrl`；annotator `addExternal` 按 `samePageHref`（origin+pathname 相等）判 `pageOk`——**非同页只进列表不渲染徽标、不留 el、无 stale 语义**；`start()` 重钉标循环同样跳过。徽标串窗的历史实例靠版本 bump（1.4.0→1.5.0）触发整体重注入清场。
+### P29 REMOTE_CONTRIBUTION 少声明 saveMerged：face 两端清单不对账，提交静默失败
+- **现象**：用户批注 3 条点提交——无文件、无提示、会话卡在 active；命令通道 submit-annotations 回报 `svc.saveMerged is not a function`。
+- **根因**：host 侧 wire.host.mjs 有 7 方法（含 saveMerged），client 侧 `REMOTE_CONTRIBUTION.descriptors` 只 mount 了 6 个——`$mount` 的代理只暴露自己声明的方法，`mergeAndSave` 一调就抛；异常被 sessionSettled 的 catch 吃掉只剩 say(warn)。单测直连 `saveMergedImpl` 全绿，缝在 face 装配上——**静态 TYPERT 存在 ≠ client mount 存在，两端清单必须对账**。
+- **对策**：补第 7 个 descriptor `['saveMerged', ['sets', 'meta'], …, ['meta']]`（参数名与 wire 表逐字一致）；静态契约断言 client 源含该行（P29 回归钉）；真机闭环验证走命令通道（toggle-pane → guest-eval addExternal → submit-annotations → 文件落盘 + 输入框出现提示）。
+### P30 DSH 会话输入框是 Lexical contenteditable：execCommand 可写入但 DOM 异步 reconcile，同步回读必误报
+- **现象**：提交提示写入后 `ce.innerText` 同步回读为空 → 误报「写入失败」；数秒后再读，文本明明在（Lexical `data-lexical-editor`，全文档 0 个 textarea、唯一 contenteditable）。
+- **根因**：Lexical 接受 execCommand insertText 但走自己的事务管线异步 reconcile DOM；同步回读发生在 reconcile 前。同族坑：合成 paste 事件 Lexical 不认（需可信事件）；受控 textarea 也可能回滚。
+- **对策**：写入后**延迟回读**（textarea 300ms / contenteditable 350ms），lastPrime 记 `at/verifiedAt/ok` 随 kit-status 上报；写入期返回 `{ok:true, pending:true}`。另立纪律：**输入框是用户领地**——只追加不覆盖，清理类 DOM 操作（selectAll+delete）一律禁止（1.4.x 验证期曾误清用户正在输入的草稿）。GUI 侧诊断用新增 `gui-eval` 命令（GUI 文档内求值，只应实施会话使用）。
