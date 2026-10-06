@@ -1537,354 +1537,332 @@ window.__ModuleLoader__.load({
            * 动作全量清单与唯一性由静态契约钉死（plugin-impl §3.9）；case 体与拆表前逐字一致。 */
           const commandHandlers = {
             'inject-annotator': async function (svc, c) {
-                  await ensureAnnotator(svc);
-                  return { ok: true, injected: true };
-                }
-            ,
+              await ensureAnnotator(svc);
+              return { ok: true, injected: true };
+            },
             'start-annotator': async function (svc, c) {
-                  // 不能 await：会话直到提交/Esc 才结束，await 会卡死命令轮询（cmdBusy）
-                  const target = pickGuestEl();
-                  togglePaneAnnot(target).then((r) => {
-                    say('info', `批注（命令触发）：${JSON.stringify(r).slice(0, 120)}`);
-                  }).catch(() => {});
-                  return { ok: true, started: true };
-                }
-            ,
+              // 不能 await：会话直到提交/Esc 才结束，await 会卡死命令轮询（cmdBusy）
+              const target = pickGuestEl();
+              togglePaneAnnot(target).then((r) => {
+                say('info', `批注（命令触发）：${JSON.stringify(r).slice(0, 120)}`);
+              }).catch(() => {});
+              return { ok: true, started: true };
+            },
             'toggle-pane': async function (svc, c) {
-                  // 指定面板加入/退出共享会话（tab 0 起；省略 = 第一个）
-                  const els = Array.from(document.querySelectorAll('webview'));
-                  const pane = els[Number(c.tab) || 0];
-                  if (!pane) return { ok: false, error: 'no pane: tab=' + c.tab };
-                  togglePaneAnnot(pane).then((r) => {
-                    say('info', `面板 ${c.tab} 批注：${JSON.stringify(r).slice(0, 120)}`);
-                  }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
-                  return { ok: true, toggling: true };
-                }
-            ,
+              // 指定面板加入/退出共享会话（tab 0 起；省略 = 第一个）
+              const els = Array.from(document.querySelectorAll('webview'));
+              const pane = els[Number(c.tab) || 0];
+              if (!pane) return { ok: false, error: 'no pane: tab=' + c.tab };
+              togglePaneAnnot(pane).then((r) => {
+                say('info', `面板 ${c.tab} 批注：${JSON.stringify(r).slice(0, 120)}`);
+              }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+              return { ok: true, toggling: true };
+            },
             'stop-annotator': async function (svc, c) {
-                  const target = pickGuestEl();
-                  await leavePane(target);
-                  if (stateRef.annot) {
-                    // 按 webContentsId 比对（P27 同族：元素身份在重渲染换节点后会失配）
-                    const tid = paneIdOf(target);
-                    stateRef.annot.panes = stateRef.annot.panes.filter((p) => paneIdOf(p) !== tid);
-                    if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
-                  }
-                  return { ok: true };
-                }
-            ,
+              const target = pickGuestEl();
+              await leavePane(target);
+              if (stateRef.annot) {
+                // 按 webContentsId 比对（P27 同族：元素身份在重渲染换节点后会失配）
+                const tid = paneIdOf(target);
+                stateRef.annot.panes = stateRef.annot.panes.filter((p) => paneIdOf(p) !== tid);
+                if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
+              }
+              return { ok: true };
+            },
             'annotator-status': async function (svc, c) {
-                  const target = pickGuestEl();
-                  const st = await target.executeJavaScript('(function(){ if (typeof window.__dshKitAnnotator === "undefined") return { injected: false }; return { injected: true, count: window.__dshKitAnnotator.list().length, first: window.__dshKitAnnotator.list()[0] || null }; })()', true);
-                  return { ok: true, ...st };
-                }
-            ,
+              const target = pickGuestEl();
+              const st = await target.executeJavaScript('(function(){ if (typeof window.__dshKitAnnotator === "undefined") return { injected: false }; return { injected: true, count: window.__dshKitAnnotator.list().length, first: window.__dshKitAnnotator.list()[0] || null }; })()', true);
+              return { ok: true, ...st };
+            },
             'guest-eval': async function (svc, c) {
-                  // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
-                  // tab（0 起）指定目标面板（默认第一个）——多浏览器窗口分别驱动。
-                  // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
-                  // 会因提升让全函数体的 document 变 undefined（cmd-72/73 实测自坑，P23）。
-                  const els = Array.from(document.querySelectorAll('webview'));
-                  const tabIdx = Number(c.tab) || 0;
-                  const target = els[tabIdx] || pickGuestEl();
-                  const docPre = c.frame ? TARGET_DOC_SNIPPET : '';
-                  const docExpr = c.frame ? 'DOC' : 'document';
-                  const code = String(c.code || '');
-                  const value = await target.executeJavaScript(
-                    `(function () { ${docPre} return (function (document) {\n${code}\n})(${docExpr}); })()`,
-                    true,
-                  );
-                  return { ok: true, value };
-                }
-            ,
+              // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
+              // tab（0 起）指定目标面板（默认第一个）——多浏览器窗口分别驱动。
+              // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
+              // 会因提升让全函数体的 document 变 undefined（cmd-72/73 实测自坑，P23）。
+              const els = Array.from(document.querySelectorAll('webview'));
+              const tabIdx = Number(c.tab) || 0;
+              const target = els[tabIdx] || pickGuestEl();
+              const docPre = c.frame ? TARGET_DOC_SNIPPET : '';
+              const docExpr = c.frame ? 'DOC' : 'document';
+              const code = String(c.code || '');
+              const value = await target.executeJavaScript(
+                `(function () { ${docPre} return (function (document) {\n${code}\n})(${docExpr}); })()`,
+                true,
+              );
+              return { ok: true, value };
+            },
             'page-open': async function (svc, c) {
-                  // MVP-4：iframe srcdoc 沙箱——独立 document（免疫宿主 SPA 重渲染，cmd-70 教训）、
-                  // 不触发导航白名单（cmd-68 实测）、无 document.open 解析器悬挂（P22）。
-                  // 重复调用 = 换页；page-close 移除沙箱恢复原页面视图。
-                  const target = pickGuestEl();
-                  const html = String(c.html || '');
-                  if (!html) return { ok: false, error: '需要 html' };
-                  const value = await target.executeJavaScript(
-                    `(function () {\n` +
-                    `  var old = document.querySelector('iframe[data-dsh-kit-frame]');\n` +
-                    `  if (old) old.remove();\n` +
-                    `  var fi = document.createElement('iframe');\n` +
-                    `  fi.setAttribute('data-dsh-kit-frame', '');\n` +
-                    `  fi.setAttribute('title', 'dsh-browser-kit sandbox');\n` +
-                    `  fi.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2147483000;';\n` +
-                    `  fi.srcdoc = ${JSON.stringify(html)};\n` +
-                    `  (document.body || document.documentElement).appendChild(fi);\n` +
-                    `  return { opened: true };\n` +
-                    `})()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              // MVP-4：iframe srcdoc 沙箱——独立 document（免疫宿主 SPA 重渲染，cmd-70 教训）、
+              // 不触发导航白名单（cmd-68 实测）、无 document.open 解析器悬挂（P22）。
+              // 重复调用 = 换页；page-close 移除沙箱恢复原页面视图。
+              const target = pickGuestEl();
+              const html = String(c.html || '');
+              if (!html) return { ok: false, error: '需要 html' };
+              const value = await target.executeJavaScript(
+                `(function () {\n` +
+                `  var old = document.querySelector('iframe[data-dsh-kit-frame]');\n` +
+                `  if (old) old.remove();\n` +
+                `  var fi = document.createElement('iframe');\n` +
+                `  fi.setAttribute('data-dsh-kit-frame', '');\n` +
+                `  fi.setAttribute('title', 'dsh-browser-kit sandbox');\n` +
+                `  fi.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2147483000;';\n` +
+                `  fi.srcdoc = ${JSON.stringify(html)};\n` +
+                `  (document.body || document.documentElement).appendChild(fi);\n` +
+                `  return { opened: true };\n` +
+                `})()`,
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'kit-status': async function (svc, c) {
-                  // 自诊断：回报 client 内部状态（实施会话经命令通道读取，定位「点击无效」类问题）
-                  return {
-                    ok: true,
-                    clientBootAt: stateRef.clientBootAt || null,
-                    annot: stateRef.annot
-                      ? {
-                          active: stateRef.annot.active,
-                          paneCount: Array.isArray(stateRef.annot.panes) ? stateRef.annot.panes.length : 0,
-                          count: stateRef.annot.count,
-                          error: stateRef.annot.error || null,
-                          startedAt: stateRef.annot.startedAt || null,
-                        }
-                      : null,
-                    lastToggleError: stateRef.lastToggleError || null,
-                    lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
-                    lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
-                    panelHidden: readPanelHidden(),
-                    cardRender: stateRef.cardRender || null, // 插件管理卡片最近一次渲染取证
-                    toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
-                    panelRootInDom: !!document.getElementById('dsh-kit-panel'),
-                    panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
-                    remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
-                    mountOk: stateRef.mountOk === true,
-                    mountError: stateRef.mountError || null,
-                    webviewCount: document.querySelectorAll('webview').length,
-                  };
-                }
-            ,
+              // 自诊断：回报 client 内部状态（实施会话经命令通道读取，定位「点击无效」类问题）
+              return {
+                ok: true,
+                clientBootAt: stateRef.clientBootAt || null,
+                annot: stateRef.annot
+                  ? {
+                      active: stateRef.annot.active,
+                      paneCount: Array.isArray(stateRef.annot.panes) ? stateRef.annot.panes.length : 0,
+                      count: stateRef.annot.count,
+                      error: stateRef.annot.error || null,
+                      startedAt: stateRef.annot.startedAt || null,
+                    }
+                  : null,
+                lastToggleError: stateRef.lastToggleError || null,
+                lastSaved: (stateRef.annot && stateRef.annot.lastSaved) || null,
+                lastPrime: stateRef.lastPrime || null, // 提交提示写入输入框的结果（含回读校验与候选诊断）
+                panelHidden: readPanelHidden(),
+                cardRender: stateRef.cardRender || null, // 插件管理卡片最近一次渲染取证
+                toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
+                panelRootInDom: !!document.getElementById('dsh-kit-panel'),
+                panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
+                remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
+                mountOk: stateRef.mountOk === true,
+                mountError: stateRef.mountError || null,
+                webviewCount: document.querySelectorAll('webview').length,
+              };
+            },
             'report-now': async function (svc, c) {
-                  // 诊断：立即跑一轮探测并刷新 probe-report.json（含 gui/syncDiag 诊断）
-                  probeAndPublish('command').then(() => reportNow()).catch(() => {});
-                  return { ok: true, reporting: true };
-                }
-            ,
+              // 诊断：立即跑一轮探测并刷新 probe-report.json（含 gui/syncDiag 诊断）
+              probeAndPublish('command').then(() => reportNow()).catch(() => {});
+              return { ok: true, reporting: true };
+            },
             'gui-eval': async function (svc, c) {
-                  // GUI 文档内求值（诊断输入框/面板 DOM 等 client 侧问题；guest 侧用 guest-eval）。
-                  // 只应实施会话使用：表达式在 GUI 页全局作用域执行。
-                  const expr = String(c.expr || '');
-                  if (!expr) return { ok: false, error: '需要 expr' };
-                  const v = await (0, eval)(`(${expr})`);
-                  let out;
-                  if (v === undefined) out = null;
-                  else if (typeof v === 'object' && v !== null) {
-                    try { out = JSON.parse(JSON.stringify(v)); } catch { out = String(v); }
-                  } else out = v;
-                  return { ok: true, value: out };
-                }
-            ,
+              // GUI 文档内求值（诊断输入框/面板 DOM 等 client 侧问题；guest 侧用 guest-eval）。
+              // 只应实施会话使用：表达式在 GUI 页全局作用域执行。
+              const expr = String(c.expr || '');
+              if (!expr) return { ok: false, error: '需要 expr' };
+              const v = await (0, eval)(`(${expr})`);
+              let out;
+              if (v === undefined) out = null;
+              else if (typeof v === 'object' && v !== null) {
+                try { out = JSON.parse(JSON.stringify(v)); } catch { out = String(v); }
+              } else out = v;
+              return { ok: true, value: out };
+            },
             'panel-toggle': async function (svc, c) {
-                  // 调试面板显隐切换（默认隐藏、功能保留；持久化跨刷新）
-                  const next = readPanelHidden() ? '0' : '1';
-                  try { localStorage.setItem(PANEL_HIDDEN_KEY, next); } catch { /* 持久化失败仅本次生效 */ }
-                  window.dispatchEvent(new CustomEvent(PANEL_TOGGLE_EVENT));
-                  return { ok: true, hidden: next === '1' };
-                }
-            ,
+              // 调试面板显隐切换（默认隐藏、功能保留；持久化跨刷新）
+              const next = readPanelHidden() ? '0' : '1';
+              try { localStorage.setItem(PANEL_HIDDEN_KEY, next); } catch { /* 持久化失败仅本次生效 */ }
+              window.dispatchEvent(new CustomEvent(PANEL_TOGGLE_EVENT));
+              return { ok: true, hidden: next === '1' };
+            },
             'toolbar-probe': async function (svc, c) {
-                  // 诊断：直接测 ensureToolbarButton 的每一步判定
-                  const bySelector = !!document.querySelector(TOOLBAR_SEL);
-                  const allForms = Array.from(document.querySelectorAll('form')).map((f) => f.className.slice(0, 60));
-                  const btnById = !!document.getElementById('dsh-kit-toolbar-btn');
-                  let formEl = document.querySelector(TOOLBAR_SEL);
-                  let rootHasWebview = null, rootCls = null;
-                  if (formEl && formEl.parentElement) {
-                    rootCls = String(formEl.parentElement.className || '').slice(0, 60);
-                    rootHasWebview = !!formEl.parentElement.querySelector('webview');
-                  }
-                  return { ok: true, bySelector, allForms, btnById, rootHasWebview, rootCls };
-                }
-            ,
+              // 诊断：直接测 ensureToolbarButton 的每一步判定
+              const bySelector = !!document.querySelector(TOOLBAR_SEL);
+              const allForms = Array.from(document.querySelectorAll('form')).map((f) => f.className.slice(0, 60));
+              const btnById = !!document.getElementById('dsh-kit-toolbar-btn');
+              let formEl = document.querySelector(TOOLBAR_SEL);
+              let rootHasWebview = null, rootCls = null;
+              if (formEl && formEl.parentElement) {
+                rootCls = String(formEl.parentElement.className || '').slice(0, 60);
+                rootHasWebview = !!formEl.parentElement.querySelector('webview');
+              }
+              return { ok: true, bySelector, allForms, btnById, rootHasWebview, rootCls };
+            },
             'panes-probe': async function (svc, c) {
-                  // 诊断：枚举全部 webview 的批注层状态（injected/版本/条数/gid）
-                  const els = Array.from(document.querySelectorAll('webview'));
-                  const out = [];
-                  let i = 0;
-                  for (const el of els) {
-                    let info = { tab: i, injected: false };
-                    try {
-                      info.src = el.getAttribute('src') || null;
-                      const v = await el.executeJavaScript('({ v: window.__dshKitAnnotatorVersion || null, n: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().length : null, gids: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().map(function (x) { return x.gid; }) : [] })', true);
-                      if (v && typeof v === 'object') { info.version = v.v; info.count = v.n; info.gids = v.gids; }
-                    } catch (e) {
-                      info.error = msgOf(e);
-                    }
-                    out.push(info);
-                    i += 1;
-                  }
-                  return { ok: true, panes: out };
+              // 诊断：枚举全部 webview 的批注层状态（injected/版本/条数/gid）
+              const els = Array.from(document.querySelectorAll('webview'));
+              const out = [];
+              let i = 0;
+              for (const el of els) {
+                let info = { tab: i, injected: false };
+                try {
+                  info.src = el.getAttribute('src') || null;
+                  const v = await el.executeJavaScript('({ v: window.__dshKitAnnotatorVersion || null, n: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().length : null, gids: window.__dshKitAnnotator ? window.__dshKitAnnotator.list().map(function (x) { return x.gid; }) : [] })', true);
+                  if (v && typeof v === 'object') { info.version = v.v; info.count = v.n; info.gids = v.gids; }
+                } catch (e) {
+                  info.error = msgOf(e);
                 }
-            ,
+                out.push(info);
+                i += 1;
+              }
+              return { ok: true, panes: out };
+            },
             'page-close': async function (svc, c) {
-                  const target = pickGuestEl();
-                  const value = await target.executeJavaScript(
-                    `(function () { var old = document.querySelector('iframe[data-dsh-kit-frame]'); if (old) old.remove(); return { closed: true }; })()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              const target = pickGuestEl();
+              const value = await target.executeJavaScript(
+                `(function () { var old = document.querySelector('iframe[data-dsh-kit-frame]'); if (old) old.remove(); return { closed: true }; })()`,
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'dom-scan': async function (svc, c) {
-                  // 诊断：扫描 GUI 页（非 guest）里含 webview 的容器结构，定位浏览器工具条 DOM。
-                  // 只读，不改任何宿主节点。depth 限制防日志爆炸。
-                  const outline = (el, depth, maxDepth) => {
-                    if (!el || depth > maxDepth) return null;
-                    const r = { tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 80) };
-                    if (el.id) r.id = el.id;
-                    if (el.getAttribute('aria-label')) r.aria = el.getAttribute('aria-label');
-                    if (el.title) r.title = el.title;
-                    const kids = [];
-                    for (const c of el.children) {
-                      const k = outline(c, depth + 1, maxDepth);
-                      if (k) kids.push(k);
-                    }
-                    if (kids.length) r.children = kids;
-                    return r;
-                  };
-                  const wv = document.querySelector('webview');
-                  if (!wv) return { ok: false, error: '无 webview' };
-                  // 自 webview 向上找 4 层容器，再从该容器向下展开 6 层
-                  let host = wv;
-                  for (let i = 0; i < 4 && host.parentElement; i++) host = host.parentElement;
-                  return { ok: true, tree: outline(host, 0, 6) };
+              // 诊断：扫描 GUI 页（非 guest）里含 webview 的容器结构，定位浏览器工具条 DOM。
+              // 只读，不改任何宿主节点。depth 限制防日志爆炸。
+              const outline = (el, depth, maxDepth) => {
+                if (!el || depth > maxDepth) return null;
+                const r = { tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 80) };
+                if (el.id) r.id = el.id;
+                if (el.getAttribute('aria-label')) r.aria = el.getAttribute('aria-label');
+                if (el.title) r.title = el.title;
+                const kids = [];
+                for (const c of el.children) {
+                  const k = outline(c, depth + 1, maxDepth);
+                  if (k) kids.push(k);
                 }
-            ,
+                if (kids.length) r.children = kids;
+                return r;
+              };
+              const wv = document.querySelector('webview');
+              if (!wv) return { ok: false, error: '无 webview' };
+              // 自 webview 向上找 4 层容器，再从该容器向下展开 6 层
+              let host = wv;
+              for (let i = 0; i < 4 && host.parentElement; i++) host = host.parentElement;
+              return { ok: true, tree: outline(host, 0, 6) };
+            },
             'snapshot': async function (svc, c) {
-                  // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
-                  const target = pickGuestEl();
-                  const value = await target.executeJavaScript(
-                    '(function () {\n' +
-                    `  ${TARGET_DOC_SNIPPET}\n` +
-                    "  var SELS = 'a[href],button,input,textarea,select,[role=\"button\"],[role=\"link\"],[role=\"checkbox\"],[role=\"tab\"],h1,h2,h3,h4';\n" +
-                    '  var els = Array.prototype.slice.call(DOC.querySelectorAll(SELS));\n' +
-                    '  var out = [];\n' +
-                    '  for (var i = 0; i < els.length && out.length < 120; i++) {\n' +
-                    '    var el = els[i];\n' +
-                    '    var r = el.getBoundingClientRect();\n' +
-                    '    if (r.width === 0 && r.height === 0) continue;\n' +
-                    '    if (el.closest && el.closest("[data-dsh-kit-ui]")) continue;\n' +
-                    '    var ref = out.length + 1;\n' +
-                    '    el.setAttribute("data-dsh-kit-ref", String(ref));\n' +
-                    "    out.push({ ref: ref, tag: el.tagName.toLowerCase(), id: el.id || null,\n" +
-                    "      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 60),\n" +
-                    "      placeholder: el.getAttribute('placeholder') || null,\n" +
-                    "      type: el.getAttribute('type') || null,\n" +
-                    "      value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? String(el.value || '').slice(0, 60) : null });\n" +
-                    '  }\n' +
-                    '  return { url: location.href, title: document.title, count: out.length, items: out };\n' +
-                    '})()',
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
+              const target = pickGuestEl();
+              const value = await target.executeJavaScript(
+                '(function () {\n' +
+                `  ${TARGET_DOC_SNIPPET}\n` +
+                "  var SELS = 'a[href],button,input,textarea,select,[role=\"button\"],[role=\"link\"],[role=\"checkbox\"],[role=\"tab\"],h1,h2,h3,h4';\n" +
+                '  var els = Array.prototype.slice.call(DOC.querySelectorAll(SELS));\n' +
+                '  var out = [];\n' +
+                '  for (var i = 0; i < els.length && out.length < 120; i++) {\n' +
+                '    var el = els[i];\n' +
+                '    var r = el.getBoundingClientRect();\n' +
+                '    if (r.width === 0 && r.height === 0) continue;\n' +
+                '    if (el.closest && el.closest("[data-dsh-kit-ui]")) continue;\n' +
+                '    var ref = out.length + 1;\n' +
+                '    el.setAttribute("data-dsh-kit-ref", String(ref));\n' +
+                "    out.push({ ref: ref, tag: el.tagName.toLowerCase(), id: el.id || null,\n" +
+                "      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 60),\n" +
+                "      placeholder: el.getAttribute('placeholder') || null,\n" +
+                "      type: el.getAttribute('type') || null,\n" +
+                "      value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? String(el.value || '').slice(0, 60) : null });\n" +
+                '  }\n' +
+                '  return { url: location.href, title: document.title, count: out.length, items: out };\n' +
+                '})()',
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'click': async function (svc, c) {
-                  const target = pickGuestEl();
-                  const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
-                  if (!sel) return { ok: false, error: '需要 ref 或 selector' };
-                  const value = await target.executeJavaScript(
-                    `(function () { ${TARGET_DOC_SNIPPET} var el = DOC.querySelector(${JSON.stringify(sel)}); if (!el) return { ok: false, error: 'no element' }; el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 })); return { ok: true, tag: el.tagName.toLowerCase(), text: (el.textContent || '').trim().slice(0, 60) }; })()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              const target = pickGuestEl();
+              const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const value = await target.executeJavaScript(
+                `(function () { ${TARGET_DOC_SNIPPET} var el = DOC.querySelector(${JSON.stringify(sel)}); if (!el) return { ok: false, error: 'no element' }; el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 })); return { ok: true, tag: el.tagName.toLowerCase(), text: (el.textContent || '').trim().slice(0, 60) }; })()`,
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'type': async function (svc, c) {
-                  const target = pickGuestEl();
-                  const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
-                  if (!sel) return { ok: false, error: '需要 ref 或 selector' };
-                  const text = String(c.text ?? '');
-                  const value = await target.executeJavaScript(
-                    `(function () {\n` +
-                    `  ${TARGET_DOC_SNIPPET}\n` +
-                    `  var el = DOC.querySelector(${JSON.stringify(sel)});\n` +
-                    `  if (!el) return { ok: false, error: 'no element' };\n` +
-                    `  el.focus();\n` +
-                    `  var text = ${JSON.stringify(text)};\n` +
-                    `  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {\n` +
-                    `    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;\n` +
-                    `    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);\n` +
-                    `    el.dispatchEvent(new Event('input', { bubbles: true }));\n` +
-                    `    el.dispatchEvent(new Event('change', { bubbles: true }));\n` +
-                    `    return { ok: true, value: el.value };\n` +
-                    `  }\n` +
-                    `  if (el.isContentEditable) { el.textContent = text; el.dispatchEvent(new Event('input', { bubbles: true })); return { ok: true }; }\n` +
-                    `  return { ok: false, error: 'not editable' };\n` +
-                    `})()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              const target = pickGuestEl();
+              const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const text = String(c.text ?? '');
+              const value = await target.executeJavaScript(
+                `(function () {\n` +
+                `  ${TARGET_DOC_SNIPPET}\n` +
+                `  var el = DOC.querySelector(${JSON.stringify(sel)});\n` +
+                `  if (!el) return { ok: false, error: 'no element' };\n` +
+                `  el.focus();\n` +
+                `  var text = ${JSON.stringify(text)};\n` +
+                `  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {\n` +
+                `    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;\n` +
+                `    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);\n` +
+                `    el.dispatchEvent(new Event('input', { bubbles: true }));\n` +
+                `    el.dispatchEvent(new Event('change', { bubbles: true }));\n` +
+                `    return { ok: true, value: el.value };\n` +
+                `  }\n` +
+                `  if (el.isContentEditable) { el.textContent = text; el.dispatchEvent(new Event('input', { bubbles: true })); return { ok: true }; }\n` +
+                `  return { ok: false, error: 'not editable' };\n` +
+                `})()`,
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'page-inject': async function (svc, c) {
-                  // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）替代
-                  // document.write——后者在页面资源未静止时 executeJavaScript 会永久悬挂
-                  // （cmd-41/63 实测，P22）；实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；
-                  // iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
-                  // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（公网 Vue 站点实测一次），
-                  // 注入后应立即使用/截图。历史教训：本 case 曾被复制成重复分支（switch 首个匹配生效，
-                  // 第二个是死代码、改它不生效）——case 唯一性已由静态契约钉死（§3.9）。
-                  const target = pickGuestEl();
-                  const html = String(c.html || '');
-                  if (!html) return { ok: false, error: '需要 html' };
-                  const value = await target.executeJavaScript(
-                    `(function () {\n` +
-                    `  var html = ${JSON.stringify(html)};\n` +
-                    `  var m = html.match(/<script>([\\s\\S]*?)<\\/script>/);\n` +
-                    `  var scriptCode = m ? m[1] : '';\n` +
-                    `  var htmlNoScript = html.replace(/<script>[\\s\\S]*?<\\/script>/, '');\n` +
-                    `  var inner = htmlNoScript.replace(/^[\\s\\S]*?<html[^>]*>/, '').replace(/<\\/html>\\s*$/, '');\n` +
-                    `  document.documentElement.innerHTML = inner;\n` +
-                    `  var wired = true, wireError = null;\n` +
-                    `  if (scriptCode) { try { (new Function(scriptCode))(); } catch (e) { wired = false; wireError = String(e); } }\n` +
-                    `  return { wired: wired, wireError: wireError, hasInput: !!document.querySelector('.card'), title: document.title };\n` +
-                    `})()`,
-                    true,
-                  );
-                  return { ok: true, ...(value || {}) };
-                }
-            ,
+              // MVP-4：整页 HTML 注入 guest 顶层文档。innerHTML 原语（同步赋值）替代
+              // document.write——后者在页面资源未静止时 executeJavaScript 会永久悬挂
+              // （cmd-41/63 实测，P22）；实测在活跃 SPA 页面上持久可靠（v2 注入存活 30min+）；
+              // iframe srcdoc 会被宿主 CSP 拦成空文档（本轮实测）。
+              // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（公网 Vue 站点实测一次），
+              // 注入后应立即使用/截图。历史教训：本 case 曾被复制成重复分支（switch 首个匹配生效，
+              // 第二个是死代码、改它不生效）——case 唯一性已由静态契约钉死（§3.9）。
+              const target = pickGuestEl();
+              const html = String(c.html || '');
+              if (!html) return { ok: false, error: '需要 html' };
+              const value = await target.executeJavaScript(
+                `(function () {\n` +
+                `  var html = ${JSON.stringify(html)};\n` +
+                `  var m = html.match(/<script>([\\s\\S]*?)<\\/script>/);\n` +
+                `  var scriptCode = m ? m[1] : '';\n` +
+                `  var htmlNoScript = html.replace(/<script>[\\s\\S]*?<\\/script>/, '');\n` +
+                `  var inner = htmlNoScript.replace(/^[\\s\\S]*?<html[^>]*>/, '').replace(/<\\/html>\\s*$/, '');\n` +
+                `  document.documentElement.innerHTML = inner;\n` +
+                `  var wired = true, wireError = null;\n` +
+                `  if (scriptCode) { try { (new Function(scriptCode))(); } catch (e) { wired = false; wireError = String(e); } }\n` +
+                `  return { wired: wired, wireError: wireError, hasInput: !!document.querySelector('.card'), title: document.title };\n` +
+                `})()`,
+                true,
+              );
+              return { ok: true, ...(value || {}) };
+            },
             'reload': async function (svc, c) {
-                  // 同源刷新（不跨白名单）；不 await 完成事件（P19：跨导航的 Promise 永不决）
-                  const target = pickGuestEl();
-                  target.executeJavaScript('location.reload()', true).catch(() => {});
-                  return { ok: true, reloading: true };
-                }
-            ,
+              // 同源刷新（不跨白名单）；不 await 完成事件（P19：跨导航的 Promise 永不决）
+              const target = pickGuestEl();
+              target.executeJavaScript('location.reload()', true).catch(() => {});
+              return { ok: true, reloading: true };
+            },
             'navigate': async function (svc, c) {
-                  // 白名单内的源才可能成功（实测跨源被宿主静默拒绝）；fire-and-forget，两秒后回报 href
-                  const url = String(c.url || '');
-                  if (!url) return { ok: false, error: '需要 url' };
-                  const target = pickGuestEl();
-                  target.executeJavaScript(`location.href = ${JSON.stringify(url)}`, true).catch(() => {});
-                  await sleep(2000);
-                  let href = null;
-                  try {
-                    href = await target.executeJavaScript('location.href', true);
-                  } catch { /* 导航成功时旧上下文已销毁，取不到属正常 */ }
-                  return { ok: true, requested: url, currentHref: href, note: '跨源导航受宿主白名单限制，可能被静默拒绝（须用户在 DSH UI 手动导航）' };
-                }
-            ,
+              // 白名单内的源才可能成功（实测跨源被宿主静默拒绝）；fire-and-forget，两秒后回报 href
+              const url = String(c.url || '');
+              if (!url) return { ok: false, error: '需要 url' };
+              const target = pickGuestEl();
+              target.executeJavaScript(`location.href = ${JSON.stringify(url)}`, true).catch(() => {});
+              await sleep(2000);
+              let href = null;
+              try {
+                href = await target.executeJavaScript('location.href', true);
+              } catch { /* 导航成功时旧上下文已销毁，取不到属正常 */ }
+              return { ok: true, requested: url, currentHref: href, note: '跨源导航受宿主白名单限制，可能被静默拒绝（须用户在 DSH UI 手动导航）' };
+            },
             'screenshot': async function (svc, c) {
-                  return await captureShot();
-                }
-            ,
+              return await captureShot();
+            },
             'submit-annotations': async function (svc, c) {
-                  // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
-                  if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
-                    const r = await mergeAndSave();
-                    if (r && r.ok) announceSubmission(r);
-                    return r && r.ok ? { ok: true, path: r.path, bytes: r.bytes, count: r.count } : { ok: false, error: (r && r.error) || '保存失败' };
-                  }
-                  const target = await ensureAnnotator(svc);
-                  const r = await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.submit ? window.__dshKitAnnotator.submit() : null)', true);
-                  if (!r || typeof r.markdown !== 'string') return { ok: false, error: '无可打包批注' };
-                  if (!(r.annotations || []).length) return { ok: false, error: '无可打包批注（0 条）' };
-                  let meta = null;
-                  try {
-                    meta = metaOf(await target.executeJavaScript(GUEST_META_JS, true));
-                  } catch { /* 元数据失败不拦保存 */ }
-                  const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
-                  if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
-                  return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
-                }
+              // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
+              if (stateRef.annot && stateRef.annot.active && stateRef.annot.panes.length > 0) {
+                const r = await mergeAndSave();
+                if (r && r.ok) announceSubmission(r);
+                return r && r.ok ? { ok: true, path: r.path, bytes: r.bytes, count: r.count } : { ok: false, error: (r && r.error) || '保存失败' };
+              }
+              const target = await ensureAnnotator(svc);
+              const r = await target.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.submit ? window.__dshKitAnnotator.submit() : null)', true);
+              if (!r || typeof r.markdown !== 'string') return { ok: false, error: '无可打包批注' };
+              if (!(r.annotations || []).length) return { ok: false, error: '无可打包批注（0 条）' };
+              let meta = null;
+              try {
+                meta = metaOf(await target.executeJavaScript(GUEST_META_JS, true));
+              } catch { /* 元数据失败不拦保存 */ }
+              const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
+              if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
+              return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
+            }
 
           };
 
