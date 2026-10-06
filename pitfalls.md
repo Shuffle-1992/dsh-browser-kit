@@ -192,3 +192,7 @@
 - **现象**（2026-10-06 实测）：实施会话连续 20 分钟收不到任何 `command-results.jsonl` 回写、`command.json` 也未被取走——看上去像 face 断了或插件挂了，实际是 DSH 窗口不在前台，**渲染进程的 `setInterval` 轮询（2.5s）被 Electron 后台节流暂停**。窗口切回前台后，积压命令立即被取走并正常回写（`clientBootAt` 显示期间还有新实例挂载）。
 - **判据**：命令无响应 + `probe-report.json` 的 `implLoadedAt` 停留在最后一次激活时刻 + DSH 进程健在 → 先怀疑节流，不要怀疑代码；让窗口到前台或等它恢复即可。
 - **对策**：实施会话依赖命令通道时，**保持 DSH 窗口在前台**（最小化/切走后长命令会挂起等待）；长等待场景先探一次 `kit-status` 确认通道活着再发实质命令。
+### P40 本机 git 经代理推 GitHub：schannel 吊销检查不可达致握手失败（curl 却正常）
+- **现象**（2026-10-06 实测）：Clash 代理（`127.0.0.1:7897`）开着，`curl.exe -x` 访问 github.com / api.github.com / 仓库 git 端点**全部 HTTP 200**，但 `git push/ls-remote` 一律 `schannel: failed to receive handshake, SSL/TLS connection failed`（换 `http.sslBackend=openssl` 则是 `unexpected eof while reading`）。看似网络不通，实为 **schannel 走 CRL/OCSP 吊销检查时经代理不可达**。
+- **对策**：仓库级固化 `git config http.schannelCheckRevoke false`（**证书链校验仍保留**，只跳过吊销检查——比 `sslVerify=false` 安全得多）。固化后不带任何 `-c` 参数即通：`git config http.proxy http://127.0.0.1:7897` + `http.schannelCheckRevoke false`。
+- **判据**：curl 通而 git 不通 + schannel 握手错误 → 直接上 `schannelCheckRevoke=false`，不要浪费时间排查代理/节点。
