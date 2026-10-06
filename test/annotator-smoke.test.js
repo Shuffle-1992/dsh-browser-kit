@@ -192,6 +192,40 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
       "startIndex 是下限：首条编号应为 6（max(list, 5) + 1）",
     );
 
+    // A4（R-01，评审采纳）：意见框键盘交互——capture 屏蔽层曾使 field 的 Enter/Esc
+    // 监听成为死代码（capture stopPropagation 后事件不进 target 阶段，Enter 实际是换行、
+    // Esc 无响应）。此处用真实事件传播路径验证修复：Enter=提交并关框、Esc=丢弃并关框。
+    await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
+    await drive.evalJs(cdp, "window.__dshKitAnnotator.start(); 'ok'");
+    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(
+      cdp,
+      'var f = document.querySelector("[data-dsh-kit-note-field]"); f.value = "键盘确认路径";'
+      + 'f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));',
+    );
+    assert.equal(
+      await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-marker]").getAttribute("data-state")'),
+      "confirmed",
+      "R-01：Enter 应经 capture 分流提交批注（修复前为死代码，实际行为是换行）",
+    );
+    assert.ok(
+      !(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))')),
+      "R-01：Enter 提交后意见框应关闭",
+    );
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list()[0].note"), "键盘确认路径", "R-01：Enter 提交应带上输入的意见");
+    // Esc 丢弃：再开一条，输入后 Esc 应关闭意见框且不入列
+    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(
+      cdp,
+      'var f2 = document.querySelector("[data-dsh-kit-note-field]"); f2.value = "应被丢弃";'
+      + 'f2.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));',
+    );
+    assert.ok(
+      !(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))')),
+      "R-01：Esc 应经 capture 分流关闭意见框（修复前为死代码）",
+    );
+    assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1, "R-01：Esc 丢弃不应入列");
+
     await cdp.close();
   } finally {
     await drive.close();

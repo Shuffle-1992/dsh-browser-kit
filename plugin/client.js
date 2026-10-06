@@ -524,7 +524,8 @@ window.__ModuleLoader__.load({
            *             originUrls, pending[], leftIds, base? } —— 共享会话全部运行态
            *  胶囊/横条：chip(saved 待发模型 {mode,count,path,items,convo,bornAt,base,
            *             attachedKey?,retracted?}) / sentChips[](已随消息发出的模型 FIFO) /
-           *             chipAwayFrom(预留) / chipGate(P37 门控诊断，触发时写)
+           *             chipGate(P37 门控诊断，触发时写)；横条渲染条件直接读 chip.convo
+           *             与当前会话标题比对，无独立字段
            *  输入框管线：lastPrime(primeSessionInput 回读校验结果)
            *  工具条：lastToggleError / toolbarBtnCount(已挂按钮数)
            *  诊断：clientBootAt(实例身份，P37 认领戳数据源) / tickAt(2s tick 心跳) /
@@ -638,7 +639,7 @@ window.__ModuleLoader__.load({
             const target = pickProbeTarget(els);
             if (!target) throw new Error('无 webview（先打开内置浏览器）');
             return target;
-            };
+          };
 
           /**
            * 共享批注会话模型（用户需求：同会话多窗口共用一份批注、批注号跨窗口延续、
@@ -700,7 +701,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.1';
+          const EXPECTED_ANNOT_VERSION = '1.6.2';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);

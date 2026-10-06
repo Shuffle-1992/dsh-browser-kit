@@ -39,16 +39,30 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const refreshPanes = \(webviews\) =>/); // R4.1：webviews 可选参数（tick 内单次查询复用）
   });
 
-  await t.test("1.6.1：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.1'/);
+  await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.2'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.1"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.2"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
+    // R-01（评审采纳）：意见框 Enter/Esc 交互合并进 capture 监听按 target 分流——
+    // 原先 field 上的独立 keydown 监听是死代码（capture stopPropagation 后事件不进 target 阶段）
+    assert.match(annotSource, /if \(event\.target === field\) \{/);
+    assert.match(annotSource, /event\.key === "Enter" && !event\.shiftKey/);
+    assert.match(annotSource, /closeNoteInput\(true\);/);
+    assert.doesNotMatch(annotSource, /field\.addEventListener\("keydown"/); // 死监听不得复活
+    // R-05：删除日志 push 前 gid 去重（集合语义；防长会话日志单调增长 + 每 1.5s 全量序列化）
+    assert.match(annotSource, /if \(window\.__dshKitDeletedGids\.indexOf\(record\.gid\) < 0\) \{/);
+    // R-06：resize rAF 合帧（拖拽窗口每帧最多一次 repositionAllBadges）
+    assert.match(annotSource, /resizeRaf = requestAnimationFrame\(function \(\) \{/);
+    assert.match(annotSource, /cancelAnimationFrame\(resizeRaf\)/);
+    // R-07：popover 尺寸缓存（同目标悬停不再每帧读 offsetWidth/offsetHeight）
+    assert.match(annotSource, /var popoverSize = null;/);
+    assert.match(annotSource, /\(popoverSize && popoverSize\.w\) \|\| popover\.offsetWidth \|\| 240/);
     // 同页门控（A1 抽取后）：sync 快照带 href、判定走 planPaneSync 纯函数（annotator-sync.test.mjs
     // 全分支单测 + parity 对拍），此处只钉接线；annotator 按 pageOk 抑制徽标
     assert.match(clientSource, /href: location\.href/);

@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.1"; // 1.6.1：B5 增强 rAF 合帧（mousemove 每帧最多一次 updateOverlay）；1.6.0：hover 同目标跳过重建（B5）、清除收口复用 closeNoteInput（B3）、addExternal 脏输入兜底（B6）等
+  window.__dshKitAnnotatorVersion = "1.6.2"; // 1.6.2：评审采纳——意见框 Enter/Esc 死代码修复（R-01）、删除日志 gid 去重（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -740,11 +740,17 @@
       appendPopoverRow("Background", style.backgroundColor);
     }
     appendPopoverRow("Font", truncate([style.fontSize, style.fontFamily].filter(Boolean).join(" "), 96));
+    // R-07（评审）：popover 尺寸缓存——内容未变则宽高恒定，updateOverlay 无需每帧再读
+    // offsetWidth/offsetHeight（两次潜在强制布局）。视口跨 320px 阈值导致宽度变化时，
+    // 由下一次目标变化（重建）刷新；resize 会话收尾一并清空。
+    popoverSize = { w: popover.offsetWidth || 240, h: popover.offsetHeight || 90 };
   }
 
   var hoverTarget = null; // B5：最近一次已渲染 popover 的目标（同目标跳过重建，消除高频强制布局）
   var hoverRaf = 0; // B5 增强（1.6.1）：rAF 合帧——mousemove 高频，每帧只处理最新目标一次
   var hoverPending = null;
+  var resizeRaf = 0; // R-06（1.6.2）：resize 合帧——拖拽窗口时每帧最多重定位一次
+  var popoverSize = null; // R-07（1.6.2）：popover 尺寸缓存（内容不变则宽高恒定）
 
   function updateOverlay(target) {
     if (
@@ -779,8 +785,8 @@
       renderPopover(target, rect);
       hoverTarget = target;
     }
-    var labelWidth = popover.offsetWidth || 240;
-    var labelHeight = popover.offsetHeight || 90;
+    var labelWidth = (popoverSize && popoverSize.w) || popover.offsetWidth || 240;
+    var labelHeight = (popoverSize && popoverSize.h) || popover.offsetHeight || 90;
     var position = getPopoverPosition(rect, labelWidth, labelHeight);
     popover.style.left = position.left + "px";
     popover.style.top = position.top + "px";
@@ -1171,24 +1177,29 @@
     actions.append(confirmBtn, deleteBtn);
     container.append(actions);
 
-    // 意见框内键盘事件不透传（调研文档 §5.2：防页面快捷键劫持）
+    // 意见框内键盘事件不透传（调研文档 §5.2：防页面快捷键劫持）+ Enter/Esc 交互。
+    // R-01 修复（2026-10-06 评审）：原先 field 上的 Enter/Esc 监听是**死代码**——本容器
+    // 在 capture 阶段 stopPropagation 后事件不会进入 target 阶段，field 的监听永不触发
+    // （实际行为退化为「Enter 换行、Esc 无响应」）。现将交互合并进 capture 监听按 target 分流。
     container.addEventListener("keydown", function (event) {
+      if (event.target === field) {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          commitNoteInput();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeNoteInput(true);
+          return;
+        }
+      }
       event.stopPropagation();
     }, true);
     container.addEventListener("click", function (event) {
       event.stopPropagation();
-    });
-
-    field.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        commitNoteInput();
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeNoteInput(true);
-      }
     });
 
     var doc = record.el && record.el.isConnected ? docCoordsOf(record.el) : { x: 0, y: 0 };
@@ -1241,9 +1252,13 @@
       record.badge = null;
     }
     if (record.gid) {
-      // 删除日志（跨面板同步）：宿主轮询合并各窗口的删除记录，广播移除
+      // 删除日志（跨面板同步）：宿主轮询合并各窗口的删除记录，广播移除。
+      // R-05（评审）：push 前按 gid 去重——原先每次 removeExternal 都追加一条，
+      // 日志单调增长且被 syncPanes 每 1.5s 全量序列化；去重后上界 = 历史唯一被删 gid 数。
       window.__dshKitDeletedGids = window.__dshKitDeletedGids || [];
-      window.__dshKitDeletedGids.push(record.gid);
+      if (window.__dshKitDeletedGids.indexOf(record.gid) < 0) {
+        window.__dshKitDeletedGids.push(record.gid);
+      }
     }
     renderPanel();
   }
@@ -1430,7 +1445,19 @@
     if (!session) {
       return;
     }
-    repositionAllBadges();
+    // R-06（评审）：resize 拖拽窗口时每秒数十次事件，每次对全部批注做
+    // querySelector(isStale) + getBoundingClientRect —— 与 B5 hover 同族的高频强制布局。
+    // rAF 合帧：每帧最多重定位一次（浏览器每帧至多渲染一次，视觉不可分辨）。
+    if (resizeRaf) {
+      return;
+    }
+    resizeRaf = requestAnimationFrame(function () {
+      resizeRaf = 0;
+      if (!session) {
+        return; // 会话已结束：丢弃该帧
+      }
+      repositionAllBadges();
+    });
   }
 
   async function handlePanelSubmit() {
@@ -1519,6 +1546,11 @@
       cancelAnimationFrame(hoverRaf);
       hoverRaf = 0;
     }
+    // R-06：resize 合帧状态复位（照抄 hover 收尾模式）
+    if (resizeRaf) {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = 0;
+    }
     if (current) {
       try {
         current.resolve(status);
@@ -1555,7 +1587,11 @@
     list: function () {
       return annotations.map(publicAnnotation);
     },
-    /** 清空全部批注并移除徽标。 */
+    /** 清空全部批注并移除徽标。
+     *  ⚠️ R-02（评审）：**不写跨面板删除日志**——共享会话下其他窗口的 union 仍含这些 gid，
+     *  1.5s 同步圈会把批注 `addExternal` 推回来（「清了又回来」）。跨窗口清除一律用
+     *  `clearAll()`（全量 gid 进删除日志，宿主广播 removeExternal）。当前 client 全链只用
+     *  clearAll；本 API 保留为单窗口语义，勿在共享会话下使用。 */
     clear: function () {
       annotations.length = 0;
       if (session) {
