@@ -1,17 +1,28 @@
 /**
- * @local/dsh-browser-kit —— Client 半边：MVP-0 webview 探测（Path A 验证）。
+ * @local/dsh-browser-kit —— Client 半边（GUI 文档侧）。分区导航（按出现顺序）：
  *
- * 职责（全部兜底，任何异常不许冒泡——冒泡 = 条目激活失败 = web boot 失败）：
- *  1. 在 GUI 文档里 `document.querySelectorAll('webview')`，记录数量/属性/方法存在性；
- *  2. 对第一个可用 guest 实测 `executeJavaScript('1+1')` / `capturePage()` / `getWebContentsId()`；
- *  3. 结果四路出口：`window.__dshKitProbe`（页面全局契约）+ localStorage 镜像 +
- *     `ctx.remote.dshBrowserKit.reportClient()` 上报 host 半边落盘 + 左下角诊断小面板（用户可见）；
- *  4. MutationObserver 监听 webview 挂载（lease guest 打开时自动补测）；
- *  5. 「重新探测」按钮 + 手动「上报 host」按钮。
+ *  ① 常量与主题令牌 T / 探测核心（webview 能力实测）/ host 上报（remote face 拆包）
+ *  ② stateRef 运行期状态（字段总览见声明处注释块）
+ *  ③ 面板刷新与编号交接（livePane / refreshPanes / joinFloorIndex / sessionMaxIndex）
+ *  ④ 批注层注入与输入框管线（ensureAnnotator / isVisibleEl / primeSessionInput）
+ *  ⑤ 自绘浮层族：认领制助手（ownerBootOf/iAmNewer）→ 输入框胶囊（ensureAnnotChip）
+ *     → 防呆横条（ensureAwayBanner）→ 消息胶囊（attachMsgChip / ensureConvoChips）
+ *  ⑥ 共享会话提交流（joinPane/leavePane/sessionSettled/mergeAndSave/syncPanes）
+ *  ⑦ 命令通道（commandHandlers 23 action 映射表 + 分发器；A6 契约钉死全量清单）
+ *  ⑧ 诊断命令（kit-status/gui-eval/guest-eval/panes-probe/toolbar-probe 等）
+ *  ⑨ 截图与探测出口（captureShot / probeAndPublish / 面板与 Slots 注册 / 插件管理卡片）
+ *  ⑩ 工具条按钮注入（ensureToolbarButtons + P37 接管）+ 2s tick（tickChipLifecycle /
+ *     tickToolbarStyles / tickSelfHealAndAutoJoin）+ 诊断句柄 window.__dshKitClientDiag
+ *
+ * 总纪律（任何异常不许冒泡——冒泡 = 条目激活失败 = web boot 失败）：
+ *  - 全部兜底 try/catch；激活期零抛；
+ *  - 样式只走主题令牌（--dsw-alias-* / --dsw-shadow-lv3 / --ds-font-family-code）与
+ *    唯一的字面出口 T，零散落字面色值（工具条 accent 为已记录的字面豁免）；
+ *  - 纯逻辑抽取走 A1 模式（src 正典 + 内嵌副本 canonical 标记 + parity 对拍）——
+ *    client 侧不支持相对 import（评审报告研究项 A 已证）。
  *
  * 形态照抄 @local/zcode-dispatch/client.js（本机已验证）：window.__ModuleLoader__.load +
  * React.createElement + inject ['slots','remote','typert']（typert 是 $mount 的硬依赖）。
- * 样式只走主题令牌（--dsw-alias-* / --dsw-shadow-lv3 / --ds-font-family-code），零字面色值。
  */
 window.__ModuleLoader__.load({
   id: '@local/dsh-browser-kit',
@@ -97,6 +108,9 @@ window.__ModuleLoader__.load({
       warn: 'var(--dsw-alias-state-warn-primary, var(--dsw-alias-label-primary, currentColor))',
       hover: 'var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-3, transparent))',
       mono: 'var(--ds-font-family-code, ui-monospace, SFMono-Regular, Consolas, monospace)',
+      /* 系统字体栈（非主题令牌，字面出口同位）：自绘浮层的两档字号字重共用 */
+      font: '12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif',
+      fontLh: '12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif',
     };
     const STYLE_ID = 'dsh-browser-kit-probe-style';
 
@@ -653,19 +667,20 @@ window.__ModuleLoader__.load({
             return el;
           };
 
-          /** 把成员表里的陈旧节点映射回当前文档的同 id 节点（DSH 重渲染会替换 webview 节点）。 */
-          const livePane = (el) => {
+          /** 把成员表里的陈旧节点映射回当前文档的同 id 节点（DSH 重渲染会替换 webview 节点）。
+           *  R4.1：webviews 可选参数——tick 顶部一次查询逐参复用（非 tick 调用点缺省自取）。 */
+          const livePane = (el, webviews) => {
             const id = paneIdOf(el);
             if (typeof id === 'number') {
-              for (const w of document.querySelectorAll('webview')) {
+              for (const w of webviews || document.querySelectorAll('webview')) {
                 if (paneIdOf(w) === id) return w;
               }
             }
             return el;
           };
-          const refreshPanes = () => {
+          const refreshPanes = (webviews) => {
             const st = stateRef.annot;
-            if (st && Array.isArray(st.panes)) st.panes = st.panes.map(livePane).filter(Boolean);
+            if (st && Array.isArray(st.panes)) st.panes = st.panes.map((p) => livePane(p, webviews)).filter(Boolean);
           };
 
           /** 编号交接下限（P26 契约钉死）：加入面板 indexBase = maxUsed → 首个新批注 = maxUsed+1。
@@ -709,6 +724,15 @@ window.__ModuleLoader__.load({
           /** 元素可见性判定（C7：checkVisibility 优先，旧环境退 getClientRects）——
            *  primeSessionInput 与 findComposer 共用，勿再各写一份。 */
           const isVisibleEl = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : el.getClientRects().length > 0);
+          /** R1-05：可见 contenteditable 候选单点化（选择器曾两份散落——P36 的重命名漏改
+           *  正是这种重复的必然结局）。primeSessionInput 与 findComposer 共用。 */
+          const CE_SEL = '[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]';
+          const visibleCEs = () => Array.from(document.querySelectorAll(CE_SEL)).filter(isVisibleEl);
+          /** R1-06：宿主结构契约选择器/标记单点化（CSS-module 哈希前缀随构建变化，
+           *  只匹配稳定语义后缀；改一处即全局生效）。 */
+          const BUBBLE_SEL = '[class*="_bubble"]';
+          const MSG_CHIP_MARK = '[data-dsh-kit-ann-msg]';
+          const TOOLBAR_SEL = 'form[class*="toolbar"]';
 
           /** guest 页元数据回读（C8：mergeAndSave / 单面板提交共用同一表达式与归一化）。 */
           const GUEST_META_JS = '({ url: location.href, title: document.title })';
@@ -741,7 +765,7 @@ window.__ModuleLoader__.load({
                 }, 300);
               }
               if (!r) {
-                const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(isVisibleEl); // P36：曾误写 `visible`（未定义标识符）→ 整个 primeSessionInput 抛错、输入框提示永远失败
+                const ces = visibleCEs(); // P36：曾误写 `visible`（未定义标识符）→ 整个 primeSessionInput 抛错、输入框提示永远失败——现已随 R1-05 单点化
                 const ce = ces[ces.length - 1] || null;
                 if (ce) {
                   try { ce.focus(); } catch { /* ignore */ }
@@ -795,6 +819,30 @@ window.__ModuleLoader__.load({
            *  例外：工具条按钮对「无主/更旧」按钮拆除重挂以接管 click 路由，不走退让分支。 */
           const ownerBootOf = (el) => (el && el.dataset && el.dataset.ownerBoot) || '';
           const iAmNewer = (el) => !ownerBootOf(el) || String(stateRef.clientBootAt) >= ownerBootOf(el);
+          /** R2.2：× 关闭按钮单点构造（胶囊/消息胶囊同款形态）。 */
+          const makeCloseButton = (title) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.setAttribute('data-role', 'close');
+            btn.textContent = '×';
+            btn.title = title;
+            btn.style.cssText = 'border:0;background:var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.14));'
+              + 'color:var(--dsw-alias-label-primary, #e5e7eb);border-radius:999px;'
+              + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
+              + 'align-items:center;justify-content:center;padding:0;';
+            return btn;
+          };
+          /** R2.2：× hover 危险色样式标签单点化（伪类内联写不了；选择器通配两种容器）。 */
+          const ensureChipDangerStyle = () => {
+            if (document.getElementById('dsh-kit-annot-chip-style')) return;
+            const st = document.createElement('style');
+            st.id = 'dsh-kit-annot-chip-style';
+            st.textContent = '#dsh-kit-annot-chip [data-role=close]:hover,'
+              + '[data-dsh-kit-ann-msg] [data-role=close]:hover{'
+              + 'background:var(--dsw-alias-state-error-primary, rgba(220,38,38,0.85))!important;'
+              + 'color:var(--dsw-alias-label-primary-foreground, #ffffff)!important}';
+            document.head.appendChild(st);
+          };
 
           /** ZCode 式胶囊（用户指定形态）：**输入框卡片内部**左上角「N 条批注 ×」。
            *  - 会话进行中：实时计数（st.annot.count，syncPanes 维护）；× = 清空全部成员批注
@@ -809,7 +857,7 @@ window.__ModuleLoader__.load({
           const CHIP_ID = 'dsh-kit-annot-chip';
           const convoTitle = () => (document.title || '').replace(/\s*[—–-]\s*DeepSeek Harness\s*$/, '').trim();
           const findComposer = () => {
-            const ces = Array.from(document.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],[contenteditable=""]')).filter(isVisibleEl);
+            const ces = visibleCEs();
             return ces[ces.length - 1] || null;
           };
           const removeAnnotChip = () => {
@@ -871,30 +919,14 @@ window.__ModuleLoader__.load({
                 // 明暗切换由令牌重解析自动跟随，零字面色值——与面板/工具条同一纪律）
                 chip.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;gap:6px;'
                   + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:999px;'
-                  + 'padding:4px 6px 4px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                  + 'padding:4px 6px 4px 10px;font:' + T.font + ';'
                   + 'color:' + T.text + ';box-shadow:' + T.shadow + ';user-select:none;';
                 const label = document.createElement('span');
                 label.setAttribute('data-role', 'label');
                 chip.appendChild(label);
-                const close = document.createElement('button');
-                close.type = 'button';
-                close.setAttribute('data-role', 'close');
-                close.textContent = '×';
-                close.title = '删除批注';
-                close.style.cssText = 'border:0;background:var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.14));'
-                  + 'color:var(--dsw-alias-label-primary, #e5e7eb);border-radius:999px;'
-                  + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
-                  + 'align-items:center;justify-content:center;padding:0;';
+                const close = makeCloseButton('删除批注');
+                ensureChipDangerStyle();
                 chip.appendChild(close);
-                if (!document.getElementById('dsh-kit-annot-chip-style')) {
-                  // × 的 hover 态（内联样式写不了伪类）：悬停转危险色，令牌随主题
-                  const st = document.createElement('style');
-                  st.id = 'dsh-kit-annot-chip-style';
-                  st.textContent = '#dsh-kit-annot-chip [data-role=close]:hover{'
-                    + 'background:var(--dsw-alias-state-error-primary, rgba(220,38,38,0.85))!important;'
-                    + 'color:var(--dsw-alias-label-primary-foreground, #ffffff)!important}';
-                  document.head.appendChild(st);
-                }
                 close.addEventListener('click', () => {
                   const m = stateRef.chip;
                   const stNow = stateRef.annot;
@@ -972,7 +1004,7 @@ window.__ModuleLoader__.load({
                 // 双主题：只走 T 令牌（零字面色值）；纯提示无交互 → pointer-events:none 不挡输入框
                 banner.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;'
                   + 'pointer-events:none;user-select:none;background:' + T.bg + ';border:1px solid ' + T.border
-                  + ';border-radius:999px;padding:4px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                  + ';border-radius:999px;padding:4px 10px;font:' + T.font + ';'
                   + 'color:' + T.text + ';box-shadow:' + T.shadow + ';';
                 document.body.appendChild(banner);
               }
@@ -1022,7 +1054,7 @@ window.__ModuleLoader__.load({
               tip.id = ANN_TIP_ID;
               tip.style.cssText = 'position:fixed;z-index:2147483647;display:none;max-width:380px;'
                 + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:8px;'
-                + 'padding:8px 10px;font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+                + 'padding:8px 10px;font:' + T.fontLh + ';'
                 + 'color:' + T.text + ';box-shadow:' + T.shadow + ';pointer-events:none;user-select:none;';
               document.body.appendChild(tip);
             }
@@ -1087,30 +1119,14 @@ window.__ModuleLoader__.load({
             const chip = document.createElement('span');
             chip.style.cssText = 'display:inline-flex;width:fit-content;align-items:center;gap:6px;'
               + 'background:' + T.bg + ';border:1px solid ' + T.border + ';border-radius:999px;'
-              + 'padding:3px 6px 3px 10px;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;'
+              + 'padding:3px 6px 3px 10px;font:' + T.font + ';'
               + 'color:' + T.text + ';box-shadow:' + T.shadow + ';user-select:none;';
             const label = document.createElement('span');
             label.textContent = `${model.count} 条批注`;
             chip.appendChild(label);
-            const close = document.createElement('button');
-            close.type = 'button';
-            close.setAttribute('data-role', 'close');
-            close.textContent = '×';
-            close.title = '撤回（删除已保存批注文件）';
-            close.style.cssText = 'border:0;background:var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.14));'
-              + 'color:var(--dsw-alias-label-primary, #e5e7eb);border-radius:999px;'
-              + 'width:16px;height:16px;line-height:1;font-size:12px;cursor:pointer;display:inline-flex;'
-              + 'align-items:center;justify-content:center;padding:0;';
+            const close = makeCloseButton('撤回（删除已保存批注文件）');
+            ensureChipDangerStyle();
             chip.appendChild(close);
-            if (!document.getElementById('dsh-kit-ann-msg-style')) {
-              // × 的 hover 危险色（伪类走 style 标签，与输入框胶囊同款纪律）
-              const st = document.createElement('style');
-              st.id = 'dsh-kit-ann-msg-style';
-              st.textContent = '[data-dsh-kit-ann-msg] [data-role=close]:hover{'
-                + 'background:var(--dsw-alias-state-error-primary, rgba(220,38,38,0.85))!important;'
-                + 'color:var(--dsw-alias-label-primary-foreground, #ffffff)!important}';
-              document.head.appendChild(st);
-            }
             chip.addEventListener('mouseenter', () => showAnnTip(chip, model));
             chip.addEventListener('mouseleave', hideAnnTip);
             close.addEventListener('click', () => {
@@ -1132,6 +1148,15 @@ window.__ModuleLoader__.load({
           };
           /** 行身份键（归属跟踪用；空白归一，取前 120 字）。 */
           const rowKey = (row) => (row && row.textContent ? row.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : '');
+          /* @annotator-consume-canonical-begin —— 与 src/annotator-consume.mjs parity 锁定
+           *  （R3-1：判定规则见正典文件头注；纯函数，DOM/状态副作用全部留在调用侧）。 */
+          const planChipConsume = (sig, base) => {
+            if (!sig || !base) return 'idle';
+            if (sig.first !== base.first) return 'reset';
+            if (sig.n > base.n || (sig.last !== base.last && sig.n >= base.n)) return 'consume';
+            return 'idle';
+          };
+          /* @annotator-consume-canonical-end */
           /** 每轮 tick：发送消耗检测 + 归属行补挂（幂等）。
            *  消耗判定（视图签名防跨会话误耗）：顶行键未变（同一会话视图）且「行数增长或末行键
            *  变化」才算发送；顶行键变了 = 切了会话/视图被虚拟化重组 → **重置基线**、胶囊保留
@@ -1146,22 +1171,21 @@ window.__ModuleLoader__.load({
               const rows = userRows();
               const rowKeys = rows.map(rowKey); // R1-03：键数组单次计算——消耗判定与补挂共用，勿逐模型重算
               const sig = { n: rows.length, first: rowKeys[0] || '', last: rowKeys[rows.length - 1] || '' };
-              // 1) 发送消耗检测（视图签名基线）
+              // 1) 发送消耗检测（视图签名基线；判定纯函数见上方内嵌副本）
               const m = stateRef.chip;
               if (m && m.mode === 'saved' && m.convo === convo) {
-                const base = m.base || { n: rows.length, first: sig.first, last: sig.last };
-                const sameView = sig.first === base.first;
-                if (sameView && (sig.n > base.n || (sig.last !== base.last && sig.n >= base.n))) {
+                const action = planChipConsume(sig, m.base || { n: rows.length, first: sig.first, last: sig.last });
+                if (action === 'consume') {
                   queue.push(m);
                   stateRef.chip = null;
                   removeAnnotChip();
                   const target = rows[rows.length - 1];
                   if (target) {
                     m.attachedKey = sig.last; // 锁定归属行：此后只补这一条
-                    const holder = target.querySelector('[class*="_bubble"]') || target;
-                    if (!holder.querySelector('[data-dsh-kit-ann-msg]')) attachMsgChip(holder, m);
+                    const holder = target.querySelector(BUBBLE_SEL) || target;
+                    if (!holder.querySelector(MSG_CHIP_MARK)) attachMsgChip(holder, m);
                   }
-                } else if (!sameView) {
+                } else if (action === 'reset') {
                   m.base = sig; // 视图变更（切会话/虚拟化重组）：重置基线，胶囊保留待命
                 }
               }
@@ -1171,8 +1195,8 @@ window.__ModuleLoader__.load({
                 const idx = rowKeys.indexOf(model.attachedKey);
                 const target = idx >= 0 ? rows[idx] : null;
                 if (!target) continue; // 归属行不在 DOM（虚拟化/他会话）：跳过
-                const holder = target.querySelector('[class*="_bubble"]') || target;
-                if (holder.querySelector('[data-dsh-kit-ann-msg]')) continue;
+                const holder = target.querySelector(BUBBLE_SEL) || target;
+                if (holder.querySelector(MSG_CHIP_MARK)) continue;
                 attachMsgChip(holder, model);
               }
             } catch { /* 失败不影响主流程 */ }
@@ -1273,27 +1297,33 @@ window.__ModuleLoader__.load({
               } catch { /* 成员不可达：跳过 */ }
             }
             if (sets.length === 0) return { ok: false, error: '无可提交批注' };
-            // 摘要（会话胶囊 hover 提示用）：编号/gid/选择器/文本片段，按编号排序。
-            // 与 host saveMerged 同款 gid 去重——共享会话下同一批注会同步进多个面板，
-            // 原始 sets 含重复条目（实测：count=1 但悬浮提示出 2 行重复，用户 2026-10-05 报告）。
-            const items = [];
-            const seenGids = {};
-            for (const s of sets) {
-              for (const a of s.annotations || []) {
-                if (a.gid) {
-                  if (seenGids[a.gid]) continue;
-                  seenGids[a.gid] = true;
+            /* @annotations-summary-canonical-begin —— 与 src/annotations-summary.mjs parity 锁定
+             *  摘要（hover 提示用）：gid 去重（共享会话同批注同步进多面板，原始 sets 含重复）
+             *  + 字段映射（text 回退 accessibleName，60 字截断）+ index 升序。 */
+            const summarizeSets = (sets) => {
+              const items = [];
+              const seenGids = {};
+              for (const s of sets) {
+                for (const a of (s && s.annotations) || []) {
+                  const gid = (a && a.gid) || null;
+                  if (gid) {
+                    if (seenGids[gid]) continue;
+                    seenGids[gid] = true;
+                  }
+                  items.push({
+                    index: Number(a && a.index) || 0,
+                    gid,
+                    selector: String((a && a.element && a.element.selector) || ''),
+                    text: String((a && a.element && a.element.text) || (a && a.element && a.element.accessibleName) || '').slice(0, 60),
+                    url: (s && s.url) || null,
+                  });
                 }
-                items.push({
-                  index: Number(a.index) || 0,
-                  gid: a.gid || null,
-                  selector: String((a.element && a.element.selector) || ''),
-                  text: String((a.element && a.element.text) || (a.element && a.element.accessibleName) || '').slice(0, 60),
-                  url: s.url || null,
-                });
               }
-            }
-            items.sort((x, y) => x.index - y.index);
+              items.sort((x, y) => x.index - y.index);
+              return items;
+            };
+            /* @annotations-summary-canonical-end */
+            const items = summarizeSets(sets);
             return Object.assign({}, unwrap(await svc.saveMerged(sets, null)), { items });
           };
 
@@ -1650,10 +1680,10 @@ window.__ModuleLoader__.load({
             ,
             'toolbar-probe': async function (svc, c) {
                   // 诊断：直接测 ensureToolbarButton 的每一步判定
-                  const bySelector = !!document.querySelector('form[class*="toolbar"]');
+                  const bySelector = !!document.querySelector(TOOLBAR_SEL);
                   const allForms = Array.from(document.querySelectorAll('form')).map((f) => f.className.slice(0, 60));
                   const btnById = !!document.getElementById('dsh-kit-toolbar-btn');
-                  let formEl = document.querySelector('form[class*="toolbar"]');
+                  let formEl = document.querySelector(TOOLBAR_SEL);
                   let rootHasWebview = null, rootCls = null;
                   if (formEl && formEl.parentElement) {
                     rootCls = String(formEl.parentElement.className || '').slice(0, 60);
@@ -1943,8 +1973,8 @@ window.__ModuleLoader__.load({
               }
               let meta = { url: null, title: null };
               try {
-                const m = await target.executeJavaScript('({ href: location.href, title: document.title })', true);
-                if (m && typeof m === 'object') meta = { url: m.href ?? null, title: m.title ?? null };
+                // R2.2：复用 C8 共用表达式与归一化（曾自写 href 变体一份）
+                meta = metaOf(await target.executeJavaScript(GUEST_META_JS, true)) || { url: null, title: null };
               } catch { /* 元数据失败不拦截图 */ }
               const img = await target.capturePage();
               const dataUrl = img.toDataURL();
@@ -2208,7 +2238,7 @@ window.__ModuleLoader__.load({
            * 宿主未开放该位置插槽，DOM 注入 + 守卫重挂；DSH 升级可能失效——正式方案等官方插槽或快捷键）。
            * 图标 = 本窗口退出/重进共享批注会话；会话活跃时其余窗口/标签由上方 2s 循环自动加入。 */
           try {
-            const toolbarForms = () => Array.from(document.querySelectorAll('form[class*="toolbar"]'))
+            const toolbarForms = () => Array.from(document.querySelectorAll(TOOLBAR_SEL))
               .filter((f) => f.parentElement && f.parentElement.querySelector('webview'));
             const webviewOfForm = (form) => form.parentElement.querySelector('webview');
             const ensureToolbarButtons = () => {
@@ -2290,8 +2320,8 @@ window.__ModuleLoader__.load({
             ]);
             /* tick 职责拆分（R1-02）：周期 2000ms 与执行顺序逐字不变；前半同步段无失败域
              *  交叉；后半自愈/自动加入段保留 autoJoinBusy 守卫与 withTimeout 语义原样。 */
-            const tickChipLifecycle = () => {
-              refreshPanes();
+            const tickChipLifecycle = (webviews) => {
+              refreshPanes(webviews);
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
               ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
               ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
@@ -2309,7 +2339,7 @@ window.__ModuleLoader__.load({
                 btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
               }
             };
-            const tickSelfHealAndAutoJoin = async (st, activeIds) => {
+            const tickSelfHealAndAutoJoin = async (st, activeIds, webviews) => {
               if (!st || !st.active || autoJoinBusy) return;
               autoJoinBusy = true;
               try {
@@ -2327,7 +2357,7 @@ window.__ModuleLoader__.load({
                   } catch { /* 面板暂时不可达：下轮再试 */ }
                 }
                 // 自动加入：把会话拉齐到本 DSH 会话的全部浏览器窗口/标签
-                for (const wv of Array.from(document.querySelectorAll('webview'))) {
+                for (const wv of webviews) {
                   if (!wv.isConnected) continue;
                   const id = paneIdOf(wv);
                   if (activeIds.has(id) || st.leftIds.has(id)) continue;
@@ -2343,12 +2373,13 @@ window.__ModuleLoader__.load({
             trackInterval(setInterval(async () => {
               try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
               const st = stateRef.annot;
-              tickChipLifecycle();
+              const webviews = Array.from(document.querySelectorAll('webview')); // R4.1：tick 内单次查询复用
+              tickChipLifecycle(webviews);
               const activeIds = (st && st.active && Array.isArray(st.panes))
                 ? new Set(st.panes.map(paneIdOf))
                 : new Set();
               tickToolbarStyles(activeIds);
-              await tickSelfHealAndAutoJoin(st, activeIds);
+              await tickSelfHealAndAutoJoin(st, activeIds, webviews);
             }, 2000));
           } catch (e) {
             say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);

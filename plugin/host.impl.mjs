@@ -656,6 +656,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
     onSaveShot: (meta, dataUrl) => {
       const r = saveShotImpl(paths, meta, dataUrl);
       state.shots.push({ at: new Date().toISOString(), ...r, meta: meta && typeof meta === 'object' ? { url: meta.url ?? null, title: meta.title ?? null } : null });
+      if (state.shots.length > 50) state.shots.splice(0, state.shots.length - 50); // R2.3：长驻进程元数据不无界累积（与 client sentChips 同款纪律）
       log(r.ok ? 'info' : 'warn', `saveShot → ${r.ok ? r.path : r.error}`);
       return Promise.resolve(r);
     },
