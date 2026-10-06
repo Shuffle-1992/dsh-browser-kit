@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.0"; // review 轮：hover 同目标跳过重建（B5）、清除收口复用 closeNoteInput（B3）、addExternal 脏输入兜底（B6）等
+  window.__dshKitAnnotatorVersion = "1.6.1"; // 1.6.1：B5 增强 rAF 合帧（mousemove 每帧最多一次 updateOverlay）；1.6.0：hover 同目标跳过重建（B5）、清除收口复用 closeNoteInput（B3）、addExternal 脏输入兜底（B6）等
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -743,6 +743,8 @@
   }
 
   var hoverTarget = null; // B5：最近一次已渲染 popover 的目标（同目标跳过重建，消除高频强制布局）
+  var hoverRaf = 0; // B5 增强（1.6.1）：rAF 合帧——mousemove 高频，每帧只处理最新目标一次
+  var hoverPending = null;
 
   function updateOverlay(target) {
     if (
@@ -1393,7 +1395,21 @@
     if (!(target instanceof Element)) {
       return;
     }
-    updateOverlay(target);
+    // B5 增强（1.6.1）：rAF 合帧——同一帧内的多次 mousemove 只保留最新目标，
+    // updateOverlay 每帧最多执行一次（原实现每次 mousemove 都做 rect + 两次强制布局）。
+    hoverPending = target;
+    if (hoverRaf) {
+      return;
+    }
+    hoverRaf = requestAnimationFrame(function () {
+      hoverRaf = 0;
+      var t = hoverPending;
+      hoverPending = null;
+      if (!session || !t) {
+        return; // 会话已结束/目标丢失：丢弃该帧
+      }
+      updateOverlay(t);
+    });
   }
 
   function handleKeyDown(event) {
@@ -1498,6 +1514,11 @@
     session = null;
     removeAllLayers();
     hoverTarget = null; // B5：会话结束重置 hover 状态（防止新会话首 hover 跳过渲染）
+    hoverPending = null; // B5 增强：丢弃挂起帧（rAF 回调自带 session 判空，双保险）
+    if (hoverRaf) {
+      cancelAnimationFrame(hoverRaf);
+      hoverRaf = 0;
+    }
     if (current) {
       try {
         current.resolve(status);
