@@ -278,6 +278,10 @@
     }
     this.__dshKitStartPoll = startPoll;
     this.__dshKitStopPoll = function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
+    this.__dshKitAddListener = function (type, fn) { if (type === "inputreport" && typeof fn === "function") listenersLocal.inputreport.push(fn); };
+    this.__dshKitRemoveListener = function (type, fn) {
+      if (type === "inputreport") listenersLocal.inputreport = listenersLocal.inputreport.filter(function (f) { return f !== fn; });
+    };
   }
   ShimHIDDevice.prototype.addEventListener = function (type, fn) {
     if (type === "inputreport" && typeof fn === "function") { this.__dshKitAddListener(type, fn); }
