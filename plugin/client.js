@@ -2484,8 +2484,11 @@ window.__ModuleLoader__.load({
                 const paneEl = ((stateRef.annot && stateRef.annot.panes) || []).find((p) => paneOwnerLabel(p).kind === 'session')
                   || scopedWebviews(currentSurfaceSession()).find(captureVisible) || null;
                 if (paneEl) {
-                  const pr = paneEl.getBoundingClientRect();
-                  if (pr.height > 80 && pr.bottom > 40) dockBottom = Math.max(12, Math.round(window.innerHeight - pr.bottom + 12));
+                  // ★参考**容器**（板块可视区）的底边，而不是 webview 元素本身——设备尺寸下元素只有
+                  //   res.h×k 那么高，用元素会把它钉到"缩放后页面的底边"（用户实测：跑到上面去了）。
+                  const hostEl = paneEl.parentElement || paneEl;
+                  const hr2 = hostEl.getBoundingClientRect();
+                  if (hr2.height > 80 && hr2.bottom > 40) dockBottom = Math.max(12, Math.round(window.innerHeight - hr2.bottom + 12));
                 }
               }
             } catch { dockBottom = 16; }
@@ -4885,10 +4888,15 @@ window.__ModuleLoader__.load({
                 const availW = Math.max(200, Math.round(hr.width) - 2);
                 const availH = Math.max(160, Math.round(hr.height) - 2);
                 const k = Math.min(1, availW / res.w, availH / res.h);
+                /* ★R-OWN v18：**高度要填满板块容器** —— 否则 guest 视口（= 元素 CSS 高）比容器矮，
+                 *  guest 内的批注面板永远到不了容器右下角（用户实测："两个应显示在板块右下角"）。
+                 *  宽度仍严格按预设（布局模拟关键在宽度）；高度取 max(预设, 容器高/缩放)。 */
+                const fillH = Math.ceil(availH / (k > 0 ? k : 1));
+                const useH = Math.max(res.h, fillH);
                 /* ★实测坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，普通 inline width 会被压回
                  * 面板原宽（style 写 393px，getBoundingClientRect 仍 1149px）⇒ 必须 `!important`。 */
                 pane.style.setProperty('width', `${res.w}px`, 'important');
-                pane.style.setProperty('height', `${res.h}px`, 'important');
+                pane.style.setProperty('height', `${useH}px`, 'important');
                 pane.style.setProperty('min-width', '0', 'important');
                 pane.style.setProperty('max-width', 'none', 'important');
                 pane.style.flex = '0 0 auto';
