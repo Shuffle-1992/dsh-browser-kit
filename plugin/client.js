@@ -550,6 +550,7 @@ window.__ModuleLoader__.load({
             sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按归属行补挂）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
+            agentGlow: { until: 0, label: '', count: 0, sticky: false, timer: 0 }, // Agent 操作光效（见 ensureAgentGlow 注释块）
             panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
@@ -1026,6 +1027,109 @@ window.__ModuleLoader__.load({
               banner.style.left = `${Math.max(8, sr.left + 12)}px`;
               banner.style.top = `${Math.max(8, sr.top + 3)}px`;
             } catch { /* 横条失败不影响主流程 */ }
+          };
+
+          /* ─────────────── Agent 操作光效（2026-10-09 用户需求） ───────────────
+           * 需求原文：「Agent 在执行自动化操作浏览器时，窗口四边要有光效提升，让用户知道 Agent 在操作中」。
+           * 形态：贴住目标 webview（尽量上扩到含工具条的浏览器窗口容器）**四边描边 + 双层外发光 + 呼吸动画**，
+           *       左上角胶囊「🤖 Agent 操作中 · <动作>」；纯提示 → `pointer-events:none`（不挡点击/批注/选择）。
+           * 触发：由命令分发器统一打点（navigate/reload/click/type/page-inject/screenshot/snapshot/
+           *       browser-open/browser-close/browser-panel），每次 pulse 续期 AGENT_GLOW_MS，末次后自动淡出。
+           * 开关：localStorage 持久（默认开）；`agent-glow {op:on|off|pulse|status}` 命令给用户/agent 控制。
+           * 配色：**字面色豁免**（同 TOOLBAR_ACCENT 的理由）——主题令牌在浮层上下文可能解析成不可见色，
+           *       而「正在被操作」必须一眼可见，故用固定亮青蓝 + 暗色描边兜底。
+           */
+          const AGENT_GLOW_ID = 'dsh-kit-agent-glow';
+          const AGENT_GLOW_STYLE_ID = 'dsh-kit-agent-glow-style';
+          const AGENT_GLOW_KEY = 'dsh-browser-kit:agent-glow:v1';
+          const AGENT_GLOW_MS = 3500;
+          const AGENT_GLOW_TICK = 200;
+          const agentGlowEnabled = () => { try { return localStorage.getItem(AGENT_GLOW_KEY) !== '0'; } catch { return true; } };
+          const setAgentGlowEnabled = (on) => { try { localStorage.setItem(AGENT_GLOW_KEY, on ? '1' : '0'); } catch { /* 尽力而为 */ } };
+          /** 目标面板：优先包含焦点的 webview，其次首个可见 webview（= 用户正在看的那个）。 */
+          const agentGlowTarget = () => {
+            const all = Array.from(document.querySelectorAll('webview'));
+            const focused = all.find((el) => el.contains(document.activeElement));
+            if (focused) return focused;
+            return all.find((el) => { const r = el.getBoundingClientRect(); return r.width > 80 && r.height > 80; }) || null;
+          };
+          /** 取「浏览器窗口」矩形：尽量上扩到含工具条的小容器；容器过大（整列/整窗）则退回 webview 本体。 */
+          const agentGlowRect = (target) => {
+            const r = target.getBoundingClientRect();
+            let best = { left: r.left, top: r.top, width: r.width, height: r.height };
+            let node = target.parentElement;
+            for (let i = 0; i < 4 && node; i += 1, node = node.parentElement) {
+              const pr = node.getBoundingClientRect();
+              if (pr.width < r.width - 2 || pr.height < r.height - 2) break; // 不含目标：放弃
+              if (pr.height - r.height > 96) break;                         // 过大（整列/整窗）：放弃
+              best = { left: pr.left, top: pr.top, width: pr.width, height: pr.height };
+            }
+            return best;
+          };
+          const ensureAgentGlowEl = () => {
+            if (!document.getElementById(AGENT_GLOW_STYLE_ID)) {
+              const style = document.createElement('style');
+              style.id = AGENT_GLOW_STYLE_ID;
+              // 呼吸（四边亮度起伏）。z-index 仅低于批注横条/选择器（2147483646+），不与它们抢层。
+              style.textContent = '@keyframes dshKitAgentGlowPulse{0%,100%{opacity:.55}50%{opacity:1}}';
+              document.head.appendChild(style);
+            }
+            let el = document.getElementById(AGENT_GLOW_ID);
+            if (!el) {
+              el = document.createElement('div');
+              el.id = AGENT_GLOW_ID;
+              el.setAttribute('data-dsh-kit-agent-glow', '');
+              el.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483645;box-sizing:border-box;'
+                + 'border-radius:10px;border:2px solid #38bdf8;'
+                + 'box-shadow:0 0 0 1px rgba(8,20,32,.55),0 0 12px 2px rgba(56,189,248,.75),0 0 34px 8px rgba(56,189,248,.35);'
+                + 'animation:dshKitAgentGlowPulse 1.5s ease-in-out infinite;';
+              const pill = document.createElement('div');
+              pill.id = AGENT_GLOW_ID + '-pill';
+              pill.style.cssText = 'position:absolute;left:-2px;top:-26px;display:inline-flex;align-items:center;gap:6px;'
+                + 'padding:3px 10px;border-radius:999px;background:rgba(8,20,32,.88);color:#e0f2fe;'
+                + 'border:1px solid rgba(56,189,248,.85);font:' + T.font + ';white-space:nowrap;box-shadow:' + T.shadow + ';';
+              el.appendChild(pill);
+              document.body.appendChild(el);
+            }
+            if (!el.dataset.ownerBoot) el.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
+            return el;
+          };
+          const stopAgentGlow = () => {
+            const st = stateRef.agentGlow;
+            st.until = 0; st.sticky = false; st.count = 0; st.label = '';
+            if (st.timer) { clearInterval(st.timer); st.timer = 0; }
+            const el = document.getElementById(AGENT_GLOW_ID);
+            if (el) el.remove();
+          };
+          const renderAgentGlow = () => {
+            const st = stateRef.agentGlow;
+            if (!(st.sticky || Date.now() < st.until)) { stopAgentGlow(); return; }
+            const target = agentGlowTarget();
+            if (!target) return;
+            const r = agentGlowRect(target);
+            if (r.width < 80 || r.height < 80) return;
+            const el = ensureAgentGlowEl();
+            const pad = 3;
+            el.style.left = `${Math.round(r.left) - pad}px`;
+            el.style.top = `${Math.round(r.top) - pad}px`;
+            el.style.width = `${Math.round(r.width) + pad * 2}px`;
+            el.style.height = `${Math.round(r.height) + pad * 2}px`;
+            const pill = document.getElementById(AGENT_GLOW_ID + '-pill');
+            const text = `${st.sticky ? '🟢' : '🤖'} Agent 操作中 · ${st.label}${st.count > 1 ? `（${st.count} 次）` : ''}`;
+            if (pill && pill.textContent !== text) pill.textContent = text;
+          };
+          /** 打一次「Agent 正在操作」脉冲：续期 + 点亮（label 显示在胶囊上）。 */
+          const pulseAgentActivity = (label, ms) => {
+            try {
+              if (!agentGlowEnabled()) return;
+              const st = stateRef.agentGlow;
+              if (Date.now() >= st.until) st.count = 0; // 上一轮已淡出：计数重新开始
+              st.until = Date.now() + (Number(ms) > 0 ? Number(ms) : AGENT_GLOW_MS);
+              st.label = String(label || '操作').slice(0, 24);
+              st.count += 1;
+              renderAgentGlow();
+              if (!st.timer) st.timer = trackInterval(setInterval(renderAgentGlow, AGENT_GLOW_TICK));
+            } catch { /* 光效失败不影响操作 */ }
           };
 
           /* ─────────────── 发送消耗 + 会话内消息胶囊（用户需求 2026-10-05） ───────────────
@@ -1552,6 +1656,29 @@ window.__ModuleLoader__.load({
             }
             return cur;
           };
+          /* R-BROWSER（2026-10-09）：侧栏浏览器服务句柄。
+           * **用 ctx.inject 惰性取，不写进顶层 inject**——`sidebarRight` 不在 typert 服务目录里
+           * （运行期探测：no catalogued Service named "sidebarRight"），若写进顶层 inject 而服务缺失，
+           * 会把整个 client 插件卡在「未就绪」= 批注/截图/命令通道全废。惰性 inject 失败只降级 browser-*。
+           * 契约来源：dsh-client-ui-sidebar-browser/lib/client.js L1537-1542（inject 清单）、
+           * L157-159（openTab）、L1596（openTabs）。 */
+          let sidebarRightSvc = null;
+          try {
+            ctx.inject(['sidebarRight'], (scope) => {
+              sidebarRightSvc = scope && scope.sidebarRight ? scope.sidebarRight : null;
+              scope.effect(() => () => { sidebarRightSvc = null; });
+            });
+          } catch { /* 服务缺失：browser-* 命令走 DOM 枚举降级 */ }
+          /* R-BROWSER：面板级开合服务（右侧栏整列）——`ctx.layout.{openRightbar,closeRightbar,toggleSidebar}`，
+           * 与标签页级的 sidebarRight 分工：layout 管「浏览器窗口/面板」的显隐，sidebarRight 管「标签」。
+           * 同样惰性取（顶层 inject 失败会拖垮整个 client 插件）。 */
+          let layoutSvc = null;
+          try {
+            ctx.inject(['layout'], (scope) => {
+              layoutSvc = scope && scope.layout ? scope.layout : null;
+              scope.effect(() => () => { layoutSvc = null; });
+            });
+          } catch { /* 服务缺失：browser-panel 命令降级报错 */ }
           /* 命令处理器分域清单（C2 拆表）：action → async (svc, c) => result。
            * 动作全量清单与唯一性由静态契约钉死（plugin-impl §3.9）；case 体与拆表前逐字一致。 */
           const commandHandlers = {
@@ -1659,6 +1786,21 @@ window.__ModuleLoader__.load({
                 mountOk: stateRef.mountOk === true,
                 mountError: stateRef.mountError || null,
                 webviewCount: document.querySelectorAll('webview').length,
+                // R-CAP：截图护栏现场（inFlight/冷却/上次崩溃标记）
+                capture: {
+                  inFlight: captureInFlight,
+                  cooldownMs: Math.max(0, captureCooldownUntil - Date.now()),
+                  crashMarker: stateRef.captureCrashMarker || null,
+                  autoShotLeft: stateRef.autoShotLeft,
+                },
+                // R-GLOW：Agent 操作光效现场（visible=浮层在场；sticky=常亮标记；label=最近一次动作）
+                agentGlow: {
+                  enabled: agentGlowEnabled(),
+                  visible: !!document.getElementById(AGENT_GLOW_ID),
+                  sticky: !!stateRef.agentGlow.sticky,
+                  label: stateRef.agentGlow.label || null,
+                  count: stateRef.agentGlow.count || 0,
+                },
               };
             },
             'report-now': async function (svc, c) {
@@ -1717,6 +1859,136 @@ window.__ModuleLoader__.load({
                 i += 1;
               }
               return { ok: true, panes: out };
+            },
+            'browser-tabs': async function (svc, c) {
+              // R-BROWSER：枚举当前窗口**全部已开网页**——侧栏服务快照（权威：含 sessionId/tabId/标题/URL）
+              // + DOM 侧 webview 实测补充（wcId / 实际 URL / DevTools 态）。
+              const out = { tabs: [], tabsError: null, webviews: [] };
+              try {
+                const store = sidebarRightSvc && sidebarRightSvc.openTabs;
+                const snap = store && typeof store.getSnapshot === 'function' ? store.getSnapshot() : null;
+                if (Array.isArray(snap)) {
+                  out.tabs = snap.map((t) => ({
+                    sessionId: (t && t.sessionId) || null,
+                    tabId: (t && t.tabId) || null,
+                    type: (t && (t.type || t.kind)) || null,
+                    title: (t && t.title) || null,
+                    url: (t && t.url) || null,
+                  }));
+                } else {
+                  out.tabsError = sidebarRightSvc ? 'openTabs.getSnapshot 不可用' : 'sidebarRight 服务不可用（降级：仅 DOM 枚举）';
+                }
+              } catch (e) { out.tabsError = msgOf(e); }
+              for (const el of Array.from(document.querySelectorAll('webview'))) {
+                const one = {};
+                try { one.src = el.getAttribute('src') || null; } catch { /* 忽略 */ }
+                try { one.url = typeof el.getURL === 'function' ? el.getURL() : null; } catch { /* 忽略 */ }
+                try { one.title = typeof el.getTitle === 'function' ? el.getTitle() : null; } catch { /* 忽略 */ }
+                try { one.wcId = typeof el.getWebContentsId === 'function' ? el.getWebContentsId() : null; } catch { /* 忽略 */ }
+                try { one.devtoolsOpened = typeof el.isDevToolsOpened === 'function' ? el.isDevToolsOpened() : null; } catch { /* 忽略 */ }
+                out.webviews.push(one);
+              }
+              return { ok: true, count: out.tabs.length, ...out };
+            },
+            'browser-open': async function (svc, c) {
+              // R-BROWSER：**自己打开指定网页**（新开侧栏 Browser 标签）。策略与 DSH 地址栏一致：
+              // 只放行 http/https、拒绝凭据、拒绝 DSH 应用自身 origin（官方 README「Protocol policy」）。
+              const raw = String((c && c.url) || '').trim();
+              if (!raw) return { ok: false, error: 'url 必填' };
+              let parsed = null;
+              try { parsed = new URL(raw); } catch { return { ok: false, error: `URL 解析失败：${raw.slice(0, 80)}` }; }
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return { ok: false, error: `只支持 http/https（收到 ${parsed.protocol}）——file:/data:/blob: 与本地文件由 Document Preview 负责` };
+              }
+              if (parsed.username || parsed.password) return { ok: false, error: '拒绝带凭据的 URL' };
+              if (parsed.host === location.host) return { ok: false, error: '拒绝打开 DSH 应用自身地址' };
+              if (!sidebarRightSvc || typeof sidebarRightSvc.openTab !== 'function') {
+                return { ok: false, error: 'sidebarRight.openTab 不可用（服务缺失或尚未就绪）' };
+              }
+              try { sidebarRightSvc.openTab('browser', { params: { url: parsed.href } }); }
+              catch (e) { return { ok: false, error: msgOf(e) }; }
+              await new Promise((r) => setTimeout(r, 1200)); // 等面板挂载，回报最新页面清单
+              const after = Array.from(document.querySelectorAll('webview')).map((el) => {
+                try { return el.getAttribute('src') || null; } catch { return null; }
+              });
+              return { ok: true, opened: parsed.href, webviewsAfter: after };
+            },
+            'browser-close': async function (svc, c) {
+              // R-BROWSER：**关闭网页标签**（自己开、自己关）。契约：sidebarRight.close(tabId)
+              // → 内部 closeIn(当前 session, tabId)，且「唯一的 docked guide 会保留」（官方注释）。
+              // 省略 tabId = 关当前活动标签（sidebarRight.active().id）。
+              if (!sidebarRightSvc || typeof sidebarRightSvc.close !== 'function') {
+                return { ok: false, error: 'sidebarRight.close 不可用（服务缺失或尚未就绪）' };
+              }
+              let tabId = String((c && c.tabId) || '').trim();
+              let resolvedFrom = 'param';
+              if (!tabId) {
+                try {
+                  const act = typeof sidebarRightSvc.active === 'function' ? sidebarRightSvc.active() : null;
+                  tabId = (act && act.id) || '';
+                  resolvedFrom = 'active';
+                } catch (e) { return { ok: false, error: `取活动标签失败：${msgOf(e)}` }; }
+              }
+              if (!tabId) return { ok: false, error: '没有可关闭的标签（未给 tabId 且取不到活动标签）' };
+              const before = (() => { try { const s = sidebarRightSvc.openTabs && sidebarRightSvc.openTabs.getSnapshot(); return Array.isArray(s) ? s.length : null; } catch { return null; } })();
+              try { sidebarRightSvc.close(tabId); }
+              catch (e) { return { ok: false, error: `close 抛错：${msgOf(e)}` }; }
+              await new Promise((r) => setTimeout(r, 600));
+              const store = sidebarRightSvc.openTabs;
+              const snap = (() => { try { return store && typeof store.getSnapshot === 'function' ? store.getSnapshot() : null; } catch { return null; } })();
+              const tabs = Array.isArray(snap) ? snap.map((t) => ({ sessionId: (t && t.sessionId) || null, tabId: (t && t.tabId) || null, type: (t && (t.type || t.kind)) || null })) : null;
+              return { ok: true, closed: tabId, resolvedFrom, tabsBefore: before, tabsAfter: tabs ? tabs.length : null, stillOpen: tabs ? tabs.some((t) => t.tabId === tabId) : null };
+            },
+            'browser-panel': async function (svc, c) {
+              // R-BROWSER：**开/关「浏览器窗口」本体**（右侧栏面板）。
+              // 首选 sidebarRight.{isExpanded,toggleExpanded}（右侧栏自己的收起/展开；
+              // README：Desktop Browser tabs declare keepMounted，「collapse」是 sidebar-right 的概念），
+              // 缺失时回退 ctx.layout.{closeRightbar,openRightbar}（shell 级右栏开合）。
+              // 注意参数名必须是 `op`：命令信封的 `action` 键已被「命令名」占用（c.action === 'browser-panel'）。
+              const act = String((c && c.op) || 'toggle').toLowerCase();
+              if (act !== 'open' && act !== 'close' && act !== 'toggle') return { ok: false, error: `未知 op=${act}（open|close|toggle）` };
+              const hasSidebarToggle = !!sidebarRightSvc
+                && typeof sidebarRightSvc.toggleExpanded === 'function'
+                && typeof sidebarRightSvc.isExpanded === 'function';
+              if (!hasSidebarToggle && !layoutSvc) return { ok: false, error: 'sidebarRight.toggleExpanded 与 layout 都不可用' };
+              const expandedBefore = (() => { try { return hasSidebarToggle ? sidebarRightSvc.isExpanded() : null; } catch { return null; } })();
+              let via = '';
+              try {
+                if (hasSidebarToggle) {
+                  const want = act === 'toggle' ? !expandedBefore : act === 'open';
+                  if (act === 'toggle' || want !== expandedBefore) { sidebarRightSvc.toggleExpanded(); via = 'sidebarRight.toggleExpanded'; }
+                  else via = 'noop(already-target)';
+                } else if (act === 'close') { layoutSvc.closeRightbar(); via = 'layout.closeRightbar'; }
+                else if (act === 'open') { layoutSvc.openRightbar(true, false); via = 'layout.openRightbar'; }
+                else { layoutSvc.toggleSidebar(); via = 'layout.toggleSidebar'; }
+              } catch (e) { return { ok: false, error: `${act} 抛错：${msgOf(e)}` }; }
+              await new Promise((r) => setTimeout(r, 700));
+              const expandedAfter = (() => { try { return hasSidebarToggle ? sidebarRightSvc.isExpanded() : null; } catch { return null; } })();
+              return { ok: true, action: act, via, expandedBefore, expandedAfter };
+            },
+            'agent-glow': async function (svc, c) {
+              // R-GLOW：用户/agent 手动控制「Agent 操作光效」——on=常亮标记（直到 off）、off=关闭并清除、
+              // pulse=打一次脉冲、status=查状态。enabled 持久在 localStorage（默认开）。
+              const op = String((c && c.op) || 'status').toLowerCase();
+              const st = stateRef.agentGlow;
+              if (op === 'off') { setAgentGlowEnabled(false); stopAgentGlow(); return { ok: true, enabled: false, visible: false }; }
+              if (op === 'enable') { setAgentGlowEnabled(true); stopAgentGlow(); return { ok: true, enabled: true, visible: false }; }
+              if (op === 'on') {
+                setAgentGlowEnabled(true);
+                st.sticky = true; st.until = Date.now() + 60000; st.label = String((c && c.label) || '常亮标记').slice(0, 24); st.count = 1;
+                renderAgentGlow();
+                if (!st.timer) st.timer = trackInterval(setInterval(renderAgentGlow, AGENT_GLOW_TICK));
+                return { ok: true, enabled: true, sticky: true, label: st.label };
+              }
+              if (op === 'pulse') {
+                setAgentGlowEnabled(true);
+                pulseAgentActivity((c && c.label) || '手动脉冲', c && c.ms);
+                return { ok: true, until: st.until, label: st.label, count: st.count };
+              }
+              return {
+                ok: true, enabled: agentGlowEnabled(), visible: !!document.getElementById(AGENT_GLOW_ID),
+                sticky: !!st.sticky, until: st.until, label: st.label, count: st.count,
+              };
             },
             'page-close': async function (svc, c) {
               const target = pickGuestEl();
@@ -1914,6 +2186,11 @@ window.__ModuleLoader__.load({
 
           };
 
+          /* Agent 操作光效打点集合（R-GLOW）：**在分发器统一打点**，新增浏览器命令无需逐个改 handler。
+           * 只收「会动页面 / Agent 在操作浏览器」的动作；纯盘点类（browser-tabs/panes-probe/dom-scan/
+           * kit-status/toolbar-probe/hid-*）不打点，免得用户屏幕上一直闪。 */
+          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel']);
+
           /** 命令分发：查表执行；未知 action 显式报错（不静默）。 */
           const executeCommand = async (svc, command) => {
             const c = command && typeof command === 'object' ? command : {};
@@ -1921,6 +2198,7 @@ window.__ModuleLoader__.load({
             try {
               const handler = commandHandlers[action];
               if (!handler) return { ok: false, error: `未知命令 action=${action}` };
+              if (AGENT_GLOW_ACTIONS.has(action)) pulseAgentActivity(action);
               return await handler(svc, c);
             } catch (e) {
               return { ok: false, error: msgOf(e) };
@@ -1988,21 +2266,72 @@ window.__ModuleLoader__.load({
            * MVP-1 截图主通道：capturePage() → dataURL → face saveShot → shots/<ts>-<title>.png。
            * 元数据（url/title）经 executeJavaScript 从 guest 页面自取。
            */
+          /* ── R-CAP（2026-10-09 止血）：`<webview>.capturePage()` 的 V8 FATAL 防护 ──
+           * 事实：ZCode 源码注释「走 CDP Page.captureScreenshot（**规避 renderer webContents.capturePage
+           *   的 V8 FATAL**）」；本机实测裸调后 DSH 进程崩溃重启（pitfalls P47-B）。
+           * 防护四件套：①**单飞**（并发 capture 是最危险形态）；②**最小间隔冷却**；③**只截可见且足够大
+           *   的面板**（隐藏/未挂载 surface 是已知挂死场景）；④**超时竞速**——挂住的 capture 不许拖死插件。
+           * 外挂**崩溃回环断路器**：capture 前落 attempt 标记、成功后清除；下次 client 启动若见标记
+           *   = 上一进程死于截图 → 关掉「自动截图」（手动截图仍可用，由人不带循环地试）。
+           */
+          const CAPTURE_MIN_GAP = 1500;
+          const CAPTURE_TIMEOUT = 8000;
+          const CAPTURE_ATTEMPT_KEY = 'dsh-browser-kit:capture-attempt:v1';
+          let captureInFlight = false;
+          let captureCooldownUntil = 0;
+          const captureVisible = (el) => {
+            try {
+              const r = el.getBoundingClientRect();
+              return r.width >= 80 && r.height >= 80 && r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+            } catch { return false; }
+          };
+          // 断路器：上次进程死于截图 → 本次启动不自动截
+          try {
+            const att = localStorage.getItem(CAPTURE_ATTEMPT_KEY);
+            if (att) {
+              stateRef.autoShotLeft = 0;
+              stateRef.captureCrashMarker = att;
+              try { console.warn(`${LOG_PREFIX} 上次截图未完成（疑似 capturePage 崩溃）：已关闭自动截图`, att); } catch { /* 静默 */ }
+            }
+          } catch { /* localStorage 不可用：跳过断路器 */ }
+
           const captureShot = async () => {
             const out = { ok: false, error: null, path: null, bytes: null };
             try {
+              if (captureInFlight) { out.error = '已有截图在进行（单飞护栏）'; return out; }
+              const nowAt = Date.now();
+              if (nowAt < captureCooldownUntil) { out.error = `截图冷却中（剩 ${captureCooldownUntil - nowAt}ms）`; return out; }
               const els = Array.from(document.querySelectorAll('webview'));
-              const target = pickProbeTarget(els);
+              // 只在**可见**面板上截：隐藏/后台 surface 是 capturePage 挂死/崩溃的高危场景
+              const target = els.find(captureVisible) || null;
               if (!target) {
-                out.error = '无 webview（先打开内置浏览器）';
+                out.error = els.length ? '内置浏览器面板当前不可见（已拒绝：隐藏 surface 截图高危）' : '无 webview（先打开内置浏览器）';
                 return out;
               }
+              captureInFlight = true;
+              captureCooldownUntil = nowAt + CAPTURE_MIN_GAP;
               let meta = { url: null, title: null };
               try {
                 // R2.2：复用 C8 共用表达式与归一化（曾自写 href 变体一份）
                 meta = metaOf(await target.executeJavaScript(GUEST_META_JS, true)) || { url: null, title: null };
               } catch { /* 元数据失败不拦截图 */ }
-              const img = await target.capturePage();
+              const attempt = JSON.stringify({ at: new Date().toISOString(), url: meta && meta.url ? meta.url : null });
+              try { localStorage.setItem(CAPTURE_ATTEMPT_KEY, attempt); } catch { /* 尽力而为 */ }
+              let img = null;
+              try {
+                img = await Promise.race([
+                  target.capturePage(),
+                  new Promise((_, rej) => setTimeout(() => rej(new Error('capturePage 超时（8s）——已放弃，防拖死插件')), CAPTURE_TIMEOUT)),
+                ]);
+              } catch (e) {
+                // 超时的底层 promise 无法取消：额外冷却，避免与僵尸 capture 并发
+                captureCooldownUntil = Date.now() + 10000;
+                throw e;
+              } finally {
+                captureInFlight = false;
+              }
+              if (!img || typeof img.toDataURL !== 'function') throw new Error('capturePage 未返回图像');
+              try { localStorage.removeItem(CAPTURE_ATTEMPT_KEY); } catch { /* 尽力而为 */ }
               const dataUrl = img.toDataURL();
               const svc = await waitSvc();
               if (!svc || typeof svc.saveShot !== 'function') {

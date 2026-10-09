@@ -13,7 +13,8 @@
 3. **设备通讯观测 + 控制台调试（SDK 无关）**：hook 在 `navigator.hid / serial / usb` 平台 API 层，任意项目、任意 SDK 通用（当前 业务 WebHID，后续其它项目其它 SDK 直接复用）；agent 能获取收发报文、页面 console 流，并执行调试操作（CDP evaluate / 注入 mock）验证通讯链路；
 4. **WebHID 直连桥 + polyfill（2026-10-09）**：DSH 宿主缺 `select-hid-device`（Chromium 缺省静默 resolve `[]`，见 pitfalls P35 / 官方 Discussion #8994）。本插件用 node-hid 在宿主 RUN_AS_NODE 进程做**系统层直连**（face：`hidList/hidOpen/hidRead/hidWrite/hidClose`），并在 guest 页注入 **WebHID polyfill**（`src/webhid-shim.js`）：`navigator.hid.requestDevice()` 弹 dsh-kit 选择器（复用批注面板视觉），`open/sendReport/oninputreport/close` 全部经命令通道转发桥——**页面零修改直连 HID 设备**（实测某 WebHID 音频配置器站点）。
    - **1.2.0（P43-P45 真机定论）**：①face 双层信封拆包只能用信封形状判定，业务键谓词会让 `hidRead` 结果恒被判「无 data」→ 页面**全部 timeout**（真根因）；②读通道改**单飞 + 立即续读**、client 起 **HID 快泵**（自适应 40ms/400ms），一次读往返 **1.7–4.2s → 77–140ms**；③`inputreport.data` 对齐 Chrome 的 **DataView** 语义、`reportId` 单列；④监听器表与轮询所有权挂 window 级共享（重注入不再断流）。
-5. **（远期）agent 自动化**：agent 主动操作内置浏览器（navigate / click / type / snapshot / screenshot）。
+5. **Agent 浏览器操作 + 页面管理（2026-10-09 起）**：命令通道新增 `browser-tabs`（跨会话枚举全部已开页面：sessionId/tabId/类型 + DOM 实时 url/title/wcId）、`browser-open`（自己打开指定网页，策略与地址栏一致：只 http/https、拒凭据、拒 DSH 自身 origin）、`browser-close`（关标签，省略 tabId = 关当前活动标签）、`browser-panel`（开/关右侧栏浏览器面板）；既有 `navigate / click / type / snapshot / screenshot / reload` 继续可用。
+6. **Agent 操作可视化（R-GLOW）**：Agent 执行浏览器自动化时，浏览器窗口**四边亮起呼吸光效** + 左上角胶囊「🤖 Agent 操作中 · <动作>」，让用户随时看得见「Agent 正在操作」；末次操作后自动淡出，`agent-glow {op:on|enable|off|pulse|status}` 可常亮/关闭/手动脉冲（localStorage 持久，默认开）。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

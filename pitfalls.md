@@ -226,3 +226,14 @@
 - **对策**：**监听器表 / 轮询所有权 / 打开态 / 桥句柄 / PENDING 表 / 请求 seq** 六项全挂 `window.__dshKitHid*`；新世代只负责「迁移 re-open」，旧对象凭共享表继续读写。
 - **边界（重要）**：**已加载进内存的旧闭包代码无法追溯修补**——跨越「修复版本」的那次重注入仍会假死，用户刷新页面即净。故发布/更新 shim 后要提示「刷新一次页面」。
 - **判据**：`connected=true` + 全字段 timeout + 桥 trace 自某时刻起无 `[W]` ⇒ 查「句柄 / PENDING 是否随重注入漂移」，不要查设备与驱动。
+### P47 内置浏览器三连坑：DevTools 打不开 / capturePage 会崩 / sidebarRight 不能写进顶层 inject
+- **现象 A（DevTools）**：按 F12 或调 `<webview>.openDevTools()` 都没反应——方法存在、调用不抛错，但 `isDevToolsOpened()` 始终 `false`。
+  - **根因**：DSH 宿主在 guest 侧强制关掉了 DevTools（`@deepseek-ai` 全包扫描 `openDevTools|webContents.debugger|debugger.attach|console-message` **零命中** = DSH 自己根本没用 DevTools/CDP）。宿主插件也够不到 Electron（`RUN_AS_NODE=1`，`require('electron')` 四个候选根全失败）。
+  - **对策**：控制台走**页内 hook**（console/error/unhandledrejection/fetch-XHR 环形缓冲 + dump），不要指望 CDP。
+- **现象 B（崩溃）**：探针里裸调 `<webview>.capturePage()` 后 DSH 进程崩溃重启。ZCode 源码注释早有记录：「走 CDP Page.captureScreenshot（**规避 renderer webContents.capturePage 的 V8 FATAL**，且拿全页）」。
+  - **对策**：截图层分级——有 CDP 时走 CDP；没有时对 capturePage 加限流/小面积/失败不重试，**探针与回归脚本里禁止裸调**。
+- **现象 C（inject 卡死）**：`ctx.sidebarRight` 不在 typert 服务目录（`no catalogued Service named "sidebarRight"`），若把它写进 client 插件的**顶层** `inject` 数组而服务缺失，整个插件会停在「未就绪」= 批注/截图/命令通道全废。
+  - **对策**：用**惰性** `ctx.inject(['sidebarRight'], scope => …)` 取句柄，失败只降级那一族命令。
+- **现象 D（参数名撞信封）**：新命令 `browser-panel {action:'close'}` 返回「未知命令 action=close」——**命令信封的 `action` 键已被「命令名」占用**（handler 里 `c.action === 'browser-panel'`），业务参数再叫 `action` 会在 JSON 里覆盖命令名。
+  - **对策**：业务参数改用别的名字（本例 `op`），并在注释里钉死这条；`id` 同理已被信封占用。
+- **判据**：想给内置浏览器加能力时，先分清三层——**client 插件（可达 GUI DOM/`<webview>`/`ctx.sidebarRight`/`ctx.layout`/`dshDesktop`）** > **host 插件（纯 Node，只有系统层直连）** > **CDP/DevTools（不可达）**。

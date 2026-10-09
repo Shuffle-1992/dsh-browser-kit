@@ -1,0 +1,149 @@
+# DSH 内置浏览器能力评估与缺口清单
+
+> 调查日期：2026-10-09（session 70a55b1a / 由 38fe6ea4 的 HID 任务接续）
+> 调查方式：app.asar 全库扫描 + 官方包源码阅读 + 运行期只读探测 + 项目既有调研文档（`browser-annotation-and-screenshot-research.md`）
+> 结论一律附证据；未实测的标注「契约明确，未实测」。
+
+---
+
+## 0. 三问速答
+
+| 问题 | 结论 | 关键证据 |
+|---|---|---|
+| 为什么打不开控制台/DevTools？ | **DSH 刻意不支持**：guest DevTools 被宿主策略拦死，且 DSH 自身代码里没有任何 DevTools/CDP/console 监听 | `<webview>.openDevTools()` 存在但调用后 `isDevToolsOpened()` 仍为 `false`；@deepseek-ai 全包扫描 `debugger.attach` / `webContents.debugger` / `console-message` **零命中** |
+| Agent 的浏览器自动化完善吗？ | **不完善**：有 10 余条命令但①不是一等 agent 工具（走 `plugin/.data/command.json` 文件通道）②点击/输入是 DOM 合成（`isTrusted=false`）③无等待/断言/键盘/滚动/文件上传④截图走 `capturePage`，有 **V8 FATAL 崩溃**风险 | 命令表见 §3；`client.js` 的 click 用 `dispatchEvent(new MouseEvent(...))`；ZCode 源码注释「走 CDP Page.captureScreenshot **规避 renderer webContents.capturePage 的 V8 FATAL**」；2026-10-09 23:2x 实测 `capturePage` 调用后 DSH 崩溃重启 |
+| Agent 能自己开网页、列出当前所有页面吗？ | **✅ 已实测可**（本轮已实现 `browser-open` / `browser-tabs`）：开页 `ctx.sidebarRight.openTab('browser', {params:{url}})`；枚举 `ctx.sidebarRight.openTabs.getSnapshot()`；自建独立视图 `globalThis.dshDesktop.browser.acquire/release` | 实测：`browser-open {url:'https://example.com'}` → `{ok:true, opened:'https://example.com/'}`，随后 `browser-tabs` 从 12 个标签变 13 个且 DOM webview 报 `url:'https://example.com/', title:'Example Domain', wcId:2`；护栏拒绝 `file://`（「只支持 http/https」）与带凭据 URL（「拒绝带凭据的 URL」）。契约：`dsh-client-ui-sidebar-browser/lib/client.js` L1537-1542 / L157-159 / L1596；`dshDesktop.browser` 形状见 §2 |
+
+---
+
+## 1. DSH 内置浏览器到底是什么
+
+- **形态**：右侧栏（sidebar.right）的一种标签类型，注册方 `@deepseek-ai/dsh-client-ui-sidebar-browser`。
+  - Desktop 用 Electron `<webview>`；Web 用 iframe + 应用自管历史。
+  - 每个 workspace 一个 storage partition：实测属性 `partition="dsh-sidebar-browser-<uuid>"`、`name="<uuid>"`、`allowpopups`。
+- **官方自述「对模型零暴露」**（README Model Experience 原文）：
+  > "None, as Browser tabs are user-facing presentation state and **register no tool, prompt section, or Session event**." / "KV Cache effect: None; browsing does not enter a model request."
+  → 这就是「DSH 内置浏览器没有 agent 能力」的根因：**能力是我们这类插件补的，不是 DSH 提供的**。
+- **策略（README Known Limitations 原文摘录）**：
+  - 地址栏只接受 http/https（含 loopback）；拒绝 `file:`、`script:`/`data:`/`blob:`、带凭据的 URL、DSH 应用自身 origin。
+  - 沙箱默认开（可单次关闭）；"Guest permissions, downloads and native popups are denied"。
+  - "Host-address filtering is not a general private-network or DNS-rebinding firewall"。
+
+## 2. 我们够得着的宿主面（决定能力上限）
+
+| 通道 | 可达性 | 实测/依据 | 能做什么 |
+|---|---|---|---|
+| **配置进程（client 插件）** | ✅ 我们就在这里 | `window.__ModuleLoader__.load({factory(require){...}})` | GUI DOM、`<webview>` 元素全部方法、`ctx.slots`、`ctx.tools`、`ctx.sidebarRight`、`globalThis.dshDesktop` |
+| `<webview>` 元素 | ✅ 全部方法在 | 实测：`executeJavaScript` / `capturePage` / `getWebContentsId` / `openDevTools` / `closeDevTools` / `isDevToolsOpened` / `sendInputEvent` / `loadURL` / `getURL` / `getTitle` / `setZoomFactor` 均为 function | 页面内执行、截图（**有崩溃风险**）、真输入事件（待验）、导航、缩放 |
+| **宿主插件（host 半边）** | ⚠️ 纯 Node 进程 | `RUN_AS_NODE=1`；`require('electron')` 四个候选根全失败（`probe-report.json`） | node-hid 等系统层直连（已用于 HID 桥）、文件、子进程；**拿不到 webContents / 不能 attach debugger** |
+| `dshDesktop` 预加载桥 | ✅ 只读探测到形状 | `{protocolVersion:1, browser:{acquire,release,onOpenRequested}, keyboard, shortcuts, updates}` | 租约式自建浏览器视图、监听新开页请求 |
+| 侧栏服务 `ctx.sidebarRight` | ✅（不在 typert 服务目录，属 sidebarRight 子系统） | 官方包 `inject` 清单 + `openTab/openTabFromTarget/commandTarget/openTabs` 用法 | 开页、枚举标签、定位命令目标 |
+| DevTools / CDP | ❌ | 见 §0；asar 扫描零命中 | — |
+
+## 3. 我们插件现有的浏览器能力（commandHandlers 实测清单）
+
+`navigate` / `reload` / `page-open` / `page-close` / `panes-probe` / `dom-scan` / `snapshot`(交互元素快照) / `click` / `type` / `page-inject` / `guest-eval` / `gui-eval` / `screenshot`(capturePage) / `toolbar-probe` / `kit-status` / 批注族 / HID 族。
+
+**缺口（对照 ZCode 的 BrowserCommand 与主流 MCP 项目）**
+
+| 能力 | 现状 | ZCode / 主流做法 | 优先级 |
+|---|---|---|---|
+| 一等 agent 工具 | ❌ 文件命令通道 | `ctx.tools.register(defineTool(...))`（官方契约，`zcode-dispatch` 已验证） | **P0** |
+| 开页 / 枚举页面 | 部分（DOM 枚举 webview） | `sidebarRight.openTab/openTabs` | **P0** |
+| 控制台/报错流 | ❌ | CDP `Runtime.enable`+`Log.enable`（DSH 不可用）→ 退而求其次：**页内 hook** | **P0（页内 hook 方案）** |
+| 点击/输入 | ⚠️ DOM 合成，`isTrusted=false` | CDP `Input.dispatchMouseEvent` / Playwright；或用 `<webview>.sendInputEvent`（真输入） | **P0** |
+| 等待/断言 | ❌ | `waitFor`(selector/navigation/text/network idle) | P1 |
+| 截图 | ⚠️ capturePage（**会崩**） | CDP `Page.captureScreenshot`（含 fullPage/clip） | **P0（先止血）** |
+| 键盘/滚动/悬停/选择/勾选/拖拽 | ❌ | BrowserCommand 全有 | P1 |
+| 后退/前进/历史 | ❌ | `back/forward/getState` | P1 |
+| 网络观测 | ❌ | CDP `Network.enable` 或页内 fetch/XHR hook | P1 |
+| 元素 ref 稳定性/失效语义 | 部分（snapshot 有 ref） | playwright/chrome-devtools-mcp 的 uid/ref + 失效重取 | P1 |
+| cookie/storage/上传下载 | ❌ | CDP `Network.getCookies`、`DOM.setFileInputFiles` | P2 |
+| 多页面并发/隔离 | 部分（panes 枚举） | 租约 + 会话隔离 | P2 |
+
+## 3.1 本轮已实现并实测的两条命令（P0-D 提前落地）
+
+代码：`plugin/client.js` → `browser-tabs` / `browser-open`（静态契约清单已同步，测试 132/132 全绿）。
+
+| 命令 | 作用 | 实测输出（2026-10-09 23:44 / 23:5x） |
+|---|---|---|
+| `browser-tabs` | 枚举**全部**侧栏标签（跨会话：sessionId / tabId / 类型）＋ DOM 侧 `<webview>` 实时 URL/标题/wcId/DevTools 态 | `count:12`（7 个会话：browser/files/text/guide 各类），开页后 `count:13` |
+| `browser-open {url}` | **自己打开指定网页**（新开侧栏 Browser 标签），策略与 DSH 地址栏一致 | `{ok:true, opened:'https://example.com/'}`，无需用户操作；随后 webviews 报 `{url:'https://example.com/', title:'Example Domain', wcId:3}` |
+| `browser-close {tabId}` | **自己关闭网页标签**（省略 tabId = 关当前活动标签）。契约 `sidebarRight.close(tabId)` → 内部 `closeIn(session, tabId)`（官方注释：唯一的 docked guide 会保留） | 闭环实测：`tabsBefore:13 → tabsAfter:12`，`stillOpen:false`，webviews 归零 |
+| `browser-panel {op}` | **开/关浏览器面板本体**（右侧栏收起/展开）。首选 `sidebarRight.toggleExpanded()/isExpanded()`，回退 `ctx.layout.{closeRightbar,openRightbar}` | `close`：`expanded true→false`；`open`：`false→true`（`via:sidebarRight.toggleExpanded`） |
+| 护栏 | 只放行 http/https、拒绝凭据、拒绝 DSH 自身 origin | `file:///C:/Windows/win.ini` → `{ok:false, error:'只支持 http/https（收到 file:）…'}`；`https://u:p@example.com/` → `{ok:false, error:'拒绝带凭据的 URL'}` |
+
+实现要点（复用时照抄）：
+- **服务用惰性 `ctx.inject(['sidebarRight'], scope => …)` 取**，不写进顶层 `inject`——`sidebarRight` 不在 typert 服务目录（探测报 `no catalogued Service named "sidebarRight"`），写进顶层会让整个 client 插件卡在未就绪。
+- **参数名不能叫 `action`**：命令信封用 `action` 表示命令名（`c.action === 'browser-panel'`），再拿它当业务参数会被分发器当成未知命令（本轮实测踩到，改用 `op`）。
+- 「收起/展开右侧栏」的正主是 `sidebarRight.{isExpanded,toggleExpanded}`（官方 README 里 Desktop Browser tabs 的 `keepMounted` / collapse 语义）；`ctx.layout.closeRightbar()` 是 shell 级另一套，实测收起不生效——**别用错层**。
+- `openTabs.getSnapshot()` 的条目**只有 sessionId/tabId/type**（title/url 为 null）；**页面级实时信息要从 `<webview>` 元素取**（`getURL()/getTitle()/getWebContentsId()`）——桌面侧标签 `keepMounted`，已挂载的标签才有活的 webview。
+- 「当前会话窗口」的过滤：条目里带 `sessionId`，与当前会话 id 比对即可。
+
+## 3.2 Agent 操作可视化（R-GLOW，用户需求 2026-10-09）
+
+需求：「Agent 在执行自动化操作浏览器时，窗口四边要有光效提升，让用户知道 Agent 在操作中。」
+
+实现（`plugin/client.js`，纯 client 侧，无宿主依赖）：
+- 浮层 `#dsh-kit-agent-glow`：贴住目标 webview（尽量上扩到**含工具条的浏览器窗口容器**，容器过大则退回 webview 本体）的**四边描边 + 三层外发光 + 1.5s 呼吸动画**；`pointer-events:none`，不挡点击/批注/选择；P37 认领戳防多实例抢挂。
+- 胶囊 `#dsh-kit-agent-glow-pill`：`🤖 Agent 操作中 · <动作>`（常亮态换 🟢，连续操作显示次数）。
+- 触发：**命令分发器统一打点**（`AGENT_GLOW_ACTIONS = navigate/reload/click/type/page-inject/screenshot/snapshot/browser-open/browser-close/browser-panel`）——新增命令无需逐个改 handler；纯盘点类（browser-tabs/panes-probe/dom-scan/kit-status）不打点，免得屏幕常闪。每次 pulse 续期 3.5s，末次后自动淡出。
+- 控制：`agent-glow {op: on|enable|off|pulse|status}`（on=常亮标记、enable=启用但不亮、off=关闭并清除、pulse=手动脉冲带 ms、status=查状态），enabled 持久在 localStorage（默认开）。
+
+实测（2026-10-09 23:5x，真机 GUI）：
+| 检查 | 结果 |
+|---|---|
+| `agent-glow on` | 浮层在场，几何 `{left:1495, top:75, w:1068, h:1328}`（含工具条），`border 2px rgb(56,189,248)`、三层 box-shadow、`animation: dshKitAgentGlowPulse 1.5s`、`pointer-events:none` |
+| 胶囊文案 | `🟢 Agent 操作中 · 常亮验证` → 脉冲后 `… · 测试脉冲（2 次）` |
+| `agent-glow enable/off` | 浮层移除，enabled 保持/置否（localStorage 持久） |
+| **分发器自动打点** | 执行 `reload` 后 `kit-status.agentGlow = {enabled:true, visible:true, sticky:false, label:'reload', count:1}` |
+| 无 webview 时 | 不创建浮层（`agentGlowTarget()` 为空则早退），不会在空面板上乱画 |
+
+## 4. 风险：截图会崩（本轮实测）
+- ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
+- 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
+- 建议：`screenshot` 命令改成**分级**——首选（若将来拿到 CDP）；当前退化为「仅在可见且小面积时调用 + try/catch + 失败不重试」，并在 pitfalls 记一条；**不要在探针/回归脚本里裸调 capturePage**。
+
+## 5. 建议路线（按投入产出排序）
+
+### 5.0 宿主侧三条路线（横向调研结论，决定「控制台/网络」能不能补齐）
+
+| 路线 | 能力 | 代价 | 现状 |
+|---|---|---|---|
+| ① **宿主主进程桥**：Electron main 里 `webContents.on('console-message')` / `sendInputEvent` / `capturePage` / `will-download` | 控制台流、可信输入、截图，**不用 CDP** | 需要 DSH 官方开一个宿主插件 API（我们够不到 main） | ❌ 未开放 |
+| ② **remote-debugging 端口 + 纯 CDP 客户端** | **完整 DevTools 能力**（Runtime/Log/Network/Input/Page 截图、多 target 一次 attach） | 需要 DSH 以 `--remote-debugging-port` 启动（`--auto-connect` 读 `DevToolsActivePort`）；安全面要收口 | ❌ 未开放——**纯 Node 插件拿到完整能力的唯一路径** |
+| ③ **页内 hook**（本插件可独立完成） | console/error/unhandledrejection/fetch-XHR 环缓冲 → `browser_console` 工具 | 丢早期日志与浏览器级消息、每 frame 都要注入、无断点/trace | ✅ 可落地 |
+
+→ 对外建议（可并入 WebHID 那条 Discussion）：请 DSH 开放 ①/② 任一宿主能力；在那之前我们用 ③ 兜底。
+  另据调研：Electron `webContents.debugger` 的 detach 会被「用户手动打开 DevTools」触发（官方文档），
+  一次 attach 可管多个 target（多 tab/webview）——若将来走 ②，这是必须处理的边界。
+
+
+**P0-A｜把命令通道升级为一等 agent 工具**（证据：`ctx.tools.register(defineTool({name,description,parameters,output,execute}))`，`inject=['tools']`；参考 `zcode-dispatch/index.js` L410 与 `refs/dsh-tools`）
+- `browser_navigate` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_console` / `browser_tabs` / `browser_open` / `browser_screenshot`。
+- 好处：模型可见、参数有 schema、有校验与呈现；现有命令通道保留为内部实现。
+
+**P0-B｜页内控制台通道**（DSH 无 CDP 的现实解）
+- 注入 console/error/unhandledrejection/fetch-XHR hook（复用 `src/hid-observer.js` 的 console 镜像经验），页面内环形缓冲 + `dump({level,since,limit})`；
+- `browser_console` 工具读它；可选在 `shell.overlay` 或 `sidebar.right.*` 槽位做可视化控制台面板。
+
+**P0-C｜真输入事件**
+- 用 `<webview>.sendInputEvent({type:'mouseDown'|'mouseUp'|'keyDown'|'char'|...})` 替代/补强 DOM 合成点击与输入（可信事件，框架与反爬都认）；**需先做一次小范围安全实测**（只发无害事件），并确认不会像 capturePage 那样触发崩溃。
+
+**P0-D｜开页 + 枚举（回答本次提问）**
+- `ctx.inject(['sidebarRight'])` → `openTab('browser',{params:{url}})` / `openTabs.getSnapshot()`；
+- 兜底：DOM `document.querySelectorAll('webview')` 枚举（已有）。
+
+**P1**：等待原语（selector/导航/文本）、键盘/滚动/悬停/select/check/drag、back/forward/getState、网络 hook、ref 失效语义。
+**P2**：cookie/storage、文件上传下载、多页面并发与租约隔离（`dshDesktop.browser.acquire/release`）。
+
+## 6. 与外部项目的对标
+
+- 本地已有对标（`browser-annotation-and-screenshot-research.md` §2、§5.5）：ZCode BrowserCommand 全清单（`navigate/getState/back/forward/reload/screenshot/snapshot/click/type/press/scroll/hover/select/check/drag/elementInfo/evaluate`）、chrome-devtools-mcp、playwright-mcp；
+- 外部横向调查（chrome-devtools-mcp / playwright-mcp / browser-use / Stagehand / Browser MCP / Nanobrowser / Claude-in-Chrome 等）见 `.local/browser-agent-landscape.md`（子代理产出，持续推进中）。
+
+## 7. 待你拍板的实施顺序
+
+1. 先做 **P0-D（开页 + 枚举）** —— 投入最小、立刻回答「能否自己开网页/看所有页面」，且是纯增量。
+2. 再做 **P0-A + P0-B**（工具化 + 控制台通道）—— 这才是「DSH 内置浏览器缺胳膊少腿」的正面回答。
+3. **P0-C/D 之后**再补 P1 交互族；`capturePage` 止血（P0 风险项）随时可插队。
