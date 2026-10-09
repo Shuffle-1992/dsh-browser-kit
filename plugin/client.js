@@ -75,6 +75,7 @@ window.__ModuleLoader__.load({
         ['hidWrite', ['handleId', 'data'], 'hidWrite(handleId, data): Promise<{ok:true, written}|{ok:false, error}>（写入字节数组）', []],
         ['hidClose', ['handleId'], 'hidClose(handleId): Promise<{ok:true}|{ok:false, error}>（关闭句柄）', []],
         ['getHidShim', [], 'getHidShim(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>（WebHID shim 注入源）', []],
+        ['hidTrace', [], 'hidTrace(): Promise<{ok:true, trace:[{at,dir,handleId,hex}]}|{ok:false, error}>（桥收发 trace）', []],
       ].map(([method, parameters, , optionals]) => ({
         id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
@@ -1893,6 +1894,13 @@ window.__ModuleLoader__.load({
               if (!opened || opened.ok !== true) return opened || { ok: false, error: 'hidOpen 失败' };
               const read = peelTo(await svc.hidRead(opened.handleId, Number(c && c.readMs) || 300), (x) => x.ok !== undefined);
               return { ok: true, handleId: opened.handleId, device: dev.product, firstRead: read && read.data ? read.data : read };
+            },
+            'hid-trace': async function (svc, c) {
+              // R-COMM：桥收发十六进制 trace（通讯调试——写/读字节流按序回放）
+              const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
+              const r = peelTo(await svc.hidTrace(), (x) => Array.isArray(x.trace));
+              if (!r || r.ok !== true) return { ok: false, error: 'hidTrace 失败' };
+              return { ok: true, count: r.trace.length, trace: r.trace.slice(-60) };
             }
 
           };

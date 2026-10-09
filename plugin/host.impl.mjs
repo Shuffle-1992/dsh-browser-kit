@@ -17,7 +17,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { dirname, join, resolve as pathResolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
-import * as hidBridge from '../src/hid-bridge.mjs'; // R-HID：HID 系统层直连桥（node-hid 懒加载）
+// R-HID：hid-bridge 用 **?ts= 动态 import**——静态 import 会命中进程级模块缓存，
+// impl 重载后新加的导出（如 hidTraceImpl）永远不生效（P13 变体，同 wire 的缓存纪律）。
+let hidBridge = null;
+const loadHidBridge = async () => {
+  if (hidBridge) return hidBridge;
+  hidBridge = await import(`../src/hid-bridge.mjs?ts=${wireCacheBust}`);
+  return hidBridge;
+};
 
 /** 同款 ?ts= 击穿 wire.host.mjs 缓存（由 apply 传入 mtime）。 */
 let wireCacheBust = 'init';
@@ -681,14 +688,15 @@ export async function apply(ctx, _config = {}, paths = {}) {
     },
     onGetInjectScript: () => getInjectScriptImpl(paths),
     onGetHidShim: () => getHidShimImpl(paths),
+    onHidTrace: async () => (await loadHidBridge()).hidTraceImpl(),
     onTakeCommand: () => takeCommandImpl(paths),
     onCommandResult: (id, result) => commandResultImpl(paths, id, result),
     // ── HID 桥（R-HID：系统层直连，绕开 Chromium select-hid-device 宿主缺口）──
-    onHidList: () => hidBridge.hidListImpl(),
-    onHidOpen: (path) => hidBridge.hidOpenImpl(path),
-    onHidRead: (handleId, timeoutMs) => hidBridge.hidReadImpl(handleId, timeoutMs),
-    onHidWrite: (handleId, data) => hidBridge.hidWriteImpl(handleId, data),
-    onHidClose: (handleId) => hidBridge.hidCloseImpl(handleId),
+    onHidList: async () => (await loadHidBridge()).hidListImpl(),
+    onHidOpen: async (path) => (await loadHidBridge()).hidOpenImpl(path),
+    onHidRead: async (handleId, timeoutMs) => (await loadHidBridge()).hidReadImpl(handleId, timeoutMs),
+    onHidWrite: async (handleId, data) => (await loadHidBridge()).hidWriteImpl(handleId, data),
+    onHidClose: async (handleId) => (await loadHidBridge()).hidCloseImpl(handleId),
     onDeleteAnnotations: (p) => {
       const r = deleteAnnotationsImpl(paths, p);
       log(r.ok ? 'info' : 'warn', `deleteAnnotations → ${r.ok ? `${r.removedFile}（索引行 -${r.removedIndexEntries}）` : r.error}`);

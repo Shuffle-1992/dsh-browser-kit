@@ -20,7 +20,7 @@
   if (window.__dshKitHidShimVersion) {
     return; // 幂等：重复注入直接返回
   }
-  window.__dshKitHidShimVersion = "1.1.0";
+  window.__dshKitHidShimVersion = "1.1.1";
 
   var REQ_SEQ = 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
@@ -181,6 +181,7 @@
   var GRANTS = []; // 已授权设备信息（{vendorId, productId, serialNumber, product, path}）
   var DEVICE_INSTANCES = {}; // path -> ShimHIDDevice（实例复用；handleId 惰性分配）
   var DEVICE_OPEN_STATE = {}; // path -> boolean（桥侧句柄是否已开）
+  var listeners = {}; // path -> { inputreport: [fn] }（addEventListener 形态的事件表，R-COMM）
 
   function loadGrants() {
     try {
@@ -218,23 +219,41 @@
       collections: { get: function () { return []; } },
     });
     this.oninputreport = null;
+    var listeners = { inputreport: [] }; // R-COMM：addEventListener("inputreport") 形态同样支持
     var pollTimer = 0;
-    var inputQueue = []; // open 前到达的上报先排队（桥 read 只在句柄存在时可用）
     function startPoll() {
       if (pollTimer) return;
       pollTimer = setInterval(function () {
-        if (!self.oninputreport || !DEVICE_OPEN_STATE[info.path]) return;
-        callBridge("hidRead", { handleId: DEVICE_INSTANCES[info.path].__dshKitHandleId, timeoutMs: 200 }, 5000).then(function (r) {
-          if (r && r.ok && Array.isArray(r.data) && r.data.length && self.oninputreport) {
-            var ev = { data: new Uint8Array(r.data), device: self, reportId: r.data[0] };
-            try { self.oninputreport(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
-          }
+        var handleId = DEVICE_INSTANCES[info.path] && DEVICE_INSTANCES[info.path].__dshKitHandleId;
+        if (!DEVICE_OPEN_STATE[info.path] || !handleId) return;
+        callBridge("hidRead", { handleId: handleId, timeoutMs: 200 }, 5000).then(function (r) {
+          if (!(r && r.ok && Array.isArray(r.data) && r.data.length)) return;
+          // Chrome 语义：ev.data 不含 report id；reportId 单列。桥读到的首字节即 report id。
+          var reportId = r.data[0];
+          var data = new Uint8Array(r.data.slice(1));
+          var hasListener = self.oninputreport || (listeners.inputreport && listeners.inputreport.length);
+          if (!hasListener) return;
+          var ev = { data: data, device: self, reportId: reportId };
+          if (self.oninputreport) { try { self.oninputreport(ev); } catch (_) {} }
+          (listeners.inputreport || []).slice().forEach(function (fn) {
+            try { fn(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
+          });
         }).catch(function () { /* 桥超时：下轮再试 */ });
-      }, 300);
+      }, 250);
     }
     this.__dshKitStartPoll = startPoll;
     this.__dshKitStopPoll = function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
-    this.__dshKitInputQueue = inputQueue;
+  }
+  ShimHIDDevice.prototype.addEventListener = function (type, fn) {
+    if (type === "inputreport" && typeof fn === "function") { listenersInit(this); listeners[this.__dshKitPath].inputreport.push(fn); }
+  };
+  ShimHIDDevice.prototype.removeEventListener = function (type, fn) {
+    if (type === "inputreport" && listeners[this.__dshKitPath]) {
+      listeners[this.__dshKitPath].inputreport = listeners[this.__dshKitPath].inputreport.filter(function (f) { return f !== fn; });
+    }
+  };
+  function listenersInit(self) {
+    if (!listeners[self.__dshKitPath]) listeners[self.__dshKitPath] = { inputreport: [] };
   }
   ShimHIDDevice.prototype.open = function () {
     var self = this;
@@ -260,7 +279,11 @@
   ShimHIDDevice.prototype.sendReport = function (reportId, data) {
     if (!DEVICE_OPEN_STATE[this.__dshKitPath]) return Promise.reject(new Error("InvalidStateError: 设备未打开（先调 open()）"));
     var bytes = Array.prototype.slice.call(data instanceof Uint8Array ? data : new Uint8Array(data));
-    if (reportId) bytes.unshift(0); // reportId 填充与 WebHID 语义一致（无 report id 设备传 0）
+    // R-COMM v2 线格式（2026-10-09 实测定论）：线包 = [reportId || 0] + dataBytes，
+    // **总长补齐 64**（Windows WriteFile 硬性要求 = Output Report 长度；本设备
+    // outputReports id=75/84 均 63+1=64，报告描述符 Chrome collections 已确认）。
+    bytes.unshift(reportId || 0);
+    while (bytes.length < 64) bytes.push(0);
     return callBridge("hidWrite", { handleId: DEVICE_INSTANCES[this.__dshKitPath].__dshKitHandleId, data: bytes }).then(function (r) {
       if (!r || !r.ok) throw new Error((r && r.error) || "hidWrite 失败");
       return;
