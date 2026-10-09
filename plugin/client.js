@@ -1524,15 +1524,16 @@ window.__ModuleLoader__.load({
               if ((agentView.ui && agentView.ui.state) !== 'collapsed') return null;
               const bar = (agentView.panel && document.contains(agentView.panel)) ? agentView.panel.getBoundingClientRect() : null;
               if (!bar || bar.height <= 0) return null;
-              const host = pane.parentElement || pane;
-              const hr = host.getBoundingClientRect();
+              // ★guest 原点 = **元素**的视觉左上角（不是容器左上角）：套设备尺寸时元素会被缩放
+              //   甚至底对齐（translateY），用元素 rect 才能把屏幕坐标正确换算成 guest 坐标。
+              const er = pane.getBoundingClientRect();
               const k = paneUiScale(pane) || 1;
-              const screenRight = hr.right - 12;
-              const screenBottom = bar.top - 12; // 紧贴小窗上沿
-              if (screenRight <= hr.left || screenBottom <= hr.top) return null;
+              const screenRight = er.right - 12;     // 面板右缘：贴元素（=板块可视区）右缘
+              const screenBottom = bar.top - 12;     // 面板下缘：紧贴小窗上沿
+              if (screenRight <= er.left || screenBottom <= er.top) return null;
               return {
-                right: Math.max(8, Math.round((screenRight - hr.left) / k)),
-                bottom: Math.max(8, Math.round((screenBottom - hr.top) / k)),
+                right: Math.max(8, Math.round((screenRight - er.left) / k)),
+                bottom: Math.max(8, Math.round((screenBottom - er.top) / k)),
               };
             } catch { return null; }
           };
@@ -4888,20 +4889,21 @@ window.__ModuleLoader__.load({
                 const availW = Math.max(200, Math.round(hr.width) - 2);
                 const availH = Math.max(160, Math.round(hr.height) - 2);
                 const k = Math.min(1, availW / res.w, availH / res.h);
-                /* ★R-OWN v18：**高度要填满板块容器** —— 否则 guest 视口（= 元素 CSS 高）比容器矮，
-                 *  guest 内的批注面板永远到不了容器右下角（用户实测："两个应显示在板块右下角"）。
-                 *  宽度仍严格按预设（布局模拟关键在宽度）；高度取 max(预设, 容器高/缩放)。 */
-                const fillH = Math.ceil(availH / (k > 0 ? k : 1));
-                const useH = Math.max(res.h, fillH);
+                /* ★R-OWN v19：**视口必须严格等于预设**（用户纠正：1920×1080 却成了 1920×2689）。
+                 *  为了让 guest 内的批注面板能贴到**板块右下角**，改为把元素**底对齐容器**：
+                 *  用 translateY 把元素视觉底边推到容器底边（上方留白），视口尺寸保持 res.w×res.h 不变。
+                 *  注意：transform 里的 translate 在 scale 之后 ⇒ 本地位移 = 视觉位移 / k。 */
+                const slackY = Math.max(0, Math.round(availH - res.h * k));
                 /* ★实测坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，普通 inline width 会被压回
                  * 面板原宽（style 写 393px，getBoundingClientRect 仍 1149px）⇒ 必须 `!important`。 */
                 pane.style.setProperty('width', `${res.w}px`, 'important');
-                pane.style.setProperty('height', `${useH}px`, 'important');
+                pane.style.setProperty('height', `${res.h}px`, 'important'); // v19：**严格等于预设**，不做高度填充
                 pane.style.setProperty('min-width', '0', 'important');
                 pane.style.setProperty('max-width', 'none', 'important');
                 pane.style.flex = '0 0 auto';
                 pane.style.transformOrigin = 'top left';
-                pane.style.setProperty('transform', `scale(${k})`, 'important');
+                // 底对齐容器：transform 里 translate 在 scale 之后 ⇒ 本地 dy = 视觉空隙 / k
+                pane.style.setProperty('transform', `scale(${k}) translateY(${(slackY / (k > 0 ? k : 1)).toFixed(2)}px)`, 'important');
                 try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
                 try { pane.dataset.kitZoomFactor = String(Number(res.dpr) || 1); } catch { /* 忽略 */ } // v13：面板反缩放用（勿读 getZoomFactor，含显示器缩放）
                 pane.dataset.kitDevicePreset = res.key;
