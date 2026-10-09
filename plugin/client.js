@@ -1852,6 +1852,7 @@ window.__ModuleLoader__.load({
               if (opts.dpr != null) agentView.ui = { ...(agentView.ui || {}), dpr: Number(opts.dpr) };
               if (opts.state) agentView.ui = { ...(agentView.ui || {}), state: String(opts.state) };
               if (opts.fit != null) agentView.ui = { ...(agentView.ui || {}), fit: opts.fit === true };
+              if (opts.zoom != null) agentView.ui = { ...(agentView.ui || {}), zoom: Math.min(5, Math.max(0.25, Number(opts.zoom) || 1)) };
               if (opts.idleReleaseMs != null) agentView.idleReleaseMs = Math.max(0, Number(opts.idleReleaseMs));
               applyAgentViewLayout();
               return agentView;
@@ -1880,24 +1881,26 @@ window.__ModuleLoader__.load({
             //   孤儿面板会一直堆积（实测踩坑）。统一用显式 setAttribute 的 `data-dsh-kit-*`。
             panel.setAttribute('data-dsh-kit-agent-view-panel', '');
             panel.setAttribute('data-dsh-kit-ui', ''); // 我们自己的 UI：snapshot 会跳过
-            panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483600;display:flex;flex-direction:column;'
+            panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;flex-direction:column;'
               + 'overflow:hidden;border-radius:10px;box-sizing:border-box;'
               // 边框默认**中性色**（不显示青色）：只在 Agent 操作中才变青色（touchAgentView）——用户可协作使用
               + `background:${T.bg};color:${T.text};border:2px solid ${T.border};box-shadow:${T.shadow};`;
-            // 顶部条（收起态就是这个小窗）
+            // 顶部条（收起态=小窗；展开态才显示全部控件）
             const head = document.createElement('div');
-            head.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:${T.font};cursor:pointer;`
+            head.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:${T.font};`
               + 'border-bottom:1px solid ' + T.border + ';';
             const title = document.createElement('span');
             title.textContent = '🤖 Agent 浏览器';
-            title.style.cssText = 'flex:none;white-space:nowrap;';
+            title.title = '点击展开 / 收起';
+            title.style.cssText = 'flex:none;white-space:nowrap;cursor:pointer;';
+            title.addEventListener('click', () => {
+              agentView.ui = { ...(agentView.ui || {}), state: (agentView.ui && agentView.ui.state === 'expanded') ? 'collapsed' : 'expanded' };
+              applyAgentViewLayout();
+            });
             const urlText = document.createElement('span');
-            urlText.dataset.kitAgentViewUrl = '';
+            urlText.setAttribute('data-dsh-kit-agent-view-url', '');
             urlText.textContent = 'about:blank';
             urlText.style.cssText = 'flex:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8;';
-            const badge = document.createElement('span');
-            badge.dataset.kitAgentViewBadge = '';
-            badge.style.cssText = 'flex:none;opacity:.65;white-space:nowrap;';
             const mkBtn = (labelText, tip, onClick) => {
               const btn = document.createElement('button');
               btn.type = 'button';
@@ -1908,44 +1911,87 @@ window.__ModuleLoader__.load({
               btn.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } onClick(); });
               return btn;
             };
-            const toggleBtn = mkBtn('▣ 展开', '展开/收起（点顶部条也可）', () => {
-              agentView.ui = { ...(agentView.ui || {}), state: (agentView.ui && agentView.ui.state === 'expanded') ? 'collapsed' : 'expanded' };
-              applyAgentViewLayout();
-            });
-            toggleBtn.dataset.kitAgentViewToggle = '';
-            const presetSel = document.createElement('select');
-            presetSel.dataset.kitAgentViewPreset = '';
-            presetSel.title = '分辨率预设（Chrome DevTools 同款；默认 2K）';
-            presetSel.style.cssText = 'flex:none;border:1px solid ' + T.border + ';background:transparent;color:' + T.text
-              + ';border-radius:6px;padding:1px 4px;font:' + T.font + ';';
-            for (const k of Object.keys(AGENT_VIEW_PRESETS)) {
-              const opt = document.createElement('option');
-              opt.value = k;
-              opt.textContent = AGENT_VIEW_PRESETS[k].label;
-              presetSel.appendChild(opt);
-            }
+            const mkSelect = (values, title) => {
+              const sel = document.createElement('select');
+              sel.title = title;
+              sel.style.cssText = 'flex:none;border:1px solid ' + T.border + ';background:transparent;color:' + T.text
+                + ';border-radius:6px;padding:1px 4px;font:' + T.font + ';';
+              for (const v of values) {
+                const opt = document.createElement('option');
+                opt.value = v.value;
+                opt.textContent = v.label;
+                sel.appendChild(opt);
+              }
+              return sel;
+            };
+            // ①分辨率选择框（Chrome DevTools 同款预设 + 自定义）
+            const presetSel = mkSelect(
+              Object.keys(AGENT_VIEW_PRESETS).map((k) => ({ value: k, label: AGENT_VIEW_PRESETS[k].label })),
+              '分辨率预设（默认 2K；装不下可滚动）',
+            );
+            presetSel.setAttribute('data-dsh-kit-agent-view-preset', '');
             presetSel.addEventListener('change', () => {
               agentView.ui = { ...(agentView.ui || {}), preset: presetSel.value };
               applyAgentViewLayout();
             });
-            const shootBtn = mkBtn('📷', '截图当前窗口（供 Agent 视觉分析）', async () => {
+            // ②缩放选择框（紧随尺寸选择框；等同 Chrome 页面缩放 setZoomFactor）
+            const ZOOM_STEPS = [0.25, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+            const zoomSel = mkSelect(
+              ZOOM_STEPS.map((z) => ({ value: String(z), label: `${Math.round(z * 100)}%` })).concat([{ value: 'custom', label: '自定义…' }]),
+              '缩放（等同 Chrome 页面缩放）',
+            );
+            zoomSel.setAttribute('data-dsh-kit-agent-view-zoom', '');
+            const zoomInput = document.createElement('input');
+            zoomInput.type = 'number';
+            zoomInput.setAttribute('data-dsh-kit-agent-view-zoom-input', '');
+            zoomInput.min = '25';
+            zoomInput.max = '500';
+            zoomInput.step = '5';
+            zoomInput.title = '自定义缩放百分比（25–500）';
+            zoomInput.style.cssText = 'flex:none;display:none;width:56px;border:1px solid ' + T.border + ';background:transparent;color:'
+              + T.text + ';border-radius:6px;padding:1px 4px;font:' + T.font + ';';
+            const applyZoom = (z) => {
+              const v = Math.min(5, Math.max(0.25, Number(z) || 1));
+              agentView.ui = { ...(agentView.ui || {}), zoom: v };
+              applyAgentViewLayout();
+            };
+            zoomSel.addEventListener('change', () => {
+              if (zoomSel.value === 'custom') { zoomInput.style.display = ''; zoomInput.focus(); return; }
+              zoomInput.style.display = 'none';
+              applyZoom(zoomSel.value);
+            });
+            const commitZoomInput = () => {
+              const pct = Number(zoomInput.value);
+              if (!Number.isFinite(pct) || pct <= 0) return;
+              applyZoom(pct / 100);
+              if (agentView.ui && agentView.ui.zoom) zoomInput.value = String(Math.round(agentView.ui.zoom * 100));
+            };
+            zoomInput.addEventListener('change', commitZoomInput);
+            zoomInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commitZoomInput(); } });
+            // ③截图（文字按钮，不用图标）
+            const shootBtn = mkBtn('截图', '截图当前窗口（供 Agent 视觉分析）', async () => {
               try {
                 const r = await captureShot({ target: 'agent' });
-                if (urlText) urlText.textContent = r && r.ok ? `已截图 → ${String(r.path).split('\\').pop()}` : `截图失败：${(r && r.error) || '未知'}`;
-              } catch (e) { if (urlText) urlText.textContent = `截图失败：${msgOf(e)}`; }
+                urlText.textContent = r && r.ok ? `已截图 → ${String(r.path).split('\\').pop()}` : `截图失败：${(r && r.error) || '未知'}`;
+              } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
             });
-            const closeBtn = mkBtn('✕', '关闭（释放租约）', () => releaseAgentView());
-            head.appendChild(title);
-            head.appendChild(urlText);
-            head.appendChild(badge);
-            head.appendChild(toggleBtn);
-            head.appendChild(presetSel);
-            head.appendChild(shootBtn);
-            head.appendChild(closeBtn);
-            head.addEventListener('click', () => {
+            // ④最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
+            const minBtn = mkBtn('▣', '最小化为右下角小窗 / 展开', () => {
               agentView.ui = { ...(agentView.ui || {}), state: (agentView.ui && agentView.ui.state === 'expanded') ? 'collapsed' : 'expanded' };
               applyAgentViewLayout();
             });
+            minBtn.setAttribute('data-dsh-kit-agent-view-min', '');
+            const closeBtn = mkBtn('✕', '关闭（释放租约）', () => releaseAgentView());
+            const expandedOnly = [presetSel, zoomSel, zoomInput, shootBtn];
+            for (const el of expandedOnly) el.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
+            head.appendChild(title);
+            head.appendChild(urlText);
+            head.appendChild(presetSel);
+            head.appendChild(zoomSel);
+            head.appendChild(zoomInput);
+            head.appendChild(shootBtn);
+            head.appendChild(minBtn);
+            head.appendChild(closeBtn);
             // 舞台：裁切容器；webview 自身保持目标分辨率尺寸，靠 transform 缩放显示
             const stage = document.createElement('div');
             stage.setAttribute('data-dsh-kit-agent-view-stage', '');
@@ -1969,6 +2015,7 @@ window.__ModuleLoader__.load({
               preset: (opts && opts.resolution) ? String(opts.resolution) : '2K',
               dpr: opts && opts.dpr != null ? Number(opts.dpr) : null,
               fit: opts && opts.fit === true, // 默认 false = 100% 显示不缩放
+              zoom: opts && opts.zoom != null ? Math.min(5, Math.max(0.25, Number(opts.zoom) || 1)) : 1, // 页面缩放，默认 100%
             };
             // 空闲释放：默认 10 分钟（0 = 不自动释放）；Agent 操作中会不断续期（touchAgentView）
             agentView.idleReleaseMs = opts && opts.idleReleaseMs != null ? Math.max(0, Number(opts.idleReleaseMs)) : 10 * 60 * 1000;
@@ -2001,19 +2048,23 @@ window.__ModuleLoader__.load({
             const panel = agentView.panel;
             const frame = agentView.el;
             if (!panel || !frame) return null;
-            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '2K', dpr: null, fit: false };
+            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '2K', dpr: null, fit: false, zoom: 1 };
             const res = agentViewResolvePreset(ui.preset);
             const dpr = Number(ui.dpr || res.dpr || 1) || 1;
+            const zoom = Math.min(5, Math.max(0.25, Number(ui.zoom || 1) || 1)); // 页面缩放（Chrome 语义）
             frame.style.width = `${res.w}px`;
             frame.style.height = `${res.h}px`;
-            try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(dpr); } catch { /* 忽略 */ }
+            // 设备像素比与页面缩放共用 setZoomFactor ⇒ 取两者乘积（inputZoom 读到的就是它，坐标换算自洽）
+            try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(zoom * dpr); } catch { /* 忽略 */ }
             const barH = 32;
             const expanded = ui.state === 'expanded';
             const fit = ui.fit === true;
+            /* 展开态**必须让开 DSH 自己的标题栏**（右上角那三个窗口按钮），否则最大化时会盖住它们
+             * （用户实测反馈）。故展开时从 topOffset 起算，并把面板抬到最顶层 z-index。 */
+            const topOffset = 46;
             const maxW = Math.max(320, Math.floor(window.innerWidth) - 24);
-            const maxH = Math.max(240, Math.floor(window.innerHeight) - 24);
-            // 显示尺度：默认 1（100%）；fit 时才缩放到装得下
-            const k = (expanded && fit) ? Math.min(1, maxW / res.w, (maxH - barH) / res.h) : 1;
+            const maxH = Math.max(240, Math.floor(window.innerHeight) - topOffset - 12);
+            const k = (expanded && fit) ? Math.min(1, maxW / res.w, maxH / res.h) : 1;
             const panelW = Math.min(Math.round(res.w * k) + 16, maxW);
             const panelH = Math.min(Math.round(res.h * k) + barH + 10, maxH);
             const stageW = expanded ? panelW - 16 : 0;
@@ -2026,16 +2077,34 @@ window.__ModuleLoader__.load({
             frame.style.transform = `scale(${expanded ? k : 0.0001})`;
             panel.style.width = expanded ? `${panelW}px` : '260px';
             panel.style.height = expanded ? `${panelH}px` : `${barH + 12}px`;
+            // 展开：贴到标题栏下方（右上角窗口按钮不被遮挡）；收起：右下角小窗
+            panel.style.top = expanded ? `${topOffset}px` : 'auto';
+            panel.style.bottom = expanded ? 'auto' : '16px';
+            panel.style.right = expanded ? '12px' : '16px';
+            panel.style.zIndex = '2147483647'; // 置顶
             panel.dataset.kitAgentViewState = ui.state;
-            const badgeEl = panel.querySelector('[data-kit-agent-view-badge]');
-            if (badgeEl) badgeEl.textContent = `${res.w}×${res.h}${dpr !== 1 ? ` @${dpr}x` : ''} · ${Math.round(k * 100)}%${expanded && !fit && (res.w > stageW || res.h > stageH) ? '（可滚动）' : ''}`;
-            const tgl = panel.querySelector('[data-kit-agent-view-toggle]');
-            if (tgl) tgl.textContent = expanded ? '▾ 收起' : '▣ 展开';
-            const sel = panel.querySelector('[data-kit-agent-view-preset]');
+            // 控件可见性/文案随形态切换（用属性选择器，收养后也有效）
+            for (const el of Array.from(panel.querySelectorAll('[data-dsh-kit-agent-view-expanded-only]'))) {
+              el.style.display = expanded ? '' : 'none';
+            }
+            const minBtn = panel.querySelector('[data-dsh-kit-agent-view-min]');
+            if (minBtn) minBtn.textContent = expanded ? '−' : '▣';
+            const zsel = panel.querySelector('[data-dsh-kit-agent-view-zoom]');
+            if (zsel) {
+              const zs = String(zoom);
+              const known = Array.from(zsel.options).some((o) => o.value === zs);
+              zsel.value = known ? zs : 'custom';
+            }
+            const zin = panel.querySelector('[data-dsh-kit-agent-view-zoom-input]');
+            if (zin) {
+              zin.value = String(Math.round(zoom * 100));
+              if (zsel && zsel.value === 'custom') zin.style.display = expanded ? '' : 'none';
+            }
+            const sel = panel.querySelector('[data-dsh-kit-agent-view-preset]');
             if (sel && sel.value !== ui.preset && AGENT_VIEW_PRESETS[ui.preset]) sel.value = ui.preset;
             return {
-              state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit,
-              scale: Number(k.toFixed(3)), stageW, stageH,
+              state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
+              scale: Number(k.toFixed(3)), stageW, stageH, topOffset,
             };
           };
 
@@ -2120,6 +2189,7 @@ window.__ModuleLoader__.load({
               preset: ui.preset || null,
               resolution: `${res.w}×${res.h}`,
               dpr: Number(ui.dpr || res.dpr || 1) || 1,
+              zoom: Number(ui.zoom || 1) || 1,
             };
             if (el) {
               try { s.url = el.getURL(); } catch { s.url = null; }
@@ -3072,6 +3142,15 @@ window.__ModuleLoader__.load({
                 if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
                 agentView.ui = { ...(agentView.ui || {}), fit: c && c.fit !== false };
                 return { ok: true, op, fit: agentView.ui.fit, layout: layoutInfo(), rect: agentViewRect() };
+              }
+              if (op === 'zoom') {
+                // 页面缩放（等同 Chrome 缩放，setZoomFactor；0.25–5）
+                if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
+                const raw = c && (c.zoomPct != null ? Number(c.zoomPct) / 100 : Number(c.zoom));
+                if (!Number.isFinite(raw) || raw <= 0) return { ok: false, op, error: '需要 zoom（如 1.25 或 zoomPct 125）' };
+                agentView.ui = { ...(agentView.ui || {}), zoom: Math.min(5, Math.max(0.25, raw)) };
+                const st = agentViewStatus();
+                return { ok: true, op, zoom: st.zoom, layout: layoutInfo(), rect: agentViewRect() };
               }
               if (op === 'resolution') {
                 if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };

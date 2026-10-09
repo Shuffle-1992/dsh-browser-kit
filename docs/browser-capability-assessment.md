@@ -285,6 +285,23 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 历史面板（连同租约）一直堆积（实测堆了 3 个），清理逻辑还一直报「无需清理」。改为统一显式
 `setAttribute('data-dsh-kit-…')` 后：`panels/frames/stages` 各为 1，`cleanup` 首次正确报 `adopted:true`。
 
+### 3.9.4 R-OWN v4：顶栏重排 / 缩放选择框 / 最大化置顶（2026-10-10 用户要求）
+
+顶栏最终形态（左→右）：`🤖 Agent 浏览器` · URL · **分辨率下拉** · **缩放下拉 + 自定义输入** · `截图` · `−` · `✕`
+；收起态只留 `标题 · URL · ▣ · ✕`（其余控件 `display:none`）。
+
+| 用户要求 | 实现 | 实测 |
+|---|---|---|
+| 删除尺寸与缩放的角标显示 | 移除 badge 元素与相关更新 | 顶栏子元素里已无 badge ✓ |
+| 删除「收起」按钮 | 移除 toggle 按钮；改由标题点击切换 | 无 toggle 元素 ✓ |
+| X 左侧加 `−` 最小化 | `minBtn` 插在 `closeBtn` 之前；收起态显示 `▣`（用于展开） | 展开态按钮序列 `截图 / − / ✕`；收起态 `▣ / ✕` ✓ |
+| 截图图标改文字按钮 | `📷` → `截图` | ✓ |
+| 尺寸框后加缩放框（常规比例 + 自定义） | `ZOOM_STEPS = 25/50/67/75/80/90/100/110/125/150/175/200/250/300/400/500%` + 「自定义…」+ 数字输入框（25–500） | `zoomPct:125` → `getZoomFactor() = 1.25`；`zoom:0.5` → 0.5 ✓（等同 Chrome 页面缩放） |
+| 最大化时置顶、不被 DSH 右上三个窗口按钮遮挡 | 面板 `z-index: 2147483647`；展开态从 **top:46px** 起算（标题栏之下），高度按 `innerHeight - 46 - 12` 收敛 | 展开 `rect {left:12, top:46, w:2536, h:1342}`、`overlapsControls:false` ✓ |
+
+**注**：`zoom` 与预设 `dpr` 共用 `setZoomFactor` ⇒ 取乘积 `zoom × dpr`（`inputZoom()` 读到的就是乘积，
+可信输入的坐标换算自动自洽）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

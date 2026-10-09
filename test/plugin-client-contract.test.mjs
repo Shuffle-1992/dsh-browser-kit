@@ -249,13 +249,29 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /\^\(\\d\{2,5\}\)\\s\*\[x×\]\\s\*\(\\d\{2,5\}\)\$/); // 自定义 WxH
     // ②guest 视口=目标分辨率；**默认 100% 显示不缩放**（用户 2026-10-10 要求），仅 fit:true 才缩放
     assert.match(clientSource, /frame\.style\.width = `\$\{res\.w\}px`;/);
-    assert.match(clientSource, /const k = \(expanded && fit\) \? Math\.min\(1, maxW \/ res\.w, \(maxH - barH\) \/ res\.h\) : 1;/);
+    assert.match(clientSource, /const k = \(expanded && fit\) \? Math\.min\(1, maxW \/ res\.w, maxH \/ res\.h\) : 1;/);
     assert.match(clientSource, /agentView\.stage\.style\.overflow = 'auto'; \/\/ 100% 显示时装不下就滚动看/);
     assert.match(clientSource, /if \(op === 'fit'\) \{/);
     // ③默认右下角小窗（收起），点顶部条/按钮展开
     assert.match(clientSource, /state: \(opts && opts\.state === 'expanded'\) \? 'expanded' : 'collapsed',/);
     assert.match(clientSource, /panel\.style\.height = expanded \? `\$\{panelH\}px` : `\$\{barH \+ 12\}px`;/);
-    assert.match(clientSource, /head\.addEventListener\('click', \(\) => \{/);
+    assert.match(clientSource, /title\.addEventListener\('click', \(\) => \{/);
+    // ⑨R-OWN v4 UI（用户 2026-10-10）：无尺寸/缩放角标、无「收起」按钮；「−」最小化在 ✕ 左侧；
+    //   截图=文字按钮；分辨率选择框**后面**紧跟缩放选择框（预设 + 自定义）；展开时贴标题栏下方并置顶
+    assert.doesNotMatch(clientSource, /kitAgentViewBadge|data-kit-agent-view-badge/);
+    assert.doesNotMatch(clientSource, /data-kit-agent-view-toggle/);
+    assert.match(clientSource, /const minBtn = mkBtn\('▣', '最小化为右下角小窗 \/ 展开'/);
+    assert.match(clientSource, /minBtn\.setAttribute\('data-dsh-kit-agent-view-min', ''\);/);
+    assert.match(clientSource, /if \(minBtn\) minBtn\.textContent = expanded \? '−' : '▣';/);
+    assert.match(clientSource, /const shootBtn = mkBtn\('截图', '截图当前窗口（供 Agent 视觉分析）'/);
+    assert.match(clientSource, /const zoomSel = mkSelect\(\s*ZOOM_STEPS/);
+    assert.match(clientSource, /const ZOOM_STEPS = \[0\.25, 0\.5, 0\.67, 0\.75, 0\.8, 0\.9, 1, 1\.1, 1\.25, 1\.5, 1\.75, 2, 2\.5, 3, 4, 5\];/);
+    assert.match(clientSource, /head\.appendChild\(presetSel\);\s*head\.appendChild\(zoomSel\);\s*head\.appendChild\(zoomInput\);\s*head\.appendChild\(shootBtn\);\s*head\.appendChild\(minBtn\);\s*head\.appendChild\(closeBtn\);/);
+    assert.match(clientSource, /const topOffset = 46;/);
+    assert.match(clientSource, /panel\.style\.top = expanded \? `\$\{topOffset\}px` : 'auto';/);
+    assert.match(clientSource, /panel\.style\.zIndex = '2147483647'; \/\/ 置顶/);
+    assert.match(clientSource, /frame\.setZoomFactor\(zoom \* dpr\)/);
+    assert.match(clientSource, /if \(op === 'zoom'\) \{/);
     // ④登录态复用：官方身份公式 cwd:<workspace.path> + 用 partition 比对验证
     assert.match(clientSource, /const discoverStorageIdentity = async \(sessionId, workspacePath\) => \{/);
     assert.match(clientSource, /if \(workspacePath\) cands\.push\(`cwd:\$\{workspacePath\}`\);/);
