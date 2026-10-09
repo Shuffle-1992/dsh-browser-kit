@@ -388,6 +388,22 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 **收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
 丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
 
+### 3.9.9 R-OWN v9：布局对齐 DSH 浏览器（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测（2K 展开） |
+|---|---|---|
+| 删除「前往」 | 移除该按钮（回车即导航） | `hasGoBtn:false` ✓ |
+| 新增前进/后退/刷新 | 行2 起始 `‹ › ↻`（`canGoBack/goBack`、`canGoForward/goForward`、`reload`） | `navBtns:["back=‹","forward=›","reload=↻"]`；点刷新/后退后 URL 从 example.com 回到 keysion.cn ✓ |
+| 输入栏宽度增大 | 地址栏是行内**唯一弹性项**（`flex:1 1 auto;min-width:120px`） | 面板 2536 → **地址栏 2126px** ✓ |
+| 尺寸/缩放/截图/批注移到地址栏那行 | 行2 = `‹ › ↻` + 地址栏 + 分辨率 select + 缩放 select(+自定义 input) + 截图 + 批注 | `addrRowChildren` 顺序完全一致 ✓ |
+| 布局参考 DSH 浏览器 | **行1** 标题+标签条+＋ / `−` `✕`（右对齐）；**行2** 导航+地址栏+图标；`barH` 60/32 | `panelRows:3`（2 行 chrome + stage）✓ |
+| 批注改图标（与 DSH 一致） | `annotBtn.innerHTML = ANNOT_ICON_SVG`（与侧栏批注按钮同一枚） | `annotIsIcon:true`（svg 296B）✓ |
+
+**★新坑（P59）**：展开/收起时用 `el.style.display = ''` 去"恢复"隐藏的控件，会**清掉 cssText 里设的
+`display:flex`** —— 地址/工具行因此退回 `block`，其内部 `flex:1 1 auto` 失效，**地址栏缩成 163px**（用户看到的“没加宽”）。
+修法：①创建时**记下原始 display**（`data-kit-own-display`，且必须在设完 cssText 之后再记）；②对结构性容器
+（`addrRow`）在布局里**强制 `flex/none`**，不依赖记忆值（收养来的旧面板可能已丢值）；③自定义缩放输入框单独管理显示。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

@@ -1975,7 +1975,8 @@ window.__ModuleLoader__.load({
             const urlText = document.createElement('span');
             urlText.setAttribute('data-dsh-kit-agent-view-url', '');
             urlText.textContent = 'about:blank';
-            urlText.style.cssText = 'flex:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8;';
+            // 收窄：给右侧按钮组留位（auto 会把标签条挤到最右，DSH 同款是标签紧邻标题）
+            urlText.style.cssText = 'flex:0 1 auto;max-width:230px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8;';
             const mkBtn = (labelText, tip, onClick) => {
               const btn = document.createElement('button');
               btn.type = 'button';
@@ -2054,16 +2055,18 @@ window.__ModuleLoader__.load({
             });
             shootBtn.innerHTML = SHOT_ICON_SVG;
             // ④批注（R-OWN v8）：把**当前自持窗口**加入共享批注成员表——与会话浏览器**共用同一批注**
-            const annotBtn = mkBtn('批注', '批注（当前自持窗口；与会话浏览器共用同一批注）', async () => {
+            //   图标与 DSH 浏览器的批注图标一致（同一枚 ANNOT_ICON_SVG）
+            const annotBtn = mkBtn('', '批注（当前自持窗口；与会话浏览器共用同一批注）', async () => {
               try {
                 const el2 = agentViewWebview();
                 if (!el2) { urlText.textContent = '无活动窗口'; return; }
                 const r = await togglePaneAnnot(el2);
-                annotBtn.style.background = r && r.joined === true ? TOOLBAR_ACCENT : 'transparent';
-                annotBtn.style.color = r && r.joined === true ? TOOLBAR_ACCENT_TEXT : '';
-                urlText.textContent = r && r.ok ? (r.joined ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`;
+                annotBtn.style.background = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT : 'transparent';
+                annotBtn.style.color = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT_TEXT : '';
+                urlText.textContent = r && r.ok ? (r.joined || r.started ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`;
               } catch (e) { urlText.textContent = `批注失败：${msgOf(e)}`; }
             });
+            annotBtn.innerHTML = ANNOT_ICON_SVG; // 与 DSH 批注图标同款
             annotBtn.setAttribute('data-dsh-kit-agent-view-annot', '');
             // ⑤最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
             const minBtn = mkBtn('▣', '最小化为右下角小窗 / 展开', () => {
@@ -2071,35 +2074,44 @@ window.__ModuleLoader__.load({
               applyAgentViewLayout();
             });
             minBtn.setAttribute('data-dsh-kit-agent-view-min', '');
+            minBtn.style.marginLeft = 'auto'; // 右侧按钮组钉在行尾（DSH 同款右对齐）
             const closeBtn = mkBtn('✕', '关闭面板（释放全部窗口租约）', () => releaseAgentView());
-            const expandedOnly = [presetSel, zoomSel, zoomInput, shootBtn, annotBtn];
-            for (const el of expandedOnly) el.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
+            // ── 行 1：标题 + 标签条（多窗口）+ 最小化/关闭（**布局参考 DSH 浏览器**）──
+            const railIcons = [presetSel, zoomSel, zoomInput, shootBtn, annotBtn];
+            for (const el of railIcons) markExpandedOnly(el);
             head.appendChild(title);
             head.appendChild(urlText);
-            head.appendChild(presetSel);
-            head.appendChild(zoomSel);
-            head.appendChild(zoomInput);
-            head.appendChild(shootBtn);
-            head.appendChild(annotBtn);
+            const tabStrip = head; // 标签 chip 直接落在这行里（DSH 同款：标签在上，地址栏在下）
             head.appendChild(minBtn);
             head.appendChild(closeBtn);
-            // 标签条（多窗口）：每个窗口一个 chip（标题 + ×），末尾「＋」新建
-            const tabStrip = document.createElement('div');
-            tabStrip.setAttribute('data-dsh-kit-agent-tabstrip', '');
-            tabStrip.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
-            tabStrip.style.cssText = `flex:none;display:flex;align-items:center;gap:4px;padding:2px 6px;font:${T.font};`
-              + 'overflow-x:auto;border-bottom:1px solid ' + T.border + ';';
-            // 地址栏（可输入，回车导航当前窗口）
+            // ── 行 2：← → ↻ + **加宽地址栏** + 尺寸/缩放/截图/批注图标（DSH 同款排布）──
             const addrRow = document.createElement('div');
-            addrRow.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
             addrRow.style.cssText = `flex:none;display:flex;align-items:center;gap:4px;padding:3px 6px;font:${T.font};`
               + 'border-bottom:1px solid ' + T.border + ';';
+            markExpandedOnly(addrRow); // ★必须在 cssText 之后：否则存到的是 block（见 markExpandedOnly 注释）
+            const mkNav = (labelText, tip, onClick) => {
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.textContent = labelText;
+              btn.title = tip;
+              btn.style.cssText = 'flex:none;cursor:pointer;border:0;background:transparent;color:'
+                + T.text + ';border-radius:6px;padding:1px 5px;font:' + T.font + ';opacity:.9;';
+              btn.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } onClick(); });
+              return btn;
+            };
+            const navBack = mkNav('‹', '后退', () => { try { const w = agentViewWebview(); if (w && w.canGoBack && w.canGoBack()) w.goBack(); } catch { /* 忽略 */ } });
+            const navFwd = mkNav('›', '前进', () => { try { const w = agentViewWebview(); if (w && w.canGoForward && w.canGoForward()) w.goForward(); } catch { /* 忽略 */ } });
+            const navReload = mkNav('↻', '刷新', () => { try { const w = agentViewWebview(); if (w && w.reload) w.reload(); } catch { /* 忽略 */ } });
+            navBack.setAttribute('data-dsh-kit-agent-nav', 'back');
+            navFwd.setAttribute('data-dsh-kit-agent-nav', 'forward');
+            navReload.setAttribute('data-dsh-kit-agent-nav', 'reload');
             const addr = document.createElement('input');
             addr.type = 'text';
             addr.setAttribute('data-dsh-kit-agent-address', '');
             addr.placeholder = '输入网址后回车（当前窗口）';
-            addr.style.cssText = 'flex:auto;min-width:0;border:1px solid ' + T.border + ';background:transparent;color:'
-              + T.text + ';border-radius:6px;padding:2px 6px;font:' + T.font + ';';
+            // 加宽：唯一弹性项，占满整行剩余空间
+            addr.style.cssText = 'flex:1 1 auto;min-width:120px;border:1px solid ' + T.border + ';background:transparent;color:'
+              + T.text + ';border-radius:6px;padding:2px 8px;font:' + T.font + ';';
             const goAddr = async () => {
               const url = String(addr.value || '').trim();
               if (!url) return;
@@ -2108,21 +2120,21 @@ window.__ModuleLoader__.load({
               catch (e) { addr.value = `导航失败：${msgOf(e)}`; }
             };
             addr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); goAddr(); } });
-            const addrGo = document.createElement('button');
-            addrGo.type = 'button';
-            addrGo.textContent = '前往';
-            addrGo.title = '在当前自持窗口打开';
-            addrGo.style.cssText = 'flex:none;cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
-              + T.text + ';border-radius:6px;padding:1px 6px;font:' + T.font + ';';
-            addrGo.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } goAddr(); });
+            addrRow.appendChild(navBack);
+            addrRow.appendChild(navFwd);
+            addrRow.appendChild(navReload);
             addrRow.appendChild(addr);
-            addrRow.appendChild(addrGo);
+            addrRow.appendChild(presetSel);
+            addrRow.appendChild(zoomSel);
+            addrRow.appendChild(zoomInput);
+            addrRow.appendChild(shootBtn);
+            addrRow.appendChild(annotBtn);
             // 舞台：裁切容器；webview 自身保持目标分辨率尺寸，靠 transform 缩放显示
             const stage = document.createElement('div');
             stage.setAttribute('data-dsh-kit-agent-view-stage', '');
             stage.style.cssText = 'flex:none;overflow:hidden;position:relative;margin:0 auto;';
             panel.appendChild(head);
-            panel.appendChild(tabStrip);
+            panel.appendChild(addrRow);
             panel.appendChild(addrRow);
             panel.appendChild(stage);
             document.body.appendChild(panel);
@@ -2130,6 +2142,7 @@ window.__ModuleLoader__.load({
             agentView.stage = stage;
             agentView.tabStrip = tabStrip;
             agentView.addr = addr;
+            agentView.addrRow = addrRow;
             agentView.urlText = urlText;
             agentView.ui = {
               state: (opts && opts.state === 'expanded') ? 'expanded' : 'collapsed',
@@ -2172,7 +2185,7 @@ window.__ModuleLoader__.load({
             // 设备像素比与页面缩放共用 setZoomFactor ⇒ 取两者乘积（inputZoom 读到的就是它，坐标换算自洽）
             try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(zoom * dpr); } catch { /* 忽略 */ }
             const expanded = ui.state === 'expanded';
-            const barH = expanded ? 76 : 32; // 展开态：标题行 + 标签条 + 地址栏（三行）
+            const barH = expanded ? 60 : 32; // 展开态两行：标签行 + 地址/工具栏行（DSH 同款布局）
             const fit = ui.fit === true;
             /* 展开态**必须让开 DSH 自己的标题栏**（右上角那三个窗口按钮），否则最大化时会盖住它们
              * （用户实测反馈）。故展开时从 topOffset 起算，并把面板抬到最顶层 z-index。 */
@@ -2198,12 +2211,19 @@ window.__ModuleLoader__.load({
             panel.style.right = expanded ? '12px' : '16px';
             panel.style.zIndex = '2147483647'; // 置顶
             panel.dataset.kitAgentViewState = ui.state;
-            // 控件可见性/文案随形态切换（用属性选择器，收养后也有效）
+            // 控件可见性/文案随形态切换（用属性选择器，收养后也有效；display 用**记住的原值**恢复）
             for (const el of Array.from(panel.querySelectorAll('[data-dsh-kit-agent-view-expanded-only]'))) {
-              el.style.display = expanded ? '' : 'none';
+              if (el.hasAttribute('data-dsh-kit-agent-view-zoom-input')) continue; // 自定义缩放输入框单独管理
+              const want = expanded ? (el.getAttribute('data-kit-own-display') || '') : 'none';
+              if (el.style.display !== want) el.style.display = want;
             }
             const minBtn = panel.querySelector('[data-dsh-kit-agent-view-min]');
             if (minBtn) minBtn.textContent = expanded ? '−' : '▣';
+            // 结构性保障：地址/工具行**必须 flex**（不依赖记忆值——旧实例/收养面板可能已丢值）
+            if (agentView.addrRow) {
+              const wantRow = expanded ? 'flex' : 'none';
+              if (agentView.addrRow.style.display !== wantRow) agentView.addrRow.style.display = wantRow;
+            }
             const zsel = panel.querySelector('[data-dsh-kit-agent-view-zoom]');
             if (zsel) {
               const zs = String(zoom);
@@ -2213,7 +2233,9 @@ window.__ModuleLoader__.load({
             const zin = panel.querySelector('[data-dsh-kit-agent-view-zoom-input]');
             if (zin) {
               zin.value = String(Math.round(zoom * 100));
-              if (zsel && zsel.value === 'custom') zin.style.display = expanded ? '' : 'none';
+              // 只有「自定义…」才露出来（否则展开态也会一直显示一个数字框）
+              const wantZ = (expanded && zsel && zsel.value === 'custom') ? '' : 'none';
+              if (zin.style.display !== wantZ) zin.style.display = wantZ;
             }
             const sel = panel.querySelector('[data-dsh-kit-agent-view-preset]');
             if (sel && sel.value !== ui.preset && AGENT_VIEW_PRESETS[ui.preset]) sel.value = ui.preset;
@@ -2272,6 +2294,18 @@ window.__ModuleLoader__.load({
             if (agentView.idleTimer) return;
             agentView.idleTimer = trackInterval(setInterval(agentViewIdleTick, 1000));
           };
+          /** 标记「仅展开态可见」的控件，并**记住它的原始 display**。
+           *  ★踩坑（实测）：先前用 `el.style.display = ''` 来恢复，会**清掉 cssText 里设的 display:flex**
+           *  ⇒ 地址栏容器退回 `block`，其内部 `flex:1 1 auto` 失效、地址栏缩成 163px。 */
+          const markExpandedOnly = (el) => {
+            try {
+              el.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
+              let d = el.style && el.style.display ? el.style.display : '';
+              if (!d) { try { d = getComputedStyle(el).display || ''; } catch { d = ''; } }
+              if (d && d !== 'none') el.setAttribute('data-kit-own-display', d);
+            } catch { /* 忽略 */ }
+            return el;
+          };
 
           /* ── R-OWN v8：自持浏览器**多窗口（标签）**（2026-10-10 用户要求）──
            * 面板级：panel/stage/tabStrip/addr/ui.state（展开收起）；窗口级：tabs[]（各持自己的租约与 webview）。
@@ -2309,7 +2343,16 @@ window.__ModuleLoader__.load({
             const strip = agentView.tabStrip;
             if (!strip) return;
             try {
-              strip.textContent = '';
+              // 只清掉上一次渲染的标签/＋（不动标题、状态文本与右侧按钮）
+              for (const old of Array.from(strip.querySelectorAll('[data-dsh-kit-agent-tab], [data-dsh-kit-agent-tabadd]'))) {
+                try { old.remove(); } catch { /* 忽略 */ }
+              }
+              const anchor = strip.querySelector('[data-dsh-kit-agent-view-min]'); // chip 插在右侧按钮组之前
+              const put = (el) => {
+                markExpandedOnly(el);
+                if (anchor && anchor.parentElement === strip) strip.insertBefore(el, anchor);
+                else strip.appendChild(el);
+              };
               for (const t of agentView.tabs || []) {
                 const chip = document.createElement('span');
                 chip.setAttribute('data-dsh-kit-agent-tab', '');
@@ -2317,8 +2360,8 @@ window.__ModuleLoader__.load({
                   + 'cursor:pointer;white-space:nowrap;'
                   + (t.id === agentView.activeId ? 'background:rgba(56,189,248,.20);' : 'opacity:.75;');
                 const label = document.createElement('span');
-                const title = t.title || t.url || '新窗口';
-                label.textContent = String(title).replace(/^https?:\/\//, '').slice(0, 18);
+                const title2 = t.title || t.url || '新窗口';
+                label.textContent = String(title2).replace(/^https?:\/\//, '').slice(0, 18);
                 label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;max-width:118px;';
                 label.addEventListener('click', () => setActiveAgentTab(t.id));
                 const x = document.createElement('span');
@@ -2328,14 +2371,15 @@ window.__ModuleLoader__.load({
                 x.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } closeAgentTab(t.id); });
                 chip.appendChild(label);
                 chip.appendChild(x);
-                strip.appendChild(chip);
+                put(chip);
               }
               const plus = document.createElement('span');
+              plus.setAttribute('data-dsh-kit-agent-tabadd', '');
               plus.textContent = '＋';
               plus.title = '新建浏览器窗口（同登录态）';
               plus.style.cssText = 'cursor:pointer;padding:0 6px;opacity:.85;';
               plus.addEventListener('click', () => { newAgentTab().catch(() => {}); });
-              strip.appendChild(plus);
+              put(plus);
             } catch { /* 忽略 */ }
           };
           /** 地址栏：显示/编辑当前窗口地址（回车即导航）。 */
@@ -2567,6 +2611,7 @@ window.__ModuleLoader__.load({
                 agentView.stage = adopted.panel.querySelector('[data-dsh-kit-agent-view-stage]') || null;
                 agentView.tabStrip = adopted.panel.querySelector('[data-dsh-kit-agent-tabstrip]') || null;
                 agentView.addr = adopted.panel.querySelector('[data-dsh-kit-agent-address]') || null;
+                agentView.addrRow = agentView.addr ? agentView.addr.parentElement : null;
                 agentView.urlText = adopted.panel.querySelector('[data-dsh-kit-agent-view-url]') || null;
                 agentView.acquiredAt = agentView.acquiredAt || 'adopted-on-boot';
                 // R-OWN v8：把面板里**所有**自持 webview 收养为窗口（各自 name=租约、partition）
@@ -2590,6 +2635,12 @@ window.__ModuleLoader__.load({
                     agentView.activeId = agentView.tabs[0].id;
                     agentView.ui = { ...agentView.tabs[0].ui, state: uiState };
                     setActiveAgentTab(agentView.activeId);
+                  }
+                } catch { /* 忽略 */ }
+                // 收养的老面板没有 `data-kit-own-display`（旧版没记），此时内联 display 还在 ⇒ 补记
+                try {
+                  for (const el3 of Array.from(adopted.panel.querySelectorAll('[data-dsh-kit-agent-view-expanded-only]'))) {
+                    if (!el3.getAttribute('data-kit-own-display')) markExpandedOnly(el3);
                   }
                 } catch { /* 忽略 */ }
                 try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ identity: agentView.identity || null, at: agentView.acquiredAt })); } catch { /* 忽略 */ }

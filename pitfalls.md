@@ -357,3 +357,18 @@
   - 加 1.5s 防连点（连点两次也只插一张，实测：1 → 2 而非 1 → 3）。
 - **判据**：任何「派发 A；没看到效果就再派发 B」的兜底模式，在**有副作用的操作**上都极其危险
   （插入/发送/删除都会执行两次）。要么用**幂等**手段，要么用**同步的接管信号**，别用异步观测。
+### P59 `style.display = ''` 会清掉 cssText 里的 `display:flex`：地址栏缩成 163px
+- **现象**：自持浏览器「参考 DSH 布局」改造后地址栏**没有加宽**（面板 2536px，地址栏只有 163px），
+  而 `getComputedStyle(input).flex` 明明是 `1 1 auto`。
+- **根因**：展开/收起控件时用 `el.style.display = ''` 表示"恢复显示"——但该元素的 `display:flex`
+  正是通过 `style.cssText` 设的**内联样式**，置空即**把它一起清掉** ⇒ 容器退回 `block`，
+  子项的 `flex:1` 全部失效（弹性布局的前提没了）。
+- **对策**：
+  1. 创建时**记住原始 display**（`el.style.display || getComputedStyle(el).display`）写进
+     `data-kit-own-display`，恢复时按它设置；**记的时机必须在设完 cssText 之后**（否则拿到默认 `block`，
+     实测踩了第二遍）。
+  2. 结构性容器（地址/工具行）在布局里**强制** `display: flex|none`，不依赖记忆值——收养来的旧面板
+     可能在内联值已被清掉之后才被标记，怎么记都是错的。
+  3. 有独立显隐逻辑的控件（自定义缩放输入框）从通用循环里排除，单独管理。
+- **判据**：改了某行的 `flex` 布局却不生效时，**先看这一行的 computed `display` 是不是 flex**
+  （`getComputedStyle(row).display`）——`block/row` 这种组合就是本坑的指纹。

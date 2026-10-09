@@ -299,17 +299,33 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const r = await captureShot\(\{ el: pane, insertToComposer: true \}\);/);
     assert.match(clientSource, /const zoomSel = mkSelect\(\s*ZOOM_STEPS/);
     assert.match(clientSource, /const ZOOM_STEPS = \[0\.25, 0\.5, 0\.67, 0\.75, 0\.8, 0\.9, 1, 1\.1, 1\.25, 1\.5, 1\.75, 2, 2\.5, 3, 4, 5\];/);
-    assert.match(clientSource, /head\.appendChild\(presetSel\);\s*head\.appendChild\(zoomSel\);\s*head\.appendChild\(zoomInput\);\s*head\.appendChild\(shootBtn\);\s*head\.appendChild\(annotBtn\);\s*head\.appendChild\(minBtn\);\s*head\.appendChild\(closeBtn\);/);
+    // ⑮R-OWN v9：布局对齐 DSH 浏览器（行1=标签条 / 行2=←→↻ + 加宽地址栏 + 尺寸/缩放/截图/批注图标）
+    assert.match(clientSource, /const tabStrip = head; \/\/ 标签 chip 直接落在这行里（DSH 同款：标签在上，地址栏在下）/);
+    assert.match(clientSource, /const navBack = mkNav\('‹', '后退'/);
+    assert.match(clientSource, /const navFwd = mkNav\('›', '前进'/);
+    assert.match(clientSource, /const navReload = mkNav\('↻', '刷新'/);
+    assert.match(clientSource, /addr\.style\.cssText = 'flex:1 1 auto;min-width:120px;/); // 地址栏加宽（唯一弹性项）
+    assert.doesNotMatch(clientSource, /addrGo|'前往'/); // 删除「前往」
+    assert.match(clientSource, /addrRow\.appendChild\(presetSel\);\s*addrRow\.appendChild\(zoomSel\);\s*addrRow\.appendChild\(zoomInput\);\s*addrRow\.appendChild\(shootBtn\);\s*addrRow\.appendChild\(annotBtn\);/);
+    assert.match(clientSource, /annotBtn\.innerHTML = ANNOT_ICON_SVG; \/\/ 与 DSH 批注图标同款/);
+    assert.match(clientSource, /minBtn\.style\.marginLeft = 'auto';/);
+    assert.match(clientSource, /const barH = expanded \? 60 : 32;/);
+    // ★实测坑：`el.style.display = ''` 会清掉 cssText 里的 display:flex ⇒ 地址栏容器退回 block、
+    //   内部 flex:1 1 auto 失效（地址栏只有 163px）。必须记住原 display 再恢复。
+    assert.match(clientSource, /const markExpandedOnly = \(el\) => \{/);
+    assert.match(clientSource, /el\.setAttribute\('data-kit-own-display', d\);/);
+    assert.match(clientSource, /const want = expanded \? \(el\.getAttribute\('data-kit-own-display'\) \|\| ''\) : 'none';/);
+    assert.doesNotMatch(clientSource, /head\.appendChild\(presetSel\)/);
     // ⑭R-OWN v8：多窗口（标签）+ 地址栏 + 批注按钮 + 侧栏「↘ 同登录态开进自持」
     assert.match(clientSource, /const activeAgentTab = \(\) => \(agentView\.tabs \|\| \[\]\)\.find/);
     assert.match(clientSource, /const setActiveAgentTab = \(id\) => \{/);
     assert.match(clientSource, /const newAgentTab = async \(opts = \{\}\) => \{/);
     assert.match(clientSource, /const closeAgentTab = \(id\) => \{/);
-    assert.match(clientSource, /const tabStrip = document\.createElement\('div'\);/);
+    assert.match(clientSource, /const tabStrip = head; \/\/ 标签 chip 直接落在这行里/);
     assert.match(clientSource, /data-dsh-kit-agent-tabstrip/);
     assert.match(clientSource, /const addr = document\.createElement\('input'\);/);
     assert.match(clientSource, /if \(ev\.key === 'Enter'\) \{ ev\.preventDefault\(\); goAddr\(\); \}/);
-    assert.match(clientSource, /const annotBtn = mkBtn\('批注', '批注（当前自持窗口；与会话浏览器共用同一批注）'/);
+    assert.match(clientSource, /const annotBtn = mkBtn\('', '批注（当前自持窗口；与会话浏览器共用同一批注）'/);
     assert.match(clientSource, /const r = await togglePaneAnnot\(el2\);/);
     assert.match(clientSource, /if \(op === 'tab-new'\) \{/);
     assert.match(clientSource, /if \(op === 'tab-close'\) \{/);
