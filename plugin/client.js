@@ -1701,7 +1701,7 @@ window.__ModuleLoader__.load({
            * 生命周期：面板移除/插件卸载时 release 租约；崩溃时靠 localStorage 里的租约记录做清理提示。 */
           const AGENT_VIEW_ID = 'dsh-kit-agent-view';
           const AGENT_VIEW_LEASE_KEY = 'dsh-browser-kit:agent-view-lease:v1';
-          const agentView = { lease: null, partition: null, el: null, panel: null, stage: null, lastPopup: null, acquiredAt: null, openErr: null, ui: null, identity: null, identityFrom: null, sharedWithSidebar: null, resizeObserver: null, boot: null };
+          const agentView = { lease: null, partition: null, el: null, panel: null, stage: null, lastPopup: null, acquiredAt: null, openErr: null, ui: null, identity: null, identityFrom: null, sharedWithSidebar: null, resizeObserver: null, boot: null, idleTimer: null, lastOpAt: 0, idleReleaseMs: 0, releasedForIdle: null };
           const agentViewWebview = () => (agentView.el && document.contains(agentView.el) ? agentView.el : null);
           const agentViewCarrier = () => {
             const carrier = globalThis.dshDesktop;
@@ -1712,10 +1712,12 @@ window.__ModuleLoader__.load({
             const b = agentViewCarrier();
             const lease = agentView.lease;
             try { if (agentView.resizeObserver && agentView.resizeObserver.disconnect) agentView.resizeObserver.disconnect(); } catch { /* 忽略 */ }
+            try { if (agentView.idleTimer) clearInterval(agentView.idleTimer); } catch { /* 忽略 */ }
             try { if (agentView.el && agentView.el.remove) agentView.el.remove(); } catch { /* 忽略 */ }
             try { if (agentView.panel && agentView.panel.remove) agentView.panel.remove(); } catch { /* 忽略 */ }
             agentView.el = null; agentView.panel = null; agentView.stage = null; agentView.lease = null;
             agentView.partition = null; agentView.lastPopup = null; agentView.resizeObserver = null; agentView.ui = null;
+            agentView.idleTimer = null; agentView.lastOpAt = 0;
             try { localStorage.removeItem(AGENT_VIEW_LEASE_KEY); } catch { /* 忽略 */ }
             if (b && lease) b.release(lease).catch(() => { /* 已失效/已释放：忽略 */ });
             return { ok: true };
@@ -1849,6 +1851,8 @@ window.__ModuleLoader__.load({
               if (opts.resolution) agentView.ui = { ...(agentView.ui || {}), preset: String(opts.resolution) };
               if (opts.dpr != null) agentView.ui = { ...(agentView.ui || {}), dpr: Number(opts.dpr) };
               if (opts.state) agentView.ui = { ...(agentView.ui || {}), state: String(opts.state) };
+              if (opts.fit != null) agentView.ui = { ...(agentView.ui || {}), fit: opts.fit === true };
+              if (opts.idleReleaseMs != null) agentView.idleReleaseMs = Math.max(0, Number(opts.idleReleaseMs));
               applyAgentViewLayout();
               return agentView;
             }
@@ -1871,11 +1875,15 @@ window.__ModuleLoader__.load({
 
             const panel = document.createElement('div');
             panel.id = AGENT_VIEW_ID;
-            panel.dataset.kitAgentViewPanel = ''; // 供启动收养/清理识别（id 可能因重载而重复）
+            // ★属性名必须与收养/清理的选择器**逐字一致**：`dataset.kitAgentViewPanel` 生成的是
+            //   `data-kit-agent-view-panel`（无 dsh-），而选择器写的是 `data-dsh-kit-…` ⇒ 永远匹配不上，
+            //   孤儿面板会一直堆积（实测踩坑）。统一用显式 setAttribute 的 `data-dsh-kit-*`。
+            panel.setAttribute('data-dsh-kit-agent-view-panel', '');
             panel.setAttribute('data-dsh-kit-ui', ''); // 我们自己的 UI：snapshot 会跳过
             panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483600;display:flex;flex-direction:column;'
               + 'overflow:hidden;border-radius:10px;box-sizing:border-box;'
-              + `background:${T.bg};color:${T.text};border:2px solid #38bdf8;box-shadow:${T.shadow};`;
+              // 边框默认**中性色**（不显示青色）：只在 Agent 操作中才变青色（touchAgentView）——用户可协作使用
+              + `background:${T.bg};color:${T.text};border:2px solid ${T.border};box-shadow:${T.shadow};`;
             // 顶部条（收起态就是这个小窗）
             const head = document.createElement('div');
             head.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:${T.font};cursor:pointer;`
@@ -1940,10 +1948,10 @@ window.__ModuleLoader__.load({
             });
             // 舞台：裁切容器；webview 自身保持目标分辨率尺寸，靠 transform 缩放显示
             const stage = document.createElement('div');
-            stage.dataset.kitAgentViewStage = '';
+            stage.setAttribute('data-dsh-kit-agent-view-stage', '');
             stage.style.cssText = 'flex:none;overflow:hidden;position:relative;margin:0 auto;';
             const frame = document.createElement('webview');
-            frame.dataset.kitAgentView = ''; // 收养/清理标记
+            frame.setAttribute('data-dsh-kit-agent-view', ''); // 收养/清理标记（与选择器逐字一致，见上）
             frame.setAttribute('name', reservation.lease);       // ← 租约以 name 传递（照抄官方形状）
             frame.setAttribute('partition', reservation.partition);
             frame.setAttribute('allowpopups', '');
@@ -1960,7 +1968,12 @@ window.__ModuleLoader__.load({
               state: (opts && opts.state === 'expanded') ? 'expanded' : 'collapsed',
               preset: (opts && opts.resolution) ? String(opts.resolution) : '2K',
               dpr: opts && opts.dpr != null ? Number(opts.dpr) : null,
+              fit: opts && opts.fit === true, // 默认 false = 100% 显示不缩放
             };
+            // 空闲释放：默认 10 分钟（0 = 不自动释放）；Agent 操作中会不断续期（touchAgentView）
+            agentView.idleReleaseMs = opts && opts.idleReleaseMs != null ? Math.max(0, Number(opts.idleReleaseMs)) : 10 * 60 * 1000;
+            agentView.lastOpAt = Date.now();
+            startAgentViewIdleTick();
             try {
               if (typeof b.onOpenRequested === 'function') {
                 b.onOpenRequested(reservation.lease, (url) => { agentView.lastPopup = String(url || ''); });
@@ -1981,42 +1994,83 @@ window.__ModuleLoader__.load({
             return agentView;
           };
 
-          /** 应用布局：guest 视口 = 目标分辨率；展开时整体缩放到可用空间内（不遮挡太多 DSH）。 */
+          /** 应用布局：guest 视口 = 目标分辨率；**默认 100% 显示、不缩放**（用户 2026-10-10 要求），
+           * 超出窗口的部分由 stage 滚动查看；只有显式 fit:true 才缩放到可用空间。
+           * 边框：空闲=中性色（不显示青色、不暗示 Agent 在操作），Agent 操作中=青色（见 touchAgentView）。 */
           const applyAgentViewLayout = () => {
             const panel = agentView.panel;
             const frame = agentView.el;
             if (!panel || !frame) return null;
-            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '2K', dpr: null };
+            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '2K', dpr: null, fit: false };
             const res = agentViewResolvePreset(ui.preset);
             const dpr = Number(ui.dpr || res.dpr || 1) || 1;
             frame.style.width = `${res.w}px`;
             frame.style.height = `${res.h}px`;
             try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(dpr); } catch { /* 忽略 */ }
             const barH = 32;
-            const maxW = Math.max(320, Math.floor(window.innerWidth * 0.62));
-            const maxH = Math.max(240, Math.floor(window.innerHeight * 0.72) - barH);
             const expanded = ui.state === 'expanded';
-            const k = expanded ? Math.min(1, maxW / res.w, maxH / res.h) : 0;
-            const stageW = Math.round(res.w * k);
-            const stageH = Math.round(res.h * k);
+            const fit = ui.fit === true;
+            const maxW = Math.max(320, Math.floor(window.innerWidth) - 24);
+            const maxH = Math.max(240, Math.floor(window.innerHeight) - 24);
+            // 显示尺度：默认 1（100%）；fit 时才缩放到装得下
+            const k = (expanded && fit) ? Math.min(1, maxW / res.w, (maxH - barH) / res.h) : 1;
+            const panelW = Math.min(Math.round(res.w * k) + 16, maxW);
+            const panelH = Math.min(Math.round(res.h * k) + barH + 10, maxH);
+            const stageW = expanded ? panelW - 16 : 0;
+            const stageH = expanded ? panelH - barH - 10 : 0;
             if (agentView.stage) {
-              agentView.stage.style.width = `${expanded ? stageW : 0}px`;
-              agentView.stage.style.height = `${expanded ? stageH : 0}px`;
+              agentView.stage.style.width = `${stageW}px`;
+              agentView.stage.style.height = `${stageH}px`;
+              agentView.stage.style.overflow = 'auto'; // 100% 显示时装不下就滚动看
             }
             frame.style.transform = `scale(${expanded ? k : 0.0001})`;
-            panel.style.width = expanded ? `${Math.max(300, stageW + 16)}px` : '260px';
-            panel.style.height = expanded ? `${barH + stageH + 10}px` : `${barH + 12}px`;
+            panel.style.width = expanded ? `${panelW}px` : '260px';
+            panel.style.height = expanded ? `${panelH}px` : `${barH + 12}px`;
             panel.dataset.kitAgentViewState = ui.state;
             const badgeEl = panel.querySelector('[data-kit-agent-view-badge]');
-            if (badgeEl) badgeEl.textContent = `${res.w}×${res.h}${dpr !== 1 ? ` @${dpr}x` : ''}${expanded ? ` · ${Math.round(k * 100)}%` : ''}`;
+            if (badgeEl) badgeEl.textContent = `${res.w}×${res.h}${dpr !== 1 ? ` @${dpr}x` : ''} · ${Math.round(k * 100)}%${expanded && !fit && (res.w > stageW || res.h > stageH) ? '（可滚动）' : ''}`;
             const tgl = panel.querySelector('[data-kit-agent-view-toggle]');
             if (tgl) tgl.textContent = expanded ? '▾ 收起' : '▣ 展开';
             const sel = panel.querySelector('[data-kit-agent-view-preset]');
             if (sel && sel.value !== ui.preset && AGENT_VIEW_PRESETS[ui.preset]) sel.value = ui.preset;
             return {
-              state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr,
+              state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit,
               scale: Number(k.toFixed(3)), stageW, stageH,
             };
+          };
+
+          /* ── R-OWN 空闲/协作（2026-10-10 用户要求）──
+           * 「没有操作自持浏览器时，应该释放，让用户操作」+「边框不显示青色边框，可以用户协作」：
+           *  · 空闲（距上次 Agent 操作 > AGENT_VIEW_IDLE_MS）⇒ 边框回到中性色，窗口完全交给用户操作；
+           *  · Agent 每次操作（inputTargetOf 命中自持窗口）⇒ touchAgentView() 亮青色边框并续期；
+           *  · 空闲超过 idleReleaseMs（默认 10 分钟，可设 0 关闭）⇒ **自动释放租约并关闭窗口**，
+           *    把浏览器还给用户（分区共享意味着登录态不丢，重新 open 即回）。 */
+          const AGENT_VIEW_IDLE_MS = 4000;
+          const agentViewSetBorder = (active) => {
+            try {
+              if (!agentView.panel) return;
+              const want = active ? '2px solid #38bdf8' : `2px solid ${T.border}`;
+              if (agentView.panel.style.border !== want) agentView.panel.style.border = want;
+            } catch { /* 忽略 */ }
+          };
+          const touchAgentView = () => {
+            if (!agentViewWebview()) return;
+            agentView.lastOpAt = Date.now();
+            agentViewSetBorder(true);
+          };
+          const agentViewIdleTick = () => {
+            if (!agentViewWebview()) return;
+            const idle = Date.now() - (agentView.lastOpAt || 0);
+            if (idle > AGENT_VIEW_IDLE_MS) agentViewSetBorder(false); // 空闲：撤掉青色边框
+            const limit = Number(agentView.idleReleaseMs || 0);
+            if (limit > 0 && idle > limit) {
+              agentView.releasedForIdle = new Date().toISOString();
+              releaseAgentView(); // 空闲释放：窗口还给用户
+            }
+          };
+          const startAgentViewIdleTick = () => {
+            if (agentView.idleTimer) return;
+            agentView.idleTimer = trackInterval(setInterval(agentViewIdleTick, 1000));
           };
           /** 等自持视图的 webview 完成挂载（`dom-ready` / 拿到 webContentsId）——
            *  **没有这一步 `loadURL` 会报「must be attached to the DOM and dom-ready emitted」**（实测）。 */
@@ -2135,7 +2189,7 @@ window.__ModuleLoader__.load({
                 agentView.acquiredAt = agentView.acquiredAt || 'adopted-on-boot';
                 // 收养时恢复 UI 状态（stage 引用 + 形态/预设；老版本面板没有 stage 时留空，布局函数会容错）
                 try {
-                  agentView.stage = adopted.panel.querySelector('[data-kit-agent-view-stage]') || null;
+                  agentView.stage = adopted.panel.querySelector('[data-dsh-kit-agent-view-stage]') || null;
                   const sel = adopted.panel.querySelector('[data-kit-agent-view-preset]');
                   agentView.ui = {
                     state: adopted.panel.dataset.kitAgentViewState === 'expanded' ? 'expanded' : 'collapsed',
@@ -2173,12 +2227,14 @@ window.__ModuleLoader__.load({
             // R-SCOPE/R-OWN：target=agent 强制自持视图；target=session 强制本会话面板；
             // 缺省顺序 = **自持窗口优先**（用户要求：默认不碰他的窗口）→ 没有自持窗口才退回本会话面板。
             const want = c && c.target ? String(c.target) : null;
-            if (want === 'agent') return agentViewWebview();
+            if (want === 'agent') { touchAgentView(); return agentViewWebview(); }
             const els = scopedWebviews(c && c.sessionId);
             const idx = Number(c && c.tab);
             const fromSession = (Number.isFinite(idx) && els[idx]) || els.find(captureVisible) || els[0] || null;
             if (want === 'session') return fromSession;
-            return agentViewWebview() || fromSession;
+            const av = agentViewWebview();
+            if (av) { touchAgentView(); return av; } // 命中自持窗口 ⇒ 续期「Agent 操作中」（亮边框 + 推迟空闲释放）
+            return fromSession;
           };
           const inputZoom = (el) => {
             try { const z = typeof el.getZoomFactor === 'function' ? Number(el.getZoomFactor()) : 1; return Number.isFinite(z) && z > 0 ? z : 1; } catch { return 1; }
@@ -2978,6 +3034,12 @@ window.__ModuleLoader__.load({
                 return {
                   ok: true, op, ...agentViewStatus(), rect: agentViewRect(), layout: layoutInfo(),
                   carrier: !!agentViewCarrier(), boot: agentView.boot || null, openErr: agentView.openErr || null,
+                  activity: {
+                    operating: !!(agentView.lastOpAt && Date.now() - agentView.lastOpAt <= AGENT_VIEW_IDLE_MS),
+                    idleMs: agentView.lastOpAt ? Date.now() - agentView.lastOpAt : null,
+                    idleReleaseMs: agentView.idleReleaseMs,
+                    releasedForIdle: agentView.releasedForIdle,
+                  },
                   presets: Object.keys(AGENT_VIEW_PRESETS).map((k) => AGENT_VIEW_PRESETS[k].label),
                   sidebarPartitions: sidebarPartitions(),
                 };
@@ -2985,15 +3047,17 @@ window.__ModuleLoader__.load({
               if (op === 'close') return { ok: true, op, ...releaseAgentView(), ...agentViewStatus() };
               if (op === 'open') {
                 try {
+                  if (c && c.idleReleaseMs == null) { /* 保持默认 10 分钟 */ }
                   await ensureAgentView(c || {});
                   if (c && c.url) await navigateAgentView(String(c.url), c);
+                  touchAgentView();
                   return { ok: true, op, ...agentViewStatus(), rect: agentViewRect(), layout: layoutInfo() };
                 } catch (e) { agentView.openErr = msgOf(e); return { ok: false, op, error: msgOf(e) }; }
               }
               if (op === 'navigate') {
                 const url = String((c && c.url) || '');
                 if (!url) return { ok: false, op, error: '需要 url' };
-                try { return { ok: true, op, ...(await navigateAgentView(url, c)) }; }
+                try { const r = await navigateAgentView(url, c); touchAgentView(); return { ok: true, op, ...r }; }
                 catch (e) { return { ok: false, op, error: msgOf(e) }; }
               }
               if (op === 'expand' || op === 'collapse' || op === 'toggle') {
@@ -3003,13 +3067,29 @@ window.__ModuleLoader__.load({
                 agentView.ui = { ...(agentView.ui || {}), state: next };
                 return { ok: true, op, ...agentViewStatus(), layout: layoutInfo(), rect: agentViewRect() };
               }
+              if (op === 'fit') {
+                // 显示尺度：默认 100%（不缩放）；fit:true 缩放到装得下（兼容旧行为）
+                if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
+                agentView.ui = { ...(agentView.ui || {}), fit: c && c.fit !== false };
+                return { ok: true, op, fit: agentView.ui.fit, layout: layoutInfo(), rect: agentViewRect() };
+              }
               if (op === 'resolution') {
                 if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
                 const want = String((c && c.resolution) || '');
                 if (!want) return { ok: false, op, error: '需要 resolution（预设名如 2K/4K/1080p/iPhone 15 Pro，或自定义如 1440x900）', presets: Object.keys(AGENT_VIEW_PRESETS) };
-                agentView.ui = { ...(agentView.ui || {}), preset: want, dpr: c && c.dpr != null ? Number(c.dpr) : null };
+                agentView.ui = {
+                  ...(agentView.ui || {}),
+                  preset: want,
+                  dpr: c && c.dpr != null ? Number(c.dpr) : null,
+                  fit: c && c.fit != null ? c.fit === true : (agentView.ui && agentView.ui.fit) === true,
+                };
                 const st = agentViewStatus();
                 return { ok: true, op, resolution: st.resolution, preset: st.preset, dpr: st.dpr, layout: layoutInfo(), rect: agentViewRect() };
+              }
+              if (op === 'idle') {
+                // 空闲释放策略（毫秒；0 = 不自动释放）
+                if (c && c.idleReleaseMs != null) agentView.idleReleaseMs = Math.max(0, Number(c.idleReleaseMs));
+                return { ok: true, op, idleReleaseMs: agentView.idleReleaseMs, releasedForIdle: agentView.releasedForIdle };
               }
               if (op === 'screenshot') {
                 // R-OWN：**把自持窗口当前画面截下来**（供 Agent 视觉分析/布局复刻）——复用截图护栏

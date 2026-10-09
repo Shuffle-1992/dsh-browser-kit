@@ -23,7 +23,12 @@
 11. **P2 深化（2026-10-10）**：`browser_storage`（localStorage/sessionStorage/cookie 的 get/set/remove/clear；HttpOnly cookie 需 CDP 故不可见）、`browser_upload`（DOM+DataTransfer 注入 `File` 到 `<input type=file>`，等价 CDP 的 `DOM.setFileInputFiles`，上限 4MB）、`browser_find`（**省 token**：按关键词在 elements/text/links 三种模式下只回匹配项，命中元素带 ref 可直接点击）。合计 **25 个 `browser_*` 工具**。仍需 DSH 宿主能力的项（下载观测 `will-download`、整页截图 `Page.captureScreenshot`、独立浏览器视图租约）已在评估文档 §8 列明。
 12. **Agent 自持浏览器窗口（R-OWN，2026-10-10 实测打通）**：用 `dshDesktop.browser.acquire(storageIdentity)` 拿**自己的租约**、自建 `<webview>`（`name=<lease>` + `partition`）挂在右下角小窗里——**不占任何会话、不碰用户侧栏**，后台会话也能持续自动化。
     - **登录态复用（默认）**：storage identity 按官方公式 `cwd:<workspace.path>` 自动探测（工具层从 `exec.agent.session.header.cwd` 取路径，用 `acquire(候选).partition` 与侧栏 webview 的 partition **逐字比对**验证），命中即**与侧栏窗口同分区 ⇒ 共享 cookie（含 HttpOnly）/localStorage，免登录直接测**；传 `storageIdentity:'dsh-browser-kit:agent-view'` 可改用独立干净分区。
-    - **多分辨率**：预设同 Chrome DevTools 设备模式（默认 **2K 2560×1440**，另有 4K/1080p/1440×900/1280×720/iPad Pro/iPad mini/iPhone 15 Pro/iPhone 15 Pro Max/Pixel 7/Galaxy S20）与自定义 `WxH`，可带 `dpr`；guest 视口=目标分辨率，**显示靠 transform 缩放**（200% 缩放也不改布局视口），展开时自动缩放到可用空间的 62%×72% 以内避免遮挡 DSH。
+    - **多分辨率**：预设同 Chrome DevTools 设备模式（默认 **2K 2560×1440**，另有 4K/1080p/1440×900/1280×720/iPad Pro/iPad mini/iPhone 15 Pro/iPhone 15 Pro Max/Pixel 7/Galaxy S20）与自定义 `WxH`，可带 `dpr`。
+    - **100% 显示、不缩放（默认）**：guest 视口=目标分辨率且**按 1:1 显示**（装不下由窗口内滚动查看）；
+      需要缩到窗口内看得全时用 `op:'fit', fit:true`。
+    - **空闲即让给用户（协作）**：Agent 操作中窗口边框为青色，**空闲 4 秒后回到中性边框**（不暗示占用）；
+      默认**空闲 10 分钟无 Agent 操作即自动释放窗口**（`op:'idle'` + `idleReleaseMs` 可调，0=不释放），
+      期间用户可随时手动操作该窗口（点击/滚动/输入都可用，Agent 操作完也会把焦点还回去）——**人机协作同一窗口**。
     - **小窗形态**：默认右下角 **260×44** 小窗（不遮挡 DSH），点顶部条或 `op:expand` 展开、再点收起；`op:resolution` 换分辨率。
     - **截图供视觉分析**：`browser_agent_window {op:'screenshot'}`（或 `browser_screenshot {target:'agent'}`）把当前窗口画面落盘（实测 2K 下 2560×1440 / 1.37MB），再用 `read_image` 做视觉鉴定或布局复刻。
     - 页面级工具统一带 `target: agent|session`，**缺省自持窗口优先**（用户要求：默认不碰他的窗口），没有自持窗口才退回本会话面板。

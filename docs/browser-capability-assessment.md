@@ -271,6 +271,20 @@ URL + 刷新/关闭按钮，`resize:both`）→ 全部页面级工具都能drive
 隔离、不可能跨窗口共享**——若某站点把登录令牌只放在 sessionStorage，就需要额外做「会话交接」（读源窗口的
 sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，可按需补。
 
+### 3.9.3 R-OWN v3：100% 显示 / 空闲释放 / 中性边框与协作（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| **默认 100% 不缩放** | guest 视口=目标分辨率且按 1:1 显示（`fit` 默认 false）；装不下由 **stage 滚动**查看；`op:'fit', fit:true` 才缩放到窗口内 | `layout {fit:false, scale:1}`；frame 2560×1440；展开后面板 2536×1376@(8,8)、stage 2520×1334 可滚 |
+| **空闲释放、让用户操作** | 距上次 Agent 操作 >4s ⇒ 边框回中性色；> `idleReleaseMs`（默认 **10 分钟**，`op:'idle'` 可调，0=不释放）⇒ **自动释放租约并关闭窗口** | 阈值设 6s 后实测：`open:false` + `releasedForIdle` 时间戳，DOM 0 面板/0 自持 webview |
+| **不显示青色边框** | 默认边框 = 主题中性色 `rgba(255,255,255,.12)`；**仅 Agent 操作后 4 秒内**为青色 `#38bdf8` | 操作刚结束：`2px rgb(56,189,248)`；空闲 6s：`2px rgba(255,255,255,0.12)` |
+| **人机协作同一窗口** | 用户可随时点击/滚动/输入（无遮罩、无 pointer-events 封锁）；Agent 操作前短暂取焦点、**60ms 后归还**；窗口默认小窗不遮挡 | 与 R-SCOPE 的输入守卫/焦点归还共用同一套机制 |
+
+**顺带修掉一个静默大 bug（已记 P54）**：面板/舞台/webview 的标记属性用 `dataset.camelCase` 生成的是
+`data-kit-agent-view*`（无 `dsh-`），而收养/清理的选择器写的是 `[data-dsh-kit-agent-view*]` ⇒ **永远匹配不上**，
+历史面板（连同租约）一直堆积（实测堆了 3 个），清理逻辑还一直报「无需清理」。改为统一显式
+`setAttribute('data-dsh-kit-…')` 后：`panels/frames/stages` 各为 1，`cleanup` 首次正确报 `adopted:true`。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

@@ -247,13 +247,14 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /'iPhone 15 Pro': \{ w: 393, h: 852, dpr: 3/);
     assert.match(clientSource, /const agentViewResolvePreset = \(spec\) => \{/);
     assert.match(clientSource, /\^\(\\d\{2,5\}\)\\s\*\[x×\]\\s\*\(\\d\{2,5\}\)\$/); // 自定义 WxH
-    // ②guest 视口=目标分辨率，显示靠 transform 缩放（不改视口）
+    // ②guest 视口=目标分辨率；**默认 100% 显示不缩放**（用户 2026-10-10 要求），仅 fit:true 才缩放
     assert.match(clientSource, /frame\.style\.width = `\$\{res\.w\}px`;/);
-    assert.match(clientSource, /frame\.style\.transform = `scale\(\$\{expanded \? k : 0\.0001\}\)`;/);
-    assert.match(clientSource, /const k = expanded \? Math\.min\(1, maxW \/ res\.w, maxH \/ res\.h\) : 0;/);
+    assert.match(clientSource, /const k = \(expanded && fit\) \? Math\.min\(1, maxW \/ res\.w, \(maxH - barH\) \/ res\.h\) : 1;/);
+    assert.match(clientSource, /agentView\.stage\.style\.overflow = 'auto'; \/\/ 100% 显示时装不下就滚动看/);
+    assert.match(clientSource, /if \(op === 'fit'\) \{/);
     // ③默认右下角小窗（收起），点顶部条/按钮展开
     assert.match(clientSource, /state: \(opts && opts\.state === 'expanded'\) \? 'expanded' : 'collapsed',/);
-    assert.match(clientSource, /panel\.style\.height = expanded \? `\$\{barH \+ stageH \+ 10\}px` : `\$\{barH \+ 12\}px`;/);
+    assert.match(clientSource, /panel\.style\.height = expanded \? `\$\{panelH\}px` : `\$\{barH \+ 12\}px`;/);
     assert.match(clientSource, /head\.addEventListener\('click', \(\) => \{/);
     // ④登录态复用：官方身份公式 cwd:<workspace.path> + 用 partition 比对验证
     assert.match(clientSource, /const discoverStorageIdentity = async \(sessionId, workspacePath\) => \{/);
@@ -266,8 +267,16 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // ⑥自持窗口截图（供视觉分析）
     assert.match(clientSource, /if \(op === 'screenshot'\) \{/);
     assert.match(clientSource, /const r = await captureShot\(\{ target: 'agent' \}\);/);
-    // ⑦默认作用目标翻转为「自持窗口优先」
-    assert.match(clientSource, /return agentViewWebview\(\) \|\| fromSession;/);
+    // ⑦默认作用目标翻转为「自持窗口优先」+ 命中即续期「操作中」
+    assert.match(clientSource, /if \(av\) \{ touchAgentView\(\); return av; \}/);
+    // ⑧空闲即「让给用户」：边框回中性色 + 可配空闲自动释放（默认 10 分钟）
+    assert.match(clientSource, /border:2px solid \$\{T\.border\};box-shadow/);
+    assert.match(clientSource, /const agentViewSetBorder = \(active\) => \{/);
+    assert.match(clientSource, /const want = active \? '2px solid #38bdf8' : `2px solid \$\{T\.border\}`;/);
+    assert.match(clientSource, /if \(idle > AGENT_VIEW_IDLE_MS\) agentViewSetBorder\(false\); \/\/ 空闲：撤掉青色边框/);
+    assert.match(clientSource, /agentView\.idleReleaseMs = opts && opts\.idleReleaseMs != null \? Math\.max\(0, Number\(opts\.idleReleaseMs\)\) : 10 \* 60 \* 1000;/);
+    assert.match(clientSource, /agentView\.releasedForIdle = new Date\(\)\.toISOString\(\);/);
+    assert.match(clientSource, /if \(op === 'idle'\) \{/);
   });
 
   await t.test("R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）", () => {

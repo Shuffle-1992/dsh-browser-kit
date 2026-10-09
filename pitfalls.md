@@ -306,3 +306,15 @@
   不能凭「键名相同 / 值相同 / 都为空」下结论。
 - **副作用提醒**：独立分区意味着**自持窗口默认不带用户登录态**（要登录态就用会话窗口，或把
   `storageIdentity` 设成与 workspace 相同的身份——后者尚未探明 workspace key 的确切形式）。
+### P54 `dataset.x` 生成的属性名 ≠ 手写选择器：孤儿元素静默堆积
+- **现象**：自持浏览器窗口反复开关后，DOM 里堆了 **3 个面板**；更早的「孤儿收养/清理」逻辑每次都报
+  `adopted:false / removed:0`，看起来「没有残留」。
+- **根因**：创建时写的是 `panel.dataset.kitAgentViewPanel = ''`（⇒ 属性名 **`data-kit-agent-view-panel`**，
+  无 `dsh-`），而选择器写的是 `querySelector('[data-dsh-kit-agent-view-panel]')` —— **永远匹配不上**；
+  同理 `frame.dataset.kitAgentView` 与 `webview[data-dsh-kit-agent-view]`。于是清理逻辑形同虚设、
+  孤儿面板（连同其租约）一直累积。
+- **对策**：凡是「创建时打标记、别处按选择器找」的属性，**统一用显式 `setAttribute('data-dsh-kit-…')`**
+  （与 `data-dsh-kit-ui`/`data-dsh-kit-ref` 同一命名约定），不要混用 `dataset.camelCase` 生成名；
+  改完用一句 DOM 查询自证「panels/frames/stages 各为 1」。
+- **判据**：清理/收养类逻辑长期报「没有可清理的」，但现场确实有残留 ⇒ **先验证选择器能命中**
+  （打印 `querySelectorAll(...).length`），再怀疑逻辑。
