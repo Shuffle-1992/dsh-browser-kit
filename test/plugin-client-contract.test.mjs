@@ -336,12 +336,35 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /data-dsh-kit-agent-tabstrip/);
     assert.match(clientSource, /const addr = document\.createElement\('input'\);/);
     assert.match(clientSource, /if \(ev\.key === 'Enter'\) \{ ev\.preventDefault\(\); goAddr\(\); \}/);
-    assert.match(clientSource, /const annotBtn = mkBtn\('', '批注（当前自持窗口；与会话浏览器共用同一批注）'/);
+    assert.match(clientSource, /const annotBtn = mkBtn\('', '批注总开关（当前窗口\/全部窗口同步，与会话浏览器共用同一批注）'/);
     assert.match(clientSource, /const r = await togglePaneAnnot\(el2\);/);
     assert.match(clientSource, /if \(op === 'tab-new'\) \{/);
     assert.match(clientSource, /if \(op === 'tab-close'\) \{/);
     assert.match(clientSource, /if \(op === 'tab-select'\) \{/);
+    assert.match(clientSource, /const paneOwnerLabel = \(pane\) => \{/);
     assert.match(clientSource, /if \(op === 'annotate'\) \{/);
+    // ⑰R-OWN v11：批注=会话级总开关（图标不再闪）+ 窗口归属标注
+    assert.match(clientSource, /if \(st && st.active\) return endAnnotSession\(target\);/);
+    assert.match(clientSource, /const endAnnotSession = async \(target\) => \{/);
+    assert.match(clientSource, /const sessionOn = !!\(stateRef\.annot && stateRef\.annot\.active\);/);
+    assert.match(clientSource, /\/\/ R-OWN v11：立即拉齐其余窗口（不等 2s tick）/);
+    assert.match(clientSource, /if \(stateRef\.annot && stateRef\.annot\.active\) await joinPane\(frame\);/);
+    assert.match(clientSource, /kind: 'owned',/);
+    assert.match(clientSource, /label: `自持浏览器 \$\{tab\.id\}/);
+    assert.match(clientSource, /label: `DSH 浏览器窗口 \$\{idx \|\| 1\}（会话 \$\{String\(sid\)\.slice\(-6\)\}）`/);
+    assert.match(clientSource, /annotations: lst\.map\(\(a\) => Object\.assign\(\{\}, a, \{ window: owner\.label, windowKind: owner\.kind \}\)\)/);
+    assert.match(clientSource, /window: String\(\(a && a\.window\) \|\| \(s && s\.owner\) \|\| ''\),/);
+    // ⑱R-OWN v11b：实例围栏 + 属性驱动点亮（修"图标一闪一闪"：僵尸实例抢写内联样式）
+    assert.match(clientSource, /const claimClientInstance = \(bootAt\) => \{/);
+    assert.match(clientSource, /const isLiveInstance = \(bootAt\) => \{/);
+    assert.match(clientSource, /if \(!isLiveInstance\(stateRef\.clientBootAt\)\) return; \/\/ 实例围栏（旧实例停止一切 DOM 操作）/);
+    assert.match(clientSource, /if \(!isLiveInstance\(stateRef\.clientBootAt\)\) return;$/m);
+    assert.match(clientSource, /const ANNOT_ON_STYLE_ID = 'dsh-kit-annot-on-style';/);
+    assert.match(clientSource, /const applyAnnotBtnState = \(stateRef2\) => \{/);
+    assert.match(clientSource, /b\.setAttribute\('data-kit-annot-on', '1'\)/);
+    assert.match(clientSource, /background:\$\{TOOLBAR_ACCENT\} !important;color:\$\{TOOLBAR_ACCENT_TEXT\} !important;/);
+    // ⑲R-OWN v11b：归属识别用 closest（P61：手写层数不够会静默失配）
+    assert.match(clientSource, /host = pane\.closest \? pane\.closest\('\[data-sidebar-right-session\]'\) : null;/);
     assert.match(clientSource, /const OWN_ICON_SVG = /);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true \},/);
     assert.match(clientSource, /const openUrlInAgentView = async \(url, opts = \{\}\) => \{/);

@@ -385,6 +385,18 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 且 `agentViewWebview()` **只返回活动窗口**——刻意避免对隐藏 surface 调 `capturePage`（P47-B 高危：隐藏/零尺寸面板
 截图会挂死或崩宿主）。实测 2 个窗口时 `frames:2 / visibleFrames:1` ✓。
 
+### 3.9.11 R-OWN v11：批注=会话级总开关 / 跨窗口归属标注（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| 批注图标蓝底**一闪一闪**要修 | ①**实例围栏**：热重载遗留的旧客户端实例停止一切 DOM 周期任务（`__dshKitLiveInstance` + `clientBootAt` 单调比较）；②点亮改为**属性 + `!important` CSS**（只切 `data-kit-annot-on`，内联被后写也压不掉） | 一次点击后 `ON/ON`，**8s 采样变化次数 = 0** ✓（修前为 off/ON 反复，实测 2~4 次变化） |
+| 两处浏览器批注**同步开/关** | `togglePaneAnnot` 改为**会话级总开关**：开 → 本窗口为首个成员并**立即拉齐所有窗口**（侧栏各面板 + 自持各标签，不等 2s tick）；关 → `endAnnotSession()` 对所有成员 `stop+clearAll` 并复位 | 点一次：`active:true`、两处按钮同时亮、成员含两类窗口；再点一次：`active:false`、两处同时灭 ✓ |
+| 跨所有窗口**编号延续** | 编号下限机制不变（`joinFloorIndex(sessionMaxIndex())`：新成员从全局最大号续编）；自持窗口现在与侧栏窗口**同处一个成员表**，且新开窗口立即 `joinPane` ⇒ 同一编号空间 | 契约钉子（P25 成员先入册 / P26 下限不双加）持续通过；`annotator-status` 显示两类成员同表 ✓ |
+| Agent 能分清批注属于**哪个窗口** | 新增 `paneOwnerLabel()`：自持 → `自持浏览器 tab2 · Example Domain`；侧栏 → `DSH 浏览器窗口 1（会话 bae5fc）`（`closest('[data-sidebar-right-session]')`，修掉 P61 的层数失配）。落盘时逐条 `{...a, window, windowKind}`，并在协议里输出 `Window:` 行；摘要（胶囊 hover）同步带 `window` | `buildAnnotationsMarkdown` 实测输出 `Window: DSH 浏览器窗口 1（会话 bae5fc）` / `Window: 自持浏览器 tab2 · Example Domain` ✓ |
+
+**两个新坑**：**P60**（僵尸实例抢写 DOM + 内联样式无仲裁权 ⇒ 用属性/类 + `!important` 并加实例围栏）、
+**P61**（祖先匹配要用 `closest`，手写层数不够会静默失配）。
+
 **收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
 丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
 

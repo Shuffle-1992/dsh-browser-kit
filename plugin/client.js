@@ -129,6 +129,61 @@ window.__ModuleLoader__.load({
     };
     const STYLE_ID = 'dsh-browser-kit-probe-style';
 
+    /* ── 批注图标点亮：**属性 + !important CSS**（R-OWN v11，★实测必需）──
+     * 先前用内联 `style.background` 点亮，但内联天生"谁后写谁赢"：热重载遗留实例 / DSH 重渲染
+     * 都可能在其后把内联清成 transparent ⇒ 图标一闪一闪（实测：活实例写值回执是 rgb(37,99,235)，
+     * 读回却是 transparent）。改为只切一个属性，样式由 !important 规则决定 —— 谁也压不掉。 */
+    const ANNOT_ON_STYLE_ID = 'dsh-kit-annot-on-style';
+    const ensureAnnotOnStyle = () => {
+      try {
+        if (document.getElementById(ANNOT_ON_STYLE_ID)) return;
+        const el = document.createElement('style');
+        el.id = ANNOT_ON_STYLE_ID;
+        el.textContent = '#dsh-kit-toolbar-btn[data-kit-annot-on="1"],[data-dsh-kit-agent-view-annot][data-kit-annot-on="1"]'
+          + `{background:${TOOLBAR_ACCENT} !important;color:${TOOLBAR_ACCENT_TEXT} !important;`
+          + 'box-shadow:0 0 0 1px rgba(255,255,255,0.35) inset !important;}';
+        (document.head || document.documentElement).appendChild(el);
+      } catch { /* 忽略 */ }
+    };
+    /** 按会话状态点亮/熄灭所有批注图标（属性驱动，见上；由 tick/点击/创建三处调用）。 */
+    const applyAnnotBtnState = (stateRef2) => {
+      try {
+        ensureAnnotOnStyle();
+        const ref = stateRef2 || (typeof stateRef !== 'undefined' ? stateRef : null);
+        const on = !!(ref && ref.annot && ref.annot.active);
+        const list = document.querySelectorAll('#dsh-kit-toolbar-btn,[data-dsh-kit-agent-view-annot]');
+        for (const b of Array.from(list)) {
+          if (on) b.setAttribute('data-kit-annot-on', '1');
+          else b.removeAttribute('data-kit-annot-on');
+        }
+        if (ref) { try { ref.annotBtnAt = new Date().toISOString(); } catch { /* 忽略 */ } }
+      } catch { /* 忽略 */ }
+    };
+
+    /* ── 实例围栏（R-OWN v11，★实测必需）──
+     * 客户端热重载会留下**旧实例仍在跑定时器**：新旧实例各自 2s 写同一个工具条按钮，
+     * 新实例按"会话活跃"写蓝色、旧实例按自己的空状态写透明 ⇒ 用户看到图标**一闪一闪**
+     * （实测定位：`styleTickCount` 在涨、`styleTickBtnCount=1`，但内联值被反复覆盖成 transparent）。
+     * 故：全局登记"当前活跃实例"，只有它允许操作 DOM / 周期任务；旧实例一律提前退出。 */
+    const claimClientInstance = (bootAt) => {
+      try {
+        const mine = String(bootAt || '');
+        const cur = globalThis.__dshKitLiveInstance || null;
+        if (!cur || String(cur.bootAt || '') <= mine) {
+          globalThis.__dshKitLiveInstance = { bootAt: mine, at: new Date().toISOString() };
+          return true;
+        }
+        return false;
+      } catch { return true; }
+    };
+    const isLiveInstance = (bootAt) => {
+      try {
+        const cur = globalThis.__dshKitLiveInstance;
+        if (!cur) return true;
+        return String(cur.bootAt || '') === String(bootAt || '');
+      } catch { return true; }
+    };
+
     const say = (level, text) => {
       try {
         console[level === 'info' ? 'info' : level](`${LOG_PREFIX} ${text}`);
@@ -557,6 +612,7 @@ window.__ModuleLoader__.load({
             sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按归属行补挂）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
+            liveInstance: true, // 由 claimClientInstance 在启动时裁定（旧实例会置 false 并停止周期任务）
             agentGlow: { until: 0, label: '', count: 0, sticky: false, timer: 0, sessionId: null }, // Agent 操作光效（见 ensureAgentGlow 注释块）
             panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
@@ -572,6 +628,14 @@ window.__ModuleLoader__.load({
            * 五个 setInterval 此前漏挂） ---- */
           const trackedIntervals = [];
           const trackInterval = (id) => { trackedIntervals.push(id); return id; };
+          /* 实例围栏裁定：启动时登记"谁是活跃实例"。旧实例（客户端热重载留下的僵尸）保持 false，
+           * 其 2s tick / 1s 空闲 tick 会立即提前退出 —— 这是「批注图标一闪一闪」的根治手段：
+           * 新旧实例原本各自 2s 写同一个按钮（活实例写蓝、僵尸写透明）⇒ 肉眼看到闪烁。 */
+          stateRef.liveInstance = claimClientInstance(stateRef.clientBootAt);
+          if (!stateRef.liveInstance) {
+            say('warn', '检测到更新的插件客户端实例：本实例停止 DOM 操作，避免双写/闪烁（正常现象，见实例围栏）');
+          }
+          stateRef.isLiveInstance = () => isLiveInstance(stateRef.clientBootAt);
           try {
             if (typeof ctx?.effect === 'function') {
               ctx.effect(() => {
@@ -632,6 +696,12 @@ window.__ModuleLoader__.load({
             findings.gui = {
               clientBootAt: stateRef.clientBootAt,
               toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
+              tickAt: stateRef.tickAt || null, // 2s tick 心跳（诊断：tick 卡死时该字段会停更）
+              styleTickCount: stateRef.styleTickCount || 0,
+              styleTickBtnCount: typeof stateRef.styleTickBtnCount === 'number' ? stateRef.styleTickBtnCount : null,
+              styleTickWrite: stateRef.styleTickWrite || null,
+              liveInstanceBootAt: (globalThis.__dshKitLiveInstance && globalThis.__dshKitLiveInstance.bootAt) || null,
+              annotActive: !!(stateRef.annot && stateRef.annot.active),
               panelRootInDom: !!document.getElementById('dsh-kit-panel'),
               remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
               annotActive: !!(stateRef.annot && stateRef.annot.active),
@@ -1403,6 +1473,42 @@ window.__ModuleLoader__.load({
           //   不写删除日志，1.5s 同步圈会从其他窗口把成员批注推回——单次消耗改造后由
           //   sessionSettled 的逐面板 stop+clearAll + syncPanes 广播取代，见上）
 
+          /** R-OWN v11：判断某个 guest 属于**哪个窗口**——批注落盘时逐条标注来源，
+           *  让 Agent 能分清"DSH 自带浏览器的哪个窗口"与"自持浏览器的哪个窗口"。 */
+          const paneOwnerLabel = (pane) => {
+            try {
+              const tabs = (typeof agentView !== 'undefined' && agentView && agentView.tabs) ? agentView.tabs : [];
+              const tab = tabs.find((t) => t.el === pane);
+              if (tab) {
+                let title = tab.title || null;
+                let url = tab.url || null;
+                try { if (tab.el && tab.el.getTitle) title = tab.el.getTitle() || title; } catch { /* 忽略 */ }
+                try { if (tab.el && tab.el.getURL) url = tab.el.getURL() || url; } catch { /* 忽略 */ }
+                return {
+                  kind: 'owned',
+                  label: `自持浏览器 ${tab.id}${title ? ` · ${String(title).slice(0, 24)}` : ''}`,
+                  tabId: tab.id, url, title,
+                };
+              }
+              // DSH 侧栏窗口：用 closest 精确上溯（先前手写 8 层循环取不到 → 标签成"未知窗口"）
+              let host = null;
+              try { host = pane.closest ? pane.closest('[data-sidebar-right-session]') : null; } catch { host = null; }
+              if (!host) {
+                let node = pane;
+                for (let i = 0; i < 20 && node; i += 1, node = node.parentElement) {
+                  if (node.getAttribute && node.getAttribute('data-sidebar-right-session')) { host = node; break; }
+                }
+              }
+              if (host) {
+                const sid = host.getAttribute('data-sidebar-right-session');
+                const all = Array.from(document.querySelectorAll(`[data-sidebar-right-session="${sid}"] webview`));
+                const idx = all.indexOf(pane) + 1;
+                return { kind: 'session', label: `DSH 浏览器窗口 ${idx || 1}（会话 ${String(sid).slice(-6)}）`, sessionId: sid, paneIndex: idx || 1 };
+              }
+            } catch { /* 忽略 */ }
+            return { kind: 'unknown', label: '未知窗口' };
+          };
+
           /** 收集全部成员批注 → host saveMerged 合并落盘。 */
           const mergeAndSave = async () => {
             const svc = await waitSvc();
@@ -1417,7 +1523,17 @@ window.__ModuleLoader__.load({
                 try {
                   meta = metaOf(await p.executeJavaScript(GUEST_META_JS, true));
                 } catch { /* 元数据失败不拦合并 */ }
-                if (lst.length > 0) sets.push({ url: (meta && meta.url) || null, title: (meta && meta.title) || null, annotations: lst });
+                if (lst.length > 0) {
+                  // R-OWN v11：逐条标注**来源窗口**（Agent 据此分辨是哪个浏览器窗口的元素）
+                  const owner = paneOwnerLabel(p);
+                  sets.push({
+                    url: (meta && meta.url) || null,
+                    title: (meta && meta.title) || null,
+                    owner: owner.label,
+                    ownerKind: owner.kind,
+                    annotations: lst.map((a) => Object.assign({}, a, { window: owner.label, windowKind: owner.kind })),
+                  });
+                }
               } catch { /* 成员不可达：跳过 */ }
             }
             if (sets.length === 0) return { ok: false, error: '无可提交批注' };
@@ -1440,6 +1556,7 @@ window.__ModuleLoader__.load({
                     selector: String((a && a.element && a.element.selector) || ''),
                     text: String((a && a.element && a.element.text) || (a && a.element && a.element.accessibleName) || '').slice(0, 60),
                     url: (s && s.url) || null,
+                    window: String((a && a.window) || (s && s.owner) || ''),
                   });
                 }
               }
@@ -1476,35 +1593,49 @@ window.__ModuleLoader__.load({
             return live.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.stop ? window.__dshKitAnnotator.stop() : undefined)', true);
           };
 
-          /** 图标/菜单开关语义：会话未开 → 开会话（本窗口首个成员，其余窗口自动加入）；
-           *  会话已开 → 本窗口已参与则退出 / 未参与则（重新）加入。最后一个退出 = 会话结束。 */
+          /** 图标/菜单开关语义（R-OWN v11：**会话级总开关**）：
+           *  · 会话未开 → 开会话（本窗口为首个成员，**立即把其余所有窗口拉进来**：侧栏各面板 + 自持各标签）；
+           *  · 会话已开 → **整个会话关闭**（所有成员 stop+clearAll，st.active=false）。
+           *  为什么改成会话级：先前按"单窗口成员身份"点亮图标，成员表会因 settle/自愈重注入而变动，
+           *  图标随之亮灭闪烁（用户实测反馈）；且用户要的是"两处浏览器同步开关"。 */
           const togglePaneAnnot = async (targetEl) => {
             const target = targetEl || pickGuestEl();
             const st = stateRef.annot;
-            if (st && st.active) {
-              const tid = paneIdOf(target);
-              if (st.panes.some((p) => paneIdOf(p) === tid)) {
-                await leavePane(target);
-                st.panes = st.panes.filter((p) => paneIdOf(p) !== tid);
-                if (st.panes.length === 0) {
-                  st.active = false;
-                  if (st.leftIds) st.leftIds.clear();
-                }
-                return { ok: true, left: true };
-              }
-              if (st.leftIds && st.leftIds.has(paneIdOf(target))) st.leftIds.delete(paneIdOf(target));
-              await joinPane(target);
-              return { ok: true, joined: true };
-            }
-            // 新会话：点击者为其首个成员；其余窗口由自动加入在数秒内拉齐
+            if (st && st.active) return endAnnotSession(target);
+            // 新会话：点击者为其首个成员
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
             stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: convoTitle(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
             startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
+            // R-OWN v11：立即拉齐其余窗口（不等 2s tick）——侧栏各面板 + 自持各标签，编号延续
+            try {
+              for (const wv of Array.from(document.querySelectorAll('webview'))) {
+                if (!wv.isConnected) continue;
+                if (paneIdOf(wv) === paneIdOf(target)) continue;
+                if (stateRef.annot.panes.some((p) => paneIdOf(p) === paneIdOf(wv))) continue;
+                try { await joinPane(wv); } catch { /* 页面未就绪：tick 会再试 */ }
+              }
+            } catch { /* 忽略 */ }
             runSessionLoop();
-            say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标退出/重进本窗口）');
-            return { ok: true, started: true };
+            say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标=总开关）');
+            return { ok: true, started: true, sessionActive: true, panes: stateRef.annot.panes.length };
+          };
+
+          /** 结束共享批注会话（**所有窗口**一起停并清空），并把状态复位。 */
+          const endAnnotSession = async (target) => {
+            const st = stateRef.annot;
+            const paneIds = (st && st.panes) ? st.panes.slice() : [];
+            if (target) paneIds.push(target);
+            for (const p of paneIds) {
+              try {
+                await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+              } catch { /* 面板已关闭等：忽略 */ }
+            }
+            try { await syncPanes(); } catch { /* 广播删除日志失败：后续自愈 */ }
+            stateRef.annot = { active: false, panes: [], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: null, startedAt: null, lastSaved: (st && st.lastSaved) || null, error: null };
+            say('info', '共享批注会话已关闭（所有窗口同步停止）');
+            return { ok: true, ended: true, sessionActive: false };
           };
 
           /** 会话主循环：等任一成员 settle（提交/退出）并收尾。 */
@@ -2073,14 +2204,16 @@ window.__ModuleLoader__.load({
             shootBtn.innerHTML = SHOT_ICON_SVG;
             // ④批注（R-OWN v8）：把**当前自持窗口**加入共享批注成员表——与会话浏览器**共用同一批注**
             //   图标与 DSH 浏览器的批注图标一致（同一枚 ANNOT_ICON_SVG）
-            const annotBtn = mkBtn('', '批注（当前自持窗口；与会话浏览器共用同一批注）', async () => {
+            const annotBtn = mkBtn('', '批注总开关（当前窗口/全部窗口同步，与会话浏览器共用同一批注）', async () => {
               try {
                 const el2 = agentViewWebview();
                 if (!el2) { agentStatus('无活动窗口'); return; }
                 const r = await togglePaneAnnot(el2);
-                annotBtn.style.background = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT : 'transparent';
-                annotBtn.style.color = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT_TEXT : '';
-                agentStatus(r && r.ok ? (r.joined || r.started ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`);
+                const on = !!(stateRef.annot && stateRef.annot.active);
+                applyAnnotBtnState(stateRef);
+                agentStatus(r && r.ok
+                  ? (on ? `批注已开启（${(stateRef.annot.panes || []).length} 个窗口参与）` : '批注已关闭（所有窗口同步停止）')
+                  : `批注失败：${(r && r.error) || '未知'}`);
               } catch (e) { agentStatus(`批注失败：${msgOf(e)}`); }
             });
             annotBtn.innerHTML = ANNOT_ICON_SVG; // 与 DSH 批注图标同款
@@ -2294,8 +2427,11 @@ window.__ModuleLoader__.load({
             agentViewSetBorder(true);
           };
           const agentViewIdleTick = () => {
+            if (!isLiveInstance(stateRef.clientBootAt)) return; // 实例围栏（旧实例停止一切 DOM 操作）
             if (!agentViewWebview()) return;
             try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
+            // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
+            try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
             const idle = Date.now() - (agentView.lastOpAt || 0);
             if (idle > AGENT_VIEW_IDLE_MS) agentViewSetBorder(false); // 空闲：撤掉青色边框
             const limit = Number(agentView.idleReleaseMs || 0);
@@ -2451,6 +2587,10 @@ window.__ModuleLoader__.load({
             frame.addEventListener('page-title-updated', syncMeta);
             agentView.tabs.push(tab);
             setActiveAgentTab(tab.id);
+            // 批注会话进行中新建窗口 ⇒ **立即加入**（编号延续），不等 2s tick
+            try {
+              if (stateRef.annot && stateRef.annot.active) await joinPane(frame);
+            } catch { /* 页面未就绪：tick 会再试 */ }
             try { if (opts.url) await navigateAgentTab(tab, String(opts.url)); } catch { /* 导航失败由调用方判断 */ }
             return tab;
           };
@@ -2904,6 +3044,7 @@ window.__ModuleLoader__.load({
               }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
               return { ok: true, toggling: true };
             },
+            /* R-OWN v11：批注会话诊断已合并进上面的 'annotator-status'（同一命令，勿重复注册）。 */
             'stop-annotator': async function (svc, c) {
               const target = pickGuestEl();
               await leavePane(target);
@@ -2918,7 +3059,24 @@ window.__ModuleLoader__.load({
             'annotator-status': async function (svc, c) {
               const target = pickGuestEl();
               const st = await target.executeJavaScript('(function(){ if (typeof window.__dshKitAnnotator === "undefined") return { injected: false }; return { injected: true, count: window.__dshKitAnnotator.list().length, first: window.__dshKitAnnotator.list()[0] || null }; })()', true);
-              return { ok: true, ...st };
+              // R-OWN v11：会话诊断（是否活跃 + 每个成员窗口的归属/URL/条数）——验证「两处同步开关」与「归属可分辨」
+              const as = stateRef.annot || null;
+              const panes = [];
+              for (const p of (as && as.panes) || []) {
+                const owner = paneOwnerLabel(p);
+                let count = null;
+                let url = null;
+                try { count = await withTimeout(p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.list ? window.__dshKitAnnotator.list().length : null)', true), 4000, 'annot-count'); } catch { count = null; }
+                try { url = p.getURL ? p.getURL() : null; } catch { url = null; }
+                panes.push({ owner: owner.label, kind: owner.kind, tabId: owner.tabId || null, sessionId: owner.sessionId || null, url, count });
+              }
+              return {
+                ok: true, ...st,
+                sessionActive: !!(as && as.active),
+                sessionPaneCount: panes.length,
+                sessionPanes: panes,
+                sessionOwners: panes.map((x) => x.owner),
+              };
             },
             'guest-eval': async function (svc, c) {
               // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
@@ -2981,6 +3139,12 @@ window.__ModuleLoader__.load({
                 panelHidden: readPanelHidden(),
                 cardRender: stateRef.cardRender || null, // 插件管理卡片最近一次渲染取证
                 toolbarBtnCount: typeof stateRef.toolbarBtnCount === 'number' ? stateRef.toolbarBtnCount : null,
+              tickAt: stateRef.tickAt || null, // 2s tick 心跳（诊断：tick 卡死时该字段会停更）
+              styleTickCount: stateRef.styleTickCount || 0,
+              styleTickBtnCount: typeof stateRef.styleTickBtnCount === 'number' ? stateRef.styleTickBtnCount : null,
+              styleTickWrite: stateRef.styleTickWrite || null,
+              liveInstanceBootAt: (globalThis.__dshKitLiveInstance && globalThis.__dshKitLiveInstance.bootAt) || null,
+              annotActive: !!(stateRef.annot && stateRef.annot.active),
                 panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                 panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
                 remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
@@ -4642,10 +4806,10 @@ window.__ModuleLoader__.load({
                         // 避免闭包持有重渲染前的旧 webview 节点（身份失配 = 永不点亮）
                         const pane = webviewOfForm(form);
                         if (!pane) return;
-                        btn.style.background = TOOLBAR_ACCENT;
-                        btn.style.color = TOOLBAR_ACCENT_TEXT;
-                        stateRef.lastToggleError = null;
+                        stateRef.lastToggleError = null; // 点亮交给 applyAnnotBtnState（属性 + !important CSS）
                         togglePaneAnnot(pane).then((r) => {
+                          // R-OWN v11：**立即**按会话状态点亮（属性驱动，不等 2s tick）
+                          try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
                           if (r && r.ok === false) {
                             stateRef.lastToggleError = r.error || null;
                             btn.title = '批注失败：' + (r.error || '');
@@ -4708,6 +4872,12 @@ window.__ModuleLoader__.load({
                   }
                   if (host && host.insertAdjacentElement) host.insertAdjacentElement('afterend', btn);
                   else form.appendChild(btn);
+                  // R-OWN v11：**创建即上色**——DSH 会周期性重渲染工具条，按钮重建后若是等到 2s 的样式
+                  // tick 才补色，就会出现"蓝→透明→蓝"的闪烁（用户实测反馈）。这里同步按会话状态着色。
+                  if (spec.id === 'dsh-kit-toolbar-btn') {
+                    // 创建即按会话状态点亮（属性驱动；见 applyAnnotBtnState）
+                    try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
+                  }
                 }
                 attached += 1;
               }
@@ -4911,17 +5081,19 @@ window.__ModuleLoader__.load({
               ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
             };
             const tickToolbarStyles = (activeIds) => {
-              for (const form of toolbarForms()) {
-                const btn = form.querySelector('#dsh-kit-toolbar-btn');
-                if (!btn) continue;
-                const pane = webviewOfForm(form);
-                const active = pane != null && activeIds.has(paneIdOf(pane));
-                // 固定高对比配色（蓝底白标）——字面色豁免：主题令牌在工具条上下文里可能
-                // 解析成浅色，叠加 color:inherit 的浅色描边 → 白底白标隐形（用户实测反馈）
-                btn.style.background = active ? TOOLBAR_ACCENT : 'transparent';
-                btn.style.color = active ? TOOLBAR_ACCENT_TEXT : '';
-                btn.style.boxShadow = active ? '0 0 0 1px rgba(255,255,255,0.35) inset' : 'none';
-              }
+              // R-OWN v11：图标点亮 = **会话是否活跃**（会话级总开关，两处浏览器同步）
+              //  —— 不再按"本面板是否在成员表里"判定：成员表会因 settle/自愈重注入而变动，
+              //     图标随之亮灭（用户实测"一闪一闪"）。
+              const sessionOn = !!(stateRef.annot && stateRef.annot.active);
+              // 诊断计数（tick 是否真的跑到这里 / 找到几个按钮）
+              try { stateRef.styleTickCount = (stateRef.styleTickCount || 0) + 1; stateRef.styleTickAt = new Date().toISOString(); } catch { /* 忽略 */ }
+              // 直接遍历**我们自己的按钮**（不依赖 toolbarForms() 的父级 webview 过滤——DSH 重渲染
+              // 瞬间父级可能探测不到 webview，那一轮就会漏样式化，表现为图标不亮/闪）
+              const btns = Array.from(document.querySelectorAll('#dsh-kit-toolbar-btn'));
+              try { stateRef.styleTickBtnCount = btns.length; } catch { /* 忽略 */ }
+              void sessionOn;
+              // 属性驱动点亮（!important CSS）——内联被清也压不掉，见 applyAnnotBtnState 注释
+              applyAnnotBtnState(stateRef);
             };
             const tickSelfHealAndAutoJoin = async (st, activeIds, webviews) => {
               if (!st || !st.active || autoJoinBusy) return;
@@ -4955,6 +5127,8 @@ window.__ModuleLoader__.load({
               }
             };
             trackInterval(setInterval(async () => {
+              // 实例围栏：热重载后的旧实例不得再操作 DOM（否则与活实例互刷样式 → 图标闪烁）
+              if (!isLiveInstance(stateRef.clientBootAt)) return;
               try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
               const st = stateRef.annot;
               const webviews = Array.from(document.querySelectorAll('webview')); // R4.1：tick 内单次查询复用

@@ -83,6 +83,8 @@ function buildAnnotationItem(annotation, position) {
 
   appendOptionalLine(lines, "URL", element.pageUrl);
   appendOptionalLine(lines, "Title", element.pageTitle);
+  // R-OWN v11：来源窗口（DSH 自带浏览器的哪个窗口 / 自持浏览器的哪个窗口）——让 Agent 能分清归属
+  appendOptionalLine(lines, "Window", annotation?.window);
   lines.push(`Tag: ${String(element.tagName ?? "").toLowerCase()}`);
   appendOptionalLine(lines, "Role", element.role);
   appendOptionalLine(lines, "Accessible name", element.accessibleName);

@@ -26,6 +26,7 @@ export function summarizeSets(sets) {
         selector: String((a && a.element && a.element.selector) || ''),
         text: String((a && a.element && a.element.text) || (a && a.element && a.element.accessibleName) || '').slice(0, SUMMARY_TEXT_MAX),
         url: (s && s.url) || null,
+        window: String((a && a.window) || (s && s.owner) || ''),
       });
     }
   }
