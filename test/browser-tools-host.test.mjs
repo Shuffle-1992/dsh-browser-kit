@@ -42,7 +42,7 @@ test('R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具�
     assert.equal(new Set(names).size, names.length, '工具名重复');
     assert.ok(names.every((n) => n.startsWith('browser_')), '工具名必须以 browser_ 开头');
     assert.ok(BROWSER_TOOL_SPECS.every((s) => s.timeoutMs > 0), 'timeoutMs 必须为正');
-    assert.ok(BROWSER_TOOL_SPECS.length >= 11, `工具数应 ≥11（当前 ${BROWSER_TOOL_SPECS.length}）`);
+    assert.ok(BROWSER_TOOL_SPECS.length >= 22, `工具数应 ≥22（当前 ${BROWSER_TOOL_SPECS.length}）`);
   });
   await t.test('参数名不得占用命令信封键（action/id）——P47-D 参数撞信封', () => {
     for (const s of BROWSER_TOOL_SPECS) {

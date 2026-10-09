@@ -190,7 +190,7 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 | 路线项 | 状态 | 产物 |
 |---|---|---|
 | P0-D 开页/枚举页面/关标签/面板 | ✅ 已实测 | `browser-tabs / browser-open / browser-close / browser-panel`（§3.1） |
-| P0-A 工具化（一等 agent 工具） | ✅ 已实测 | `plugin/browser-tools.host.mjs`（21 个 `browser_*` 工具，§3.3 链路） |
+| P0-A 工具化（一等 agent 工具） | ✅ 已实测 | `plugin/browser-tools.host.mjs`（22 个 `browser_*` 工具，§3.3 链路） |
 | P0-B 控制台/网络通道 | ✅ 已实测 | `src/console-observer.js` + `browser_console`（§3.3） |
 | P0-C 可信输入 | ✅ 已实测 | `input` 命令 + 交互族工具 + 遮挡检测（§3.4） |
 | P0 风险止血（capturePage） | ✅ 已实测 | 四件套护栏 + 崩溃回环断路器（§4） |
