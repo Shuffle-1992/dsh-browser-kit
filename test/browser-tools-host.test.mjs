@@ -83,6 +83,25 @@ test('R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具�
     }
     assert.equal(BROWSER_TOOL_SPECS.length >= 16, true, `工具数应 ≥16（当前 ${BROWSER_TOOL_SPECS.length}）`);
   });
+  await t.test('R-OWN 工具面：自持窗口工具存在 + 页面级工具都带 target 参数', () => {
+    const byName = new Map(BROWSER_TOOL_SPECS.map((s) => [s.name, s]));
+    const win = byName.get('browser_agent_window');
+    assert.ok(win, '缺 browser_agent_window');
+    assert.equal(win.action, 'agent-view');
+    assert.equal(win.parameters.op.required, true, 'op 必须必填');
+    assert.ok(win.parameters.url && win.parameters.width && win.parameters.height && win.parameters.storageIdentity, 'url/width/height/storageIdentity 参数齐全');
+    // 页面级工具统一带 target（R-OWN 的默认路由：自持窗口优先）
+    for (const action of ['snapshot', 'click', 'type', 'navigate', 'screenshot', 'console-observer', 'upload', 'find', 'storage']) {
+      const spec = BROWSER_TOOL_SPECS.find((s) => s.action === action);
+      assert.ok(spec, `缺 action=${action} 的工具`);
+      assert.ok(spec.parameters.target, `action=${action} 的工具缺 target 参数`);
+    }
+    // 面板类（改用户侧栏）**不应**有 target（它们只作用于前台会话的侧栏）
+    for (const action of ['browser-open', 'browser-close', 'browser-panel']) {
+      const spec = BROWSER_TOOL_SPECS.find((s) => s.action === action);
+      assert.ok(!spec.parameters.target, `action=${action} 不该有 target`);
+    }
+  });
 });
 
 test('R-TOOL 命令通道传输层', async (t) => {

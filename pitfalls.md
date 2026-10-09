@@ -275,3 +275,24 @@
   - 操作后**归还焦点**（记住操作前 activeElement，60ms 后还回去）。
 - **边界**：用户停在其他会话时，本会话的浏览器面板**未挂载** ⇒ 该会话的自动化被如实拒绝（这是「绝不影响用户」的代价）。keepMounted 的标签保留能否支撑后台会话继续工作，需再实测。
 - **判据**：自动化「命令说成功但用户说被影响」⇒ 先查**会话边界**（`data-sidebar-right-session` / `currentSession` vs 调用会话），再查焦点抢占。
+### P52 插件自持浏览器视图四连坑（`dshDesktop.browser` 租约，2026-10-10 实测打通）
+- **背景**：`dshDesktop.browser.acquire(storageIdentity: string) → { lease, partition }`；webview 必须
+  `name=<lease>` + `partition=<partition>` + `src='about:blank#<lease>'` 才会被 main 放行（照抄
+  `dsh-client-ui-sidebar-browser` 的 `createElement(reservation)`）。自持视图 = **不占会话、不碰侧栏**，
+  后台会话也能持续自动化（会话隔离的根治方案）。
+- **现象 A（loadURL 太早）**：建完 webview 立刻 `loadURL` 报
+  「The WebView must be attached to the DOM and the dom-ready event emitted before this method can be called.」
+  - **对策**：等 `dom-ready` 事件或 `getWebContentsId()` 可用再导航（本项目 `waitAgentViewReady`）。
+- **现象 B（热换残留）**：改 `client.js` / host 重激活会让**模块态归零而 DOM 与租约残留**——`status` 报
+  `open:false`，屏幕上却还挂着游离 webview；再 `open` 会新建一个（重复实例）。
+  - **对策**：启动时**收养**（租约就在 webview 的 `name` 属性、partition 在 `partition` 属性，无需外部记录）
+    ＋清理重复/游离实例并释放其租约＋best-effort 释放 localStorage 里记的旧租约；面板与 webview 都要打
+    `data-dsh-kit-agent-view*` 标记（**别用 id 找**：热换后可能重复）。
+- **现象 C（release 传错）**：`release({lease,partition})` 报「desktop browser: invalid guest lease」→ 必须传
+  **lease 字符串本身**。
+- **现象 D（目标选择不统一）**：老 handler 各有一套目标解析（`document.querySelectorAll('webview')[0]` /
+  `pickGuestEl()`）——自持视图上线后，`browser_eval` 会打到**别的会话/别的面板**的页面（实测）。
+  - **对策**：所有页面级 handler 统一走 `inputTargetOf(c)`（`target: agent|session` + 本会话面板优先 →
+    自持窗口兜底），并对 `guest-eval / reload / navigate / page-inject / screenshot` 逐一改造。
+- **判据**：自持视图「开着却像没开 / 屏幕上有游离窗口 / 操作打到别的页面」⇒ 依次查 dom-ready 时序、
+  收养逻辑、release 形参、目标解析是否统一。

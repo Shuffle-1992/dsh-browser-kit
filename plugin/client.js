@@ -571,6 +571,8 @@ window.__ModuleLoader__.load({
                 for (const id of trackedIntervals.splice(0)) {
                   try { clearInterval(id); } catch { /* ignore */ }
                 }
+                // R-OWN：插件卸载时释放自持视图的租约（避免租约泄漏；面板也一并移除）
+                try { releaseAgentView(); } catch { /* ignore */ }
               });
             }
           } catch { /* 清理注册失败不致命 */ }
@@ -1688,11 +1690,251 @@ window.__ModuleLoader__.load({
            * 坐标换算：页面 CSS px × zoomFactor = webview 局部 px（sendInputEvent 用后者，且要整数）。
            * 遮挡检测：点击前 `document.elementFromPoint(中心)`，命中不是目标（且非其祖先/后代）即判遮挡，
            * 默认拒绝并回报遮挡者（抄 agent-browser 的稳定性设计：宁可提前失败也不点错东西）。 */
+          /* ── R-OWN（2026-10-10）：**插件自持浏览器视图**（不依赖会话/侧栏） ──
+           * 契约（实测钉死，docs §3.8）：
+           *   dshDesktop.browser.acquire(storageIdentity: string) → { lease, partition }
+           *   webview 必须 name=<lease> + partition=<partition> + src='about:blank#<lease>'，
+           *   才会被 main 的 will-attach-webview 放行（照抄 dsh-client-ui-sidebar-browser 的
+           *   `createElement(reservation)`：name/partition/allowpopups/src 四个属性）。
+           * 价值：视图归插件所有 ⇒ **会话隔离天然成立**（不碰任何会话的侧栏），且后台会话也能持续
+           * 自动化（不再受「用户停在其他会话 ⇒ 本会话面板未挂载」限制）。
+           * 生命周期：面板移除/插件卸载时 release 租约；崩溃时靠 localStorage 里的租约记录做清理提示。 */
+          const AGENT_VIEW_ID = 'dsh-kit-agent-view';
+          const AGENT_VIEW_LEASE_KEY = 'dsh-browser-kit:agent-view-lease:v1';
+          const agentView = { lease: null, partition: null, el: null, panel: null, lastPopup: null, acquiredAt: null, openErr: null };
+          const agentViewWebview = () => (agentView.el && document.contains(agentView.el) ? agentView.el : null);
+          const agentViewCarrier = () => {
+            const carrier = globalThis.dshDesktop;
+            return carrier && carrier.protocolVersion === 1 && carrier.browser ? carrier.browser : null;
+          };
+          /** 释放租约并移除面板（幂等）。 */
+          const releaseAgentView = () => {
+            const b = agentViewCarrier();
+            const lease = agentView.lease;
+            try { if (agentView.el && agentView.el.remove) agentView.el.remove(); } catch { /* 忽略 */ }
+            try { if (agentView.panel && agentView.panel.remove) agentView.panel.remove(); } catch { /* 忽略 */ }
+            agentView.el = null; agentView.panel = null; agentView.lease = null; agentView.partition = null; agentView.lastPopup = null;
+            try { localStorage.removeItem(AGENT_VIEW_LEASE_KEY); } catch { /* 忽略 */ }
+            if (b && lease) b.release(lease).catch(() => { /* 已失效/已释放：忽略 */ });
+            return { ok: true };
+          };
+          /** 建/复用自持视图（面板 + webview），返回 agentView。 */
+          const ensureAgentView = async (opts = {}) => {
+            if (agentView.el && document.contains(agentView.el) && opts.recreate !== true) return agentView;
+            const b = agentViewCarrier();
+            if (!b || typeof b.acquire !== 'function') {
+              throw new Error('dshDesktop.browser 不可用（非桌面端或协议版本不符）——自持视图无法创建');
+            }
+            const identity = String((opts && opts.storageIdentity) || 'dsh-browser-kit:agent-view');
+            const reservation = await b.acquire(identity);
+            if (!reservation || typeof reservation.lease !== 'string' || typeof reservation.partition !== 'string') {
+              throw new Error(`acquire 返回形状异常：${JSON.stringify(reservation).slice(0, 120)}`);
+            }
+            // 旧面板/旧租约先清（recreate 场景）
+            if (agentView.lease || agentView.panel) releaseAgentView();
+            agentView.lease = reservation.lease;
+            agentView.partition = reservation.partition;
+            agentView.acquiredAt = new Date().toISOString();
+            try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ lease: reservation.lease, partition: reservation.partition, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
+
+            const w = Math.min(Math.max(Number((opts && opts.width) || 520), 240), Math.max(320, window.innerWidth - 40));
+            const h = Math.min(Math.max(Number((opts && opts.height) || 420), 200), Math.max(240, window.innerHeight - 40));
+            const panel = document.createElement('div');
+            panel.id = AGENT_VIEW_ID;
+            panel.dataset.kitAgentViewPanel = ''; // 供启动收养/清理识别（id 可能因重载而重复）
+            panel.setAttribute('data-dsh-kit-ui', ''); // 我们自己的 UI：snapshot 会跳过
+            panel.style.cssText = `position:fixed;right:16px;bottom:16px;width:${w}px;height:${h}px;z-index:2147483600;`
+              + 'display:flex;flex-direction:column;overflow:hidden;resize:both;border-radius:10px;'
+              + `background:${T.bg};color:${T.text};border:2px solid #38bdf8;box-shadow:${T.shadow};`;
+            const head = document.createElement('div');
+            head.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:4px 8px;font:${T.font};`
+              + 'border-bottom:1px solid ' + T.border + ';';
+            const title = document.createElement('span');
+            title.textContent = '🤖 Agent 浏览器';
+            title.style.cssText = 'flex:none;white-space:nowrap;';
+            const urlText = document.createElement('span');
+            urlText.dataset.kitAgentViewUrl = '';
+            urlText.textContent = 'about:blank';
+            urlText.style.cssText = 'flex:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8;';
+            const mkBtn = (labelText, tip, onClick) => {
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.textContent = labelText;
+              btn.title = tip;
+              btn.style.cssText = 'flex:none;cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
+                + T.text + ';border-radius:6px;padding:1px 6px;font:' + T.font + ';';
+              btn.addEventListener('click', onClick);
+              return btn;
+            };
+            head.appendChild(title);
+            head.appendChild(urlText);
+            head.appendChild(mkBtn('↻', '刷新', () => { try { agentView.el && agentView.el.reload(); } catch { /* 忽略 */ } }));
+            head.appendChild(mkBtn('✕', '关闭（释放租约）', () => releaseAgentView()));
+            const frame = document.createElement('webview');
+            frame.dataset.kitAgentView = ''; // 收养/清理标记
+            frame.setAttribute('name', reservation.lease);       // ← 租约以 name 传递（照抄官方形状）
+            frame.setAttribute('partition', reservation.partition);
+            frame.setAttribute('allowpopups', '');
+            frame.setAttribute('src', `about:blank#${reservation.lease}`);
+            frame.style.cssText = 'flex:auto;width:100%;min-height:0;border:0;';
+            panel.appendChild(head);
+            panel.appendChild(frame);
+            document.body.appendChild(panel);
+            agentView.panel = panel;
+            agentView.el = frame;
+            try {
+              if (typeof b.onOpenRequested === 'function') {
+                b.onOpenRequested(reservation.lease, (url) => { agentView.lastPopup = String(url || ''); });
+              }
+            } catch { /* 订阅失败不影响主流程 */ }
+            frame.addEventListener('did-navigate', () => {
+              try { urlText.textContent = frame.getURL() || ''; } catch { /* 忽略 */ }
+            });
+            frame.addEventListener('page-title-updated', () => {
+              try { urlText.textContent = frame.getURL() || ''; } catch { /* 忽略 */ }
+            });
+            return agentView;
+          };
+          /** 等自持视图的 webview 完成挂载（`dom-ready` / 拿到 webContentsId）——
+           *  **没有这一步 `loadURL` 会报「must be attached to the DOM and dom-ready emitted」**（实测）。 */
+          const waitAgentViewReady = (el, timeoutMs = 6000) => new Promise((resolve) => {
+            let done = false;
+            const finish = () => { if (!done) { done = true; resolve(true); } };
+            try { el.addEventListener('dom-ready', finish, { once: true }); } catch { /* 忽略 */ }
+            const t0 = Date.now();
+            const iv = setInterval(() => {
+              let ok = false;
+              try { ok = typeof el.getWebContentsId === 'function' && Number.isFinite(el.getWebContentsId()); } catch { ok = false; }
+              if (ok || Date.now() - t0 > timeoutMs) { clearInterval(iv); finish(); }
+            }, 120);
+            trackInterval(iv);
+          });
+          /** 在自持视图里导航（不存在就先建）。 */
+          const navigateAgentView = async (url, opts) => {
+            const v = await ensureAgentView(opts || {});
+            const el = v.el;
+            await waitAgentViewReady(el);
+            try {
+              await el.loadURL(url);
+            } catch (e) {
+              // loadURL 的 Promise 在跨导航/被中断时会 reject，但导航通常已发生——不当作失败
+              const cur = (() => { try { return el.getURL(); } catch { return null; } })();
+              if (!cur || cur === 'about:blank') throw e;
+            }
+            await new Promise((r) => setTimeout(r, 400));
+            return { ...agentViewStatus() };
+          };
+          const agentViewStatus = () => {
+            const el = agentViewWebview();
+            const s = {
+              open: !!el,
+              partition: agentView.partition,
+              leaseId: agentView.lease ? String(agentView.lease).slice(0, 8) : null,
+              acquiredAt: agentView.acquiredAt,
+              lastPopup: agentView.lastPopup,
+            };
+            if (el) {
+              try { s.url = el.getURL(); } catch { s.url = null; }
+              try { s.title = el.getTitle(); } catch { s.title = null; }
+              try { s.loading = el.isLoading(); } catch { s.loading = null; }
+              try { s.wcId = el.getWebContentsId(); } catch { s.wcId = null; }
+            }
+            return s;
+          };
+          /** 面板本地位置/尺寸（供工具报告与排障）。 */
+          const agentViewRect = () => {
+            try {
+              if (!agentView.panel) return null;
+              const r = agentView.panel.getBoundingClientRect();
+              return { left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+            } catch { return null; }
+          };
+          /** R-OWN 自愈（★实测必需）：client 热换/重载会让**模块态归零而 DOM 与租约残留**
+           *（现象：status 报 open:false，却能看到游离的 agent webview，且重复 open 会再建一个）。
+           * 启动时收养「面板 + 其 webview 都在场」的实例（租约就在 webview 的 `name` 属性里、
+           * partition 在 `partition` 属性里，无需外部记录），其余重复/游离实例连同租约一起清掉；
+           * 若什么都没有但 localStorage 还记着上次的租约 → best-effort 释放（避免租约泄漏）。 */
+          const adoptOrCleanAgentView = () => {
+            let adopted = null; let removed = 0; let released = 0;
+            try {
+              const frames = Array.from(document.querySelectorAll('webview[data-dsh-kit-agent-view]'));
+              const panels = Array.from(document.querySelectorAll('[data-dsh-kit-agent-view-panel]'));
+              const carrier = agentViewCarrier();
+              const releaseLease = (lease) => {
+                if (!lease || !carrier) return;
+                try { carrier.release(lease).catch(() => { /* 已失效：忽略 */ }); released += 1; } catch { /* 忽略 */ }
+              };
+              // 候选：面板内确实有我们的 webview，且属性齐全；**非 about:blank 的优先**（更有用）
+              const cands = [];
+              for (const panel of panels) {
+                const frame = panel.querySelector('webview[data-dsh-kit-agent-view]');
+                if (!frame) continue;
+                const lease = frame.getAttribute('name');
+                const partition = frame.getAttribute('partition');
+                if (!lease || !partition) continue;
+                let url = null;
+                try { url = frame.getURL(); } catch { url = null; }
+                cands.push({ panel, frame, lease, partition, blank: !url || url.indexOf('about:blank') === 0 });
+              }
+              cands.sort((a, b) => Number(a.blank) - Number(b.blank));
+              if (cands.length) {
+                adopted = cands[0];
+                for (const c of cands.slice(1)) {
+                  try { c.panel.remove(); } catch { /* 忽略 */ }
+                  removed += 1;
+                  releaseLease(c.lease);
+                }
+              }
+              // 无主的游离 frame（不在被收养的面板里）一律清掉
+              for (const frame of frames) {
+                if (adopted && (frame === adopted.frame || adopted.panel.contains(frame))) continue;
+                const lease = frame.getAttribute('name');
+                try { frame.remove(); } catch { /* 忽略 */ }
+                removed += 1;
+                releaseLease(lease);
+              }
+              if (adopted) {
+                agentView.panel = adopted.panel;
+                agentView.el = adopted.frame;
+                agentView.lease = adopted.lease;
+                agentView.partition = adopted.partition;
+                agentView.acquiredAt = agentView.acquiredAt || 'adopted-on-boot';
+                try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ lease: adopted.lease, partition: adopted.partition, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
+                // 收养后接回 onOpenRequested 订阅与 URL 文本刷新
+                try {
+                  if (carrier && typeof carrier.onOpenRequested === 'function') {
+                    carrier.onOpenRequested(adopted.lease, (url) => { agentView.lastPopup = String(url || ''); });
+                  }
+                } catch { /* 忽略 */ }
+              } else {
+                try {
+                  const raw = localStorage.getItem(AGENT_VIEW_LEASE_KEY);
+                  if (raw) {
+                    const rec = JSON.parse(raw);
+                    if (rec && rec.lease) releaseLease(rec.lease);
+                    localStorage.removeItem(AGENT_VIEW_LEASE_KEY);
+                  }
+                } catch { /* 忽略 */ }
+              }
+            } catch { /* 自愈失败不影响主流程 */ }
+            return {
+              adopted: !!adopted, removed, released,
+              url: adopted ? (() => { try { return adopted.frame.getURL(); } catch { return null; } })() : null,
+            };
+          };
+          try { agentView.boot = adoptOrCleanAgentView(); } catch { /* 忽略 */ }
+
           const inputTargetOf = (c) => {
-            // R-SCOPE：只在**调用会话**的面板里选（sessionId 缺省才退回全局，兼容探针）
+            // R-SCOPE/R-OWN：target=agent 强制自持视图；target=session 强制本会话面板；
+            // 缺省顺序 = **本会话侧栏面板优先**（用户在看着它时就用它）→ 没有则用插件自持窗口。
+            // 两者都只属于「调用会话 / 插件自己」，绝不会动到别的会话。
+            const want = c && c.target ? String(c.target) : null;
+            if (want === 'agent') return agentViewWebview();
             const els = scopedWebviews(c && c.sessionId);
             const idx = Number(c && c.tab);
-            return (Number.isFinite(idx) && els[idx]) || els.find(captureVisible) || els[0] || null;
+            const fromSession = (Number.isFinite(idx) && els[idx]) || els.find(captureVisible) || els[0] || null;
+            if (want === 'session') return fromSession;
+            return fromSession || agentViewWebview();
           };
           const inputZoom = (el) => {
             try { const z = typeof el.getZoomFactor === 'function' ? Number(el.getZoomFactor()) : 1; return Number.isFinite(z) && z > 0 ? z : 1; } catch { return 1; }
@@ -1786,10 +2028,10 @@ window.__ModuleLoader__.load({
               }
               return null;
             }
-            if (PAGE_ACTIONS.has(action) && !scopedWebviews(sid).length) {
+            if (PAGE_ACTIONS.has(action) && !scopedWebviews(sid).length && !agentViewWebview()) {
               return {
                 ok: false, scoped: true, sessionId: sid,
-                error: `本会话（${sid}）当前没有已挂载的浏览器面板——为避免动到其他会话的窗口，本次操作已拒绝（请先在本会话打开内置浏览器）`,
+                error: `本会话（${sid}）当前没有已挂载的浏览器面板，也没有自持视图——为避免动到其他会话的窗口，本次操作已拒绝。可先调 browser_agent_window {op:"open", url} 开一个属于 Agent 自己的窗口（不占会话、不影响其他会话）。`,
               };
             }
             if (INTERACTIVE_ACTIONS.has(action)) {
@@ -1919,11 +2161,12 @@ window.__ModuleLoader__.load({
             'guest-eval': async function (svc, c) {
               // MVP-4：agent 侧任意求值；frame:true 时在 kit 沙箱文档内执行；
               // tab（0 起）指定目标面板（默认第一个）——多浏览器窗口分别驱动。
+              // R-OWN/R-SCOPE：目标解析统一走 inputTargetOf（本会话面板优先 → 自持窗口兜底；
+              // 绝不落到别的会话）；**不能再直接用 document.querySelectorAll('webview')**——那会把
+              // 别的会话/别的面板的 webview 也选进来（实测：browser_eval 打到了用户会话的页面）。
               // 注意：document 必须经【函数参数】传入（参数遮蔽安全）；函数体内 var document
               // 会因提升让全函数体的 document 变 undefined（cmd-72/73 实测自坑，P23）。
-              const els = Array.from(document.querySelectorAll('webview'));
-              const tabIdx = Number(c.tab) || 0;
-              const target = els[tabIdx] || pickGuestEl();
+              const target = inputTargetOf(c) || pickGuestEl();
               const docPre = c.frame ? TARGET_DOC_SNIPPET : '';
               const docExpr = c.frame ? 'DOC' : 'document';
               const code = String(c.code || '');
@@ -2481,6 +2724,33 @@ window.__ModuleLoader__.load({
               );
               try { return { ...(typeof raw === 'string' ? JSON.parse(raw) : raw) }; } catch { return { ok: false, error: '结果解析失败' }; }
             },
+            'agent-view': async function (svc, c) {
+              /* R-OWN：插件自持浏览器视图（**不占会话、不碰侧栏**）。
+               * op: open（建/复用，可带 url/width/height/storageIdentity）| navigate | close | status */
+              const op = String((c && c.op) || 'status').toLowerCase();
+              if (op === 'status') return { ok: true, op, ...agentViewStatus(), rect: agentViewRect(), carrier: !!agentViewCarrier(), boot: agentView.boot || null, openErr: agentView.openErr || null };
+              if (op === 'close') return { ok: true, op, ...releaseAgentView(), ...agentViewStatus() };
+              if (op === 'open') {
+                try {
+                  await ensureAgentView(c || {});
+                  if (c && c.url) await navigateAgentView(String(c.url), c);
+                  return { ok: true, op, ...agentViewStatus(), rect: agentViewRect() };
+                } catch (e) { agentView.openErr = msgOf(e); return { ok: false, op, error: msgOf(e) }; }
+              }
+              if (op === 'navigate') {
+                const url = String((c && c.url) || '');
+                if (!url) return { ok: false, op, error: '需要 url' };
+                try { return { ok: true, op, ...(await navigateAgentView(url, c)) }; }
+                catch (e) { return { ok: false, op, error: msgOf(e) }; }
+              }
+              if (op === 'cleanup') {
+                // 清理游离/重复的自持视图实例（热换残留），保留当前收养的那个
+                const r = adoptOrCleanAgentView();
+                agentView.boot = r;
+                return { ok: true, op, ...r, ...agentViewStatus() };
+              }
+              return { ok: false, op, error: `未知 op=${op}（open|navigate|close|status|cleanup）` };
+            },
             'storage': async function (svc, c) {
               /* R-P2：页内存储读写（无 CDP 也能用）。op: get|set|remove|clear；kind: local|session|cookie。
                * cookie 只看得到非 HttpOnly 的（HttpOnly 需要 CDP，本环境不可达——如实说明）。 */
@@ -2701,7 +2971,7 @@ window.__ModuleLoader__.load({
               // 注意：页面自身的 SPA 框架在响应式刷新后可能重绘覆盖注入内容（公网 Vue 站点实测一次），
               // 注入后应立即使用/截图。历史教训：本 case 曾被复制成重复分支（switch 首个匹配生效，
               // 第二个是死代码、改它不生效）——case 唯一性已由静态契约钉死（§3.9）。
-              const target = pickGuestEl();
+              const target = inputTargetOf(c) || pickGuestEl();
               const html = String(c.html || '');
               if (!html) return { ok: false, error: '需要 html' };
               const value = await target.executeJavaScript(
@@ -2722,7 +2992,7 @@ window.__ModuleLoader__.load({
             },
             'reload': async function (svc, c) {
               // 同源刷新（不跨白名单）；不 await 完成事件（P19：跨导航的 Promise 永不决）
-              const target = pickGuestEl();
+              const target = inputTargetOf(c) || pickGuestEl();
               target.executeJavaScript('location.reload()', true).catch(() => {});
               return { ok: true, reloading: true };
             },
@@ -2730,7 +3000,7 @@ window.__ModuleLoader__.load({
               // 白名单内的源才可能成功（实测跨源被宿主静默拒绝）；fire-and-forget，两秒后回报 href
               const url = String(c.url || '');
               if (!url) return { ok: false, error: '需要 url' };
-              const target = pickGuestEl();
+              const target = inputTargetOf(c) || pickGuestEl();
               target.executeJavaScript(`location.href = ${JSON.stringify(url)}`, true).catch(() => {});
               await sleep(2000);
               let href = null;
@@ -2912,10 +3182,14 @@ window.__ModuleLoader__.load({
               const nowAt = Date.now();
               if (nowAt < captureCooldownUntil) { out.error = `截图冷却中（剩 ${captureCooldownUntil - nowAt}ms）`; return out; }
               const els = scopedWebviews(ctxCmd && ctxCmd.sessionId); // R-SCOPE：只截本会话的面板
+              const avShot = agentViewWebview();                      // R-OWN：自持窗口也可截（它属于插件）
+              const cands = avShot && els.indexOf(avShot) < 0 ? els.concat([avShot]) : els;
               // 只在**可见**面板上截：隐藏/后台 surface 是 capturePage 挂死/崩溃的高危场景
-              const target = els.find(captureVisible) || null;
+              const target = cands.find(captureVisible) || null;
               if (!target) {
-                out.error = els.length ? '内置浏览器面板当前不可见（已拒绝：隐藏 surface 截图高危）' : '无 webview（先打开内置浏览器）';
+                out.error = cands.length
+                  ? '内置浏览器面板当前不可见（已拒绝：隐藏 surface 截图高危）'
+                  : '无可见浏览器（可先调 browser_agent_window {op:"open", url} 开一个 Agent 自己的窗口）';
                 return out;
               }
               captureInFlight = true;

@@ -341,6 +341,19 @@ export const BROWSER_TOOL_SPECS = [
     },
   },
   {
+    name: 'browser_agent_window',
+    action: 'agent-view',
+    timeoutMs: 40000,
+    description: '**Agent 自己的浏览器窗口**（不占会话、不碰用户侧栏，租约由插件自己持有）：op=open 建/复用（可带 url/width/height）、navigate 导航、close 关闭并释放租约、status 查状态。比 browser_open（往用户侧栏开会话标签）更隔离——**后台会话也能用它持续自动化**。此窗口里页面级操作（snapshot/click/type/console…）默认就作用于它。',
+    parameters: {
+      op: { type: 'string', required: true, description: 'open | navigate | close | status' },
+      url: { type: 'string', description: 'op=open/navigate 时的目标地址（http/https）' },
+      width: { type: 'number', description: 'op=open 的面板宽（默认 520）' },
+      height: { type: 'number', description: 'op=open 的面板高（默认 420）' },
+      storageIdentity: { type: 'string', description: 'op=open 的存储身份（默认 dsh-browser-kit:agent-view；不同身份=不同 storage 分区）' },
+    },
+  },
+  {
     name: 'browser_check',
     action: 'check',
     timeoutMs: 20000,
@@ -463,6 +476,24 @@ export const BROWSER_TOOL_SPECS = [
     parameters: {},
   },
 ];
+
+/* R-OWN：给所有「页面级」工具补一个统一的 target 参数（一次成型，避免逐个 spec 手改）。
+ * 语义：agent=插件自持窗口（browser_agent_window）；session=本会话侧栏面板；
+ *       省略=自持窗口优先（若已开），否则本会话面板——默认即「不打扰用户」。 */
+const PAGE_TOOL_ACTIONS = new Set([
+  'snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input',
+  'click', 'type', 'reload', 'navigate', 'screenshot', 'console-observer', 'storage', 'upload', 'find',
+]);
+for (const spec of BROWSER_TOOL_SPECS) {
+  if (!PAGE_TOOL_ACTIONS.has(spec.action)) continue;
+  spec.parameters = spec.parameters || {};
+  if (!spec.parameters.target) {
+    spec.parameters.target = {
+      type: 'string',
+      description: '作用目标：agent=Agent 自持窗口（browser_agent_window）；session=本会话侧栏面板；省略=自持窗口优先、否则本会话面板',
+    };
+  }
+}
 
 /* ─────────────── 注册 ─────────────── */
 

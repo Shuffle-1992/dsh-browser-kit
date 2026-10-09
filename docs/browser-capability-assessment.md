@@ -203,6 +203,39 @@ acquire 本身**不创建 webview**（租约只是权限令牌；`<webview>` 仍
 
 本轮只完成契约探测（未实现视图），因为它属于「新增一个自持浏览器面板」的独立特性。
 
+## 3.9 Agent 自持浏览器窗口（R-OWN，2026-10-10 实测打通）
+
+把 §3.8 的租约契约变成可用的**插件自有浏览器视图**：`acquire(storageIdentity)` 拿租约 → 自建 `<webview>`
+（`name=<lease>` + `partition=<partition>` + `src='about:blank#<lease>'`）→ 挂在右下角浮层面板（标题 +
+URL + 刷新/关闭按钮，`resize:both`）→ 全部页面级工具都能drive它。
+
+**为什么这是会话隔离的根治方案**：视图归插件所有，**不占任何会话、不碰用户侧栏** ⇒ 后台会话也能持续
+自动化（不再受「用户停在其他会话 ⇒ 本会话面板未挂载」限制），也不会因前台会话切换而中断。
+
+工具与路由：
+- `browser_agent_window {op: open|navigate|close|status|cleanup, url, width, height, storageIdentity}`；
+- 页面级工具统一带 `target: 'agent' | 'session'`，缺省 = **本会话侧栏面板优先（用户在看着它）→ 自持窗口兜底**；
+- 所有页面级 handler 统一走 `inputTargetOf(c)`（此前 `guest-eval/reload/navigate/page-inject/screenshot`
+  各有一套解析，实测会让 `browser_eval` 打到别的会话页面——已改造）；
+- **自愈**：client 热换/重激活后模块态归零，启动时按 DOM 标记**收养**已有面板（租约在 `name` 属性里）＋
+  清理重复/游离实例并释放其租约＋best-effort 释放 localStorage 里记的旧租约。
+
+实测（2026-10-10 00:4x，全程**不触碰任何用户会话页面**）：
+
+| 检查 | 结果 |
+|---|---|
+| `open` | `{ok:true, partition:'dsh-sidebar-browser-7252dd29-…', leaseId:'…', url:'https://example.com/', title:'Example Domain', wcId:6, rect:{left:2020,top:960,w:524,h:424}}` |
+| 跨站导航 | `navigate` → `https://www.iana.org/help/example-domains`（`title:'Example Domains'`）——**自持窗口可跨站** |
+| 路由 | `target:'agent'` → example.com；`target:'session'` → keysion.cn（互不串台） |
+| `find` 三模式 | elements `count:5/scanned:33`（带 ref/path/inViewport）；text `count:2`（±60 字上下文）；links 命中（example.com 的 Learn more → iana.org） |
+| `snapshot` compact | `{compact:true, count:8, total:33}`（只回 ref/tag/text，省 token） |
+| `element` / `state` | 元素档案含 box/遮挡；state 给出 `canGoBack:true`（自持窗口里历史同样可用） |
+| `storage` 往返 | `set dbk_probe=hello-42` → `get` 命中 → `remove` ✓ |
+| `upload` | 注入 `dbk.txt`（19B, text/plain）→ 页面 `input.files[0]` 读到 `{name,size,type}` ✓ |
+| `close` | `{open:false}`；核对 DOM：`allWebviews:0 / agentFrames:0 / agentPanels:0 / leaseRecord:null` ✓ 租约释放 |
+
+踩坑四条已记 P52（dom-ready 时序 / 热换残留需收养 / release 形参 / 目标解析必须统一）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
