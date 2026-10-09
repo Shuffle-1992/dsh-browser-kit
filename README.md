@@ -11,7 +11,7 @@
 1. **元素批注（核心差异点）**：批注态下连续点选多个元素，每个元素就地钉编号标记并输入修改意见（可留空），意见与元素一一绑定；一键提交后 agent 收到的每条批注都是「意见 → 元素信息」的明确配对——弥补 ZCode「元素→会话附件」多元素无法区分描述的短板；
 2. **截图回传**：一键截取当前页面，agent 拿截图做视觉识别——自动化测试与视觉验收的基础设施；
 3. **设备通讯观测 + 控制台调试（SDK 无关）**：hook 在 `navigator.hid / serial / usb` 平台 API 层，任意项目、任意 SDK 通用（当前 业务 WebHID，后续其它项目其它 SDK 直接复用）；agent 能获取收发报文、页面 console 流，并执行调试操作（CDP evaluate / 注入 mock）验证通讯链路；
-4. **WebHID 直连桥 + polyfill（2026-10-09）**：DSH 宿主缺 `select-hid-device`（Chromium 缺省静默 resolve `[]`，见 pitfalls P35 / 官方 Discussion #8994）。本插件用 node-hid 在宿主 RUN_AS_NODE 进程做**系统层直连**（face：`hidList/hidOpen/hidRead/hidWrite/hidClose`），并在 guest 页注入 **WebHID polyfill**（`src/webhid-shim.js`）：`navigator.hid.requestDevice()` 弹 dsh-kit 选择器（复用批注面板视觉），`open/sendReport/oninputreport/close` 全部经命令通道转发桥——**页面零修改直连 HID 设备**（实测 keysion.cn 配置器）。
+4. **WebHID 直连桥 + polyfill（2026-10-09）**：DSH 宿主缺 `select-hid-device`（Chromium 缺省静默 resolve `[]`，见 pitfalls P35 / 官方 Discussion #8994）。本插件用 node-hid 在宿主 RUN_AS_NODE 进程做**系统层直连**（face：`hidList/hidOpen/hidRead/hidWrite/hidClose`），并在 guest 页注入 **WebHID polyfill**（`src/webhid-shim.js`）：`navigator.hid.requestDevice()` 弹 dsh-kit 选择器（复用批注面板视觉），`open/sendReport/oninputreport/close` 全部经命令通道转发桥——**页面零修改直连 HID 设备**（实测某 WebHID 音频配置器站点）。
 5. **（远期）agent 自动化**：agent 主动操作内置浏览器（navigate / click / type / snapshot / screenshot）。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。

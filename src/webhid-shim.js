@@ -3,7 +3,7 @@
  * 把 requestDevice/getDevices/open/read/write/close 代理到 dsh-browser-kit 的 HID 桥
  * （host 侧 node-hid 系统层直连，绕开 Chromium select-hid-device 宿主缺口——P35）。
  *
- * 页面零修改：keysion.cn 等站点调 navigator.hid.requestDevice() 时，本 shim 弹出
+ * 页面零修改：WebHID 硬件配置器站点调 navigator.hid.requestDevice() 时，本 shim 弹出
  * dsh-kit 自己的选择器 UI（复用批注面板视觉语言），选择结果经桥打开设备并回传 HIDDevice
  * 形状对象；后续 open/oninputreport/sendReport 全部转发桥。
  *
