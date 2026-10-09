@@ -56,6 +56,8 @@ window.__ModuleLoader__.load({
      *  `SHOT_ICON_SVG is not defined`。 */
     const SIZE_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 17v3.5"/></svg>';
     const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
+    /** ↘ 箭头（与 DSH「系统浏览器打开」的 ↗ 图标镜像）：把当前页以**同登录态**开进自持浏览器。 */
+    const OWN_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 8.5V18H8.5"/></svg>';
     // 工具条强调色——字面色豁免（C15）：主题令牌在工具条上下文可能解析成浅色 → 白底白标
     // 隐形（真机修正）；两处引用（点击即时反馈 + 2s 同步循环）共用常量，勿回退令牌。
     const TOOLBAR_ACCENT = '#2563eb';
@@ -1715,16 +1717,20 @@ window.__ModuleLoader__.load({
           /** 释放租约并移除面板（幂等）。 */
           const releaseAgentView = () => {
             const b = agentViewCarrier();
-            const lease = agentView.lease;
             try { if (agentView.resizeObserver && agentView.resizeObserver.disconnect) agentView.resizeObserver.disconnect(); } catch { /* 忽略 */ }
             try { if (agentView.idleTimer) clearInterval(agentView.idleTimer); } catch { /* 忽略 */ }
+            // 多窗口：逐个释放租约并移除元素
+            for (const t of (agentView.tabs || [])) {
+              try { if (t.el && t.el.remove) t.el.remove(); } catch { /* 忽略 */ }
+              try { if (b && t.lease) b.release(t.lease).catch(() => {}); } catch { /* 忽略 */ }
+            }
             try { if (agentView.el && agentView.el.remove) agentView.el.remove(); } catch { /* 忽略 */ }
             try { if (agentView.panel && agentView.panel.remove) agentView.panel.remove(); } catch { /* 忽略 */ }
             agentView.el = null; agentView.panel = null; agentView.stage = null; agentView.lease = null;
             agentView.partition = null; agentView.lastPopup = null; agentView.resizeObserver = null; agentView.ui = null;
             agentView.idleTimer = null; agentView.lastOpAt = 0;
+            agentView.tabs = []; agentView.activeId = null; agentView.tabStrip = null; agentView.addr = null; agentView.urlText = null;
             try { localStorage.removeItem(AGENT_VIEW_LEASE_KEY); } catch { /* 忽略 */ }
-            if (b && lease) b.release(lease).catch(() => { /* 已失效/已释放：忽略 */ });
             return { ok: true };
           };
           /** 建/复用自持视图（面板 + webview），返回 agentView。 */
@@ -1915,8 +1921,9 @@ window.__ModuleLoader__.load({
             }
             if (!identity) { identity = 'dsh-browser-kit:agent-view'; identityFrom = 'isolated-default'; }
             // 已在场：**只有身份一致才复用**；身份变了（如从隔离切到共享登录态）→ 重建
-            const existing = !!(agentView.el && document.contains(agentView.el));
+            const existing = !!(agentView.panel && document.contains(agentView.panel));
             if (existing && opts.recreate !== true && agentView.identity === identity) {
+              if (!(agentView.tabs || []).length) await newAgentTab({}); // 面板在但窗口被关光 ⇒ 补一个
               if (opts.resolution) agentView.ui = { ...(agentView.ui || {}), preset: String(opts.resolution) };
               if (opts.dpr != null) agentView.ui = { ...(agentView.ui || {}), dpr: Number(opts.dpr) };
               if (opts.state) agentView.ui = { ...(agentView.ui || {}), state: String(opts.state) };
@@ -1927,21 +1934,20 @@ window.__ModuleLoader__.load({
               return agentView;
             }
             if (existing) releaseAgentView(); // 身份变化/显式重建：先释放旧租约与面板
+            agentView.identity = identity;
+            agentView.identityFrom = identityFrom;
+            agentView.identityDiag = identityDiag;
+            agentView.tabs = [];
+            agentView.activeId = null;
+            agentView.tabSeq = agentView.tabSeq || 0;
             const b = b0;
-            const reservation = await b.acquire(identity);
-            if (!reservation || typeof reservation.lease !== 'string' || typeof reservation.partition !== 'string') {
-              throw new Error(`acquire 返回形状异常：${JSON.stringify(reservation).slice(0, 120)}`);
-            }
-            // 旧面板/旧租约先清（recreate 场景）
-            if (agentView.lease || agentView.panel) releaseAgentView();
-            agentView.lease = reservation.lease;
-            agentView.partition = reservation.partition;
+            // 旧面板/旧租约先清（recreate 场景）——多窗口：releaseAgentView 会释放所有窗口租约
+            if (agentView.panel) releaseAgentView();
             agentView.acquiredAt = new Date().toISOString();
             agentView.identity = identity;
             agentView.identityFrom = identityFrom;
             agentView.identityDiag = identityDiag;
-            agentView.sharedWithSidebar = sidebarPartitions().indexOf(String(reservation.partition)) >= 0;
-            try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ lease: reservation.lease, partition: reservation.partition, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
+            try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ identity, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
 
             const panel = document.createElement('div');
             panel.id = AGENT_VIEW_ID;
@@ -2047,14 +2053,26 @@ window.__ModuleLoader__.load({
               } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
             });
             shootBtn.innerHTML = SHOT_ICON_SVG;
-            // ④最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
+            // ④批注（R-OWN v8）：把**当前自持窗口**加入共享批注成员表——与会话浏览器**共用同一批注**
+            const annotBtn = mkBtn('批注', '批注（当前自持窗口；与会话浏览器共用同一批注）', async () => {
+              try {
+                const el2 = agentViewWebview();
+                if (!el2) { urlText.textContent = '无活动窗口'; return; }
+                const r = await togglePaneAnnot(el2);
+                annotBtn.style.background = r && r.joined === true ? TOOLBAR_ACCENT : 'transparent';
+                annotBtn.style.color = r && r.joined === true ? TOOLBAR_ACCENT_TEXT : '';
+                urlText.textContent = r && r.ok ? (r.joined ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`;
+              } catch (e) { urlText.textContent = `批注失败：${msgOf(e)}`; }
+            });
+            annotBtn.setAttribute('data-dsh-kit-agent-view-annot', '');
+            // ⑤最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
             const minBtn = mkBtn('▣', '最小化为右下角小窗 / 展开', () => {
               agentView.ui = { ...(agentView.ui || {}), state: (agentView.ui && agentView.ui.state === 'expanded') ? 'collapsed' : 'expanded' };
               applyAgentViewLayout();
             });
             minBtn.setAttribute('data-dsh-kit-agent-view-min', '');
-            const closeBtn = mkBtn('✕', '关闭（释放租约）', () => releaseAgentView());
-            const expandedOnly = [presetSel, zoomSel, zoomInput, shootBtn];
+            const closeBtn = mkBtn('✕', '关闭面板（释放全部窗口租约）', () => releaseAgentView());
+            const expandedOnly = [presetSel, zoomSel, zoomInput, shootBtn, annotBtn];
             for (const el of expandedOnly) el.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
             head.appendChild(title);
             head.appendChild(urlText);
@@ -2062,26 +2080,57 @@ window.__ModuleLoader__.load({
             head.appendChild(zoomSel);
             head.appendChild(zoomInput);
             head.appendChild(shootBtn);
+            head.appendChild(annotBtn);
             head.appendChild(minBtn);
             head.appendChild(closeBtn);
+            // 标签条（多窗口）：每个窗口一个 chip（标题 + ×），末尾「＋」新建
+            const tabStrip = document.createElement('div');
+            tabStrip.setAttribute('data-dsh-kit-agent-tabstrip', '');
+            tabStrip.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
+            tabStrip.style.cssText = `flex:none;display:flex;align-items:center;gap:4px;padding:2px 6px;font:${T.font};`
+              + 'overflow-x:auto;border-bottom:1px solid ' + T.border + ';';
+            // 地址栏（可输入，回车导航当前窗口）
+            const addrRow = document.createElement('div');
+            addrRow.setAttribute('data-dsh-kit-agent-view-expanded-only', '');
+            addrRow.style.cssText = `flex:none;display:flex;align-items:center;gap:4px;padding:3px 6px;font:${T.font};`
+              + 'border-bottom:1px solid ' + T.border + ';';
+            const addr = document.createElement('input');
+            addr.type = 'text';
+            addr.setAttribute('data-dsh-kit-agent-address', '');
+            addr.placeholder = '输入网址后回车（当前窗口）';
+            addr.style.cssText = 'flex:auto;min-width:0;border:1px solid ' + T.border + ';background:transparent;color:'
+              + T.text + ';border-radius:6px;padding:2px 6px;font:' + T.font + ';';
+            const goAddr = async () => {
+              const url = String(addr.value || '').trim();
+              if (!url) return;
+              const withScheme = /^[a-z]+:\/\//i.test(url) ? url : `https://${url}`;
+              try { await navigateAgentView(withScheme, {}); addr.value = withScheme; }
+              catch (e) { addr.value = `导航失败：${msgOf(e)}`; }
+            };
+            addr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); goAddr(); } });
+            const addrGo = document.createElement('button');
+            addrGo.type = 'button';
+            addrGo.textContent = '前往';
+            addrGo.title = '在当前自持窗口打开';
+            addrGo.style.cssText = 'flex:none;cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
+              + T.text + ';border-radius:6px;padding:1px 6px;font:' + T.font + ';';
+            addrGo.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } goAddr(); });
+            addrRow.appendChild(addr);
+            addrRow.appendChild(addrGo);
             // 舞台：裁切容器；webview 自身保持目标分辨率尺寸，靠 transform 缩放显示
             const stage = document.createElement('div');
             stage.setAttribute('data-dsh-kit-agent-view-stage', '');
             stage.style.cssText = 'flex:none;overflow:hidden;position:relative;margin:0 auto;';
-            const frame = document.createElement('webview');
-            frame.setAttribute('data-dsh-kit-agent-view', ''); // 收养/清理标记（与选择器逐字一致，见上）
-            frame.setAttribute('name', reservation.lease);       // ← 租约以 name 传递（照抄官方形状）
-            frame.setAttribute('partition', reservation.partition);
-            frame.setAttribute('allowpopups', '');
-            frame.setAttribute('src', `about:blank#${reservation.lease}`);
-            frame.style.cssText = 'position:absolute;left:0;top:0;border:0;transform-origin:top left;';
-            stage.appendChild(frame);
             panel.appendChild(head);
+            panel.appendChild(tabStrip);
+            panel.appendChild(addrRow);
             panel.appendChild(stage);
             document.body.appendChild(panel);
             agentView.panel = panel;
             agentView.stage = stage;
-            agentView.el = frame;
+            agentView.tabStrip = tabStrip;
+            agentView.addr = addr;
+            agentView.urlText = urlText;
             agentView.ui = {
               state: (opts && opts.state === 'expanded') ? 'expanded' : 'collapsed',
               preset: (opts && opts.resolution) ? String(opts.resolution) : '2K',
@@ -2094,21 +2143,15 @@ window.__ModuleLoader__.load({
             agentView.lastOpAt = Date.now();
             startAgentViewIdleTick();
             try {
-              if (typeof b.onOpenRequested === 'function') {
-                b.onOpenRequested(reservation.lease, (url) => { agentView.lastPopup = String(url || ''); });
-              }
-            } catch { /* 订阅失败不影响主流程 */ }
-            const refreshUrl = () => { try { urlText.textContent = frame.getURL() || ''; } catch { /* 忽略 */ } };
-            frame.addEventListener('did-navigate', refreshUrl);
-            frame.addEventListener('did-navigate-in-page', refreshUrl);
-            frame.addEventListener('page-title-updated', refreshUrl);
-            try {
               if (typeof ResizeObserver === 'function') {
                 const ro = new ResizeObserver(() => { try { applyAgentViewLayout(); } catch { /* 忽略 */ } });
                 ro.observe(panel);
                 agentView.resizeObserver = ro;
               }
             } catch { /* 忽略 */ }
+            // 首个窗口（每个窗口各自持租约；同一 identity ⇒ 共享登录态）
+            const firstTab = await newAgentTab({ url: (opts && opts.url) || null });
+            agentView.sharedWithSidebar = sidebarPartitions().indexOf(String(firstTab.partition)) >= 0;
             applyAgentViewLayout();
             return agentView;
           };
@@ -2128,8 +2171,8 @@ window.__ModuleLoader__.load({
             frame.style.height = `${res.h}px`;
             // 设备像素比与页面缩放共用 setZoomFactor ⇒ 取两者乘积（inputZoom 读到的就是它，坐标换算自洽）
             try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(zoom * dpr); } catch { /* 忽略 */ }
-            const barH = 32;
             const expanded = ui.state === 'expanded';
+            const barH = expanded ? 76 : 32; // 展开态：标题行 + 标签条 + 地址栏（三行）
             const fit = ui.fit === true;
             /* 展开态**必须让开 DSH 自己的标题栏**（右上角那三个窗口按钮），否则最大化时会盖住它们
              * （用户实测反馈）。故展开时从 topOffset 起算，并把面板抬到最顶层 z-index。 */
@@ -2174,12 +2217,24 @@ window.__ModuleLoader__.load({
             }
             const sel = panel.querySelector('[data-dsh-kit-agent-view-preset]');
             if (sel && sel.value !== ui.preset && AGENT_VIEW_PRESETS[ui.preset]) sel.value = ui.preset;
+            // 把面板级 state 与窗口级 ui 回写：窗口记录持有自己的预设/缩放/适配（多窗口互不影响）
+            const act = activeAgentTab();
+            if (act) act.ui = { preset: ui.preset, dpr: ui.dpr, fit, zoom };
+            // 标题行右侧的地址文本 + 地址栏（活动窗口）
+            try {
+              if (agentView.urlText) {
+                const u = (act && act.el && typeof act.el.getURL === 'function' ? act.el.getURL() : null) || (act && act.url) || 'about:blank';
+                agentView.urlText.textContent = u;
+              }
+              renderAgentAddress();
+            } catch { /* 忽略 */ }
             // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
             let theme = null;
             try { theme = agentViewApplyTheme(); } catch { theme = null; }
             return {
               state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
               scale: Number(k.toFixed(3)), stageW, stageH, topOffset, theme: theme ? theme.dark : null,
+              activeTabId: agentView.activeId || null, tabCount: (agentView.tabs || []).length,
             };
           };
 
@@ -2216,6 +2271,173 @@ window.__ModuleLoader__.load({
           const startAgentViewIdleTick = () => {
             if (agentView.idleTimer) return;
             agentView.idleTimer = trackInterval(setInterval(agentViewIdleTick, 1000));
+          };
+
+          /* ── R-OWN v8：自持浏览器**多窗口（标签）**（2026-10-10 用户要求）──
+           * 面板级：panel/stage/tabStrip/addr/ui.state（展开收起）；窗口级：tabs[]（各持自己的租约与 webview）。
+           * `agentView.el/lease/partition/ui` 始终**镜像当前活动窗口**，这样既有的截图/输入/布局代码无需改动。 */
+          const activeAgentTab = () => (agentView.tabs || []).find((t) => t.id === agentView.activeId) || null;
+          const agentTabShell = () => {
+            const tabs = (agentView.tabs || []).filter((t) => t.el && document.contains(t.el));
+            return tabs.length ? tabs[tabs.length - 1] : null;
+          };
+          /** 切到某个窗口：镜像字段 + 可见性 + 标签条/地址栏刷新。 */
+          const setActiveAgentTab = (id) => {
+            const tab = (agentView.tabs || []).find((t) => t.id === id) || null;
+            if (!tab) return null;
+            const keepState = (agentView.ui && agentView.ui.state) || 'collapsed';
+            agentView.activeId = tab.id;
+            agentView.el = tab.el;
+            agentView.lease = tab.lease;
+            agentView.partition = tab.partition;
+            agentView.ui = { ...(tab.ui || {}), state: keepState };
+            for (const t of agentView.tabs) {
+              if (!t.el || !t.el.style) continue;
+              const on = t.id === tab.id;
+              t.el.style.visibility = on ? '' : 'hidden';
+              t.el.style.pointerEvents = on ? '' : 'none';
+              if (on) t.el.removeAttribute('data-dsh-kit-agent-view-inactive');
+              else t.el.setAttribute('data-dsh-kit-agent-view-inactive', '');
+            }
+            renderAgentTabStrip();
+            renderAgentAddress();
+            applyAgentViewLayout();
+            return tab;
+          };
+          /** 标签条：每个窗口一个 chip（标题 + ×），末尾「+」新建。 */
+          const renderAgentTabStrip = () => {
+            const strip = agentView.tabStrip;
+            if (!strip) return;
+            try {
+              strip.textContent = '';
+              for (const t of agentView.tabs || []) {
+                const chip = document.createElement('span');
+                chip.setAttribute('data-dsh-kit-agent-tab', '');
+                chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;max-width:150px;padding:1px 4px;border-radius:6px;'
+                  + 'cursor:pointer;white-space:nowrap;'
+                  + (t.id === agentView.activeId ? 'background:rgba(56,189,248,.20);' : 'opacity:.75;');
+                const label = document.createElement('span');
+                const title = t.title || t.url || '新窗口';
+                label.textContent = String(title).replace(/^https?:\/\//, '').slice(0, 18);
+                label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;max-width:118px;';
+                label.addEventListener('click', () => setActiveAgentTab(t.id));
+                const x = document.createElement('span');
+                x.textContent = '×';
+                x.title = '关闭此窗口（释放其租约）';
+                x.style.cssText = 'cursor:pointer;opacity:.8;padding:0 2px;';
+                x.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } closeAgentTab(t.id); });
+                chip.appendChild(label);
+                chip.appendChild(x);
+                strip.appendChild(chip);
+              }
+              const plus = document.createElement('span');
+              plus.textContent = '＋';
+              plus.title = '新建浏览器窗口（同登录态）';
+              plus.style.cssText = 'cursor:pointer;padding:0 6px;opacity:.85;';
+              plus.addEventListener('click', () => { newAgentTab().catch(() => {}); });
+              strip.appendChild(plus);
+            } catch { /* 忽略 */ }
+          };
+          /** 地址栏：显示/编辑当前窗口地址（回车即导航）。 */
+          const renderAgentAddress = () => {
+            const inp = agentView.addr;
+            if (!inp || document.activeElement === inp) return;
+            const t = activeAgentTab();
+            let url = (t && t.url) || '';
+            try { if (t && t.el && typeof t.el.getURL === 'function') url = t.el.getURL() || url; } catch { /* 忽略 */ }
+            inp.value = url;
+          };
+          /** 新建一个自持窗口（各自 acquire 一份租约，同一 storage identity ⇒ 共享登录态）。 */
+          const newAgentTab = async (opts = {}) => {
+            if (!agentView.panel) throw new Error('自持面板未创建');
+            const b = agentViewCarrier();
+            if (!b || typeof b.acquire !== 'function') throw new Error('dshDesktop.browser 不可用');
+            const identity = agentView.identity || 'dsh-browser-kit:agent-view';
+            const reservation = await b.acquire(identity);
+            if (!reservation || typeof reservation.lease !== 'string' || typeof reservation.partition !== 'string') {
+              throw new Error(`acquire 返回形状异常：${JSON.stringify(reservation).slice(0, 120)}`);
+            }
+            agentView.tabSeq = (agentView.tabSeq || 0) + 1;
+            const tab = {
+              id: `tab${agentView.tabSeq}`,
+              lease: reservation.lease,
+              partition: reservation.partition,
+              el: null,
+              url: null,
+              title: null,
+              ui: { preset: '2K', dpr: null, fit: false, zoom: 1 },
+              createdAt: new Date().toISOString(),
+            };
+            const frame = document.createElement('webview');
+            frame.setAttribute('data-dsh-kit-agent-view', '');
+            frame.setAttribute('name', reservation.lease);
+            frame.setAttribute('partition', reservation.partition);
+            frame.setAttribute('allowpopups', '');
+            frame.setAttribute('src', `about:blank#${reservation.lease}`);
+            frame.style.cssText = 'position:absolute;left:0;top:0;border:0;transform-origin:top left;';
+            tab.el = frame;
+            agentView.stage.appendChild(frame);
+            try {
+              if (typeof b.onOpenRequested === 'function') {
+                b.onOpenRequested(reservation.lease, (url) => { agentView.lastPopup = String(url || ''); });
+              }
+            } catch { /* 订阅失败不影响主流程 */ }
+            const syncMeta = () => {
+              try { tab.url = frame.getURL() || tab.url; } catch { /* 忽略 */ }
+              try { tab.title = frame.getTitle() || tab.title; } catch { /* 忽略 */ }
+              renderAgentTabStrip();
+              renderAgentAddress();
+            };
+            frame.addEventListener('did-navigate', syncMeta);
+            frame.addEventListener('did-navigate-in-page', syncMeta);
+            frame.addEventListener('page-title-updated', syncMeta);
+            agentView.tabs.push(tab);
+            setActiveAgentTab(tab.id);
+            try { if (opts.url) await navigateAgentTab(tab, String(opts.url)); } catch { /* 导航失败由调用方判断 */ }
+            return tab;
+          };
+          /** 关闭某个窗口并释放其租约；关掉最后一个则整面板收起为空壳。 */
+          const closeAgentTab = (id) => {
+            const idx = (agentView.tabs || []).findIndex((t) => t.id === id);
+            if (idx < 0) return { ok: true, closed: false };
+            const tab = agentView.tabs[idx];
+            const b = agentViewCarrier();
+            if (b && tab.lease) b.release(tab.lease).catch(() => { /* 忽略 */ });
+            try { if (tab.el && tab.el.remove) tab.el.remove(); } catch { /* 忽略 */ }
+            agentView.tabs.splice(idx, 1);
+            if (agentView.activeId === id) {
+              const next = agentView.tabs[Math.min(idx, agentView.tabs.length - 1)] || null;
+              if (next) setActiveAgentTab(next.id);
+              else {
+                agentView.activeId = null; agentView.el = null; agentView.lease = null; agentView.partition = null; agentView.ui = null;
+                renderAgentTabStrip(); renderAgentAddress();
+              }
+            } else {
+              renderAgentTabStrip();
+            }
+            return { ok: true, closed: true, remaining: agentView.tabs.length };
+          };
+          /** 在**指定窗口**里导航（不改变活动窗口）。 */
+          const navigateAgentTab = async (tab, url) => {
+            const el = tab && tab.el;
+            if (!el) throw new Error('窗口不存在');
+            await waitAgentViewReady(el);
+            await el.loadURL(url);
+            tab.url = url;
+            renderAgentTabStrip();
+            renderAgentAddress();
+            return { ok: true, tabId: tab.id, url, title: (() => { try { return el.getTitle(); } catch { return null; } })() };
+          };
+          /** 工具条「↘」用：把会话窗口当前页面**以同登录态**开进自持浏览器。 */
+          const openUrlInAgentView = async (url, opts = {}) => {
+            const v = await ensureAgentView({ sessionId: opts.sessionId || null, state: 'expanded' });
+            const tab = activeAgentTab() || agentTabShell();
+            if (!tab) {
+              const created = await newAgentTab({ url });
+              return { ok: true, tabId: created.id, url, status: agentViewStatus() };
+            }
+            await navigateAgentTab(tab, url);
+            return { ok: true, tabId: tab.id, url, status: agentViewStatus() };
           };
           /** 等自持视图的 webview 完成挂载（`dom-ready` / 拿到 webContentsId）——
            *  **没有这一步 `loadURL` 会报「must be attached to the DOM and dom-ready emitted」**（实测）。 */
@@ -2259,7 +2481,16 @@ window.__ModuleLoader__.load({
               // R-OWN-ID：登录态复用情况（identity 来源 + 是否与侧栏窗口同分区）
               identity: agentView.identity,
               identityFrom: agentView.identityFrom,
-              sharedWithSidebar: agentView.sharedWithSidebar,
+              sharedWithSidebar: agentView.partition ? sidebarPartitions().indexOf(String(agentView.partition)) >= 0 : false,
+              // R-OWN v8：多窗口
+              tabs: (agentView.tabs || []).map((t) => {
+                let u = t.url || null; let ti = t.title || null;
+                try { if (t.el && typeof t.el.getURL === 'function') u = t.el.getURL() || u; } catch { /* 忽略 */ }
+                try { if (t.el && typeof t.el.getTitle === 'function') ti = t.el.getTitle() || ti; } catch { /* 忽略 */ }
+                return { id: t.id, url: u, title: ti, active: t.id === agentView.activeId };
+              }),
+              activeTabId: agentView.activeId || null,
+              tabCount: (agentView.tabs || []).length,
               // 分辨率与窗口形态
               state: ui.state || null,
               preset: ui.preset || null,
@@ -2315,9 +2546,12 @@ window.__ModuleLoader__.load({
               if (cands.length) {
                 adopted = cands[0];
                 for (const c of cands.slice(1)) {
+                  // 多窗口：被丢弃的面板里**所有**窗口的租约都要释放（否则泄漏）
+                  for (const f2 of Array.from(c.panel.querySelectorAll('webview[data-dsh-kit-agent-view]'))) {
+                    releaseLease(f2.getAttribute('name'));
+                  }
                   try { c.panel.remove(); } catch { /* 忽略 */ }
                   removed += 1;
-                  releaseLease(c.lease);
                 }
               }
               // 无主的游离 frame（不在被收养的面板里）一律清掉
@@ -2330,28 +2564,44 @@ window.__ModuleLoader__.load({
               }
               if (adopted) {
                 agentView.panel = adopted.panel;
-                agentView.el = adopted.frame;
-                agentView.lease = adopted.lease;
-                agentView.partition = adopted.partition;
+                agentView.stage = adopted.panel.querySelector('[data-dsh-kit-agent-view-stage]') || null;
+                agentView.tabStrip = adopted.panel.querySelector('[data-dsh-kit-agent-tabstrip]') || null;
+                agentView.addr = adopted.panel.querySelector('[data-dsh-kit-agent-address]') || null;
+                agentView.urlText = adopted.panel.querySelector('[data-dsh-kit-agent-view-url]') || null;
                 agentView.acquiredAt = agentView.acquiredAt || 'adopted-on-boot';
-                // 收养时恢复 UI 状态（stage 引用 + 形态/预设；老版本面板没有 stage 时留空，布局函数会容错）
+                // R-OWN v8：把面板里**所有**自持 webview 收养为窗口（各自 name=租约、partition）
                 try {
-                  agentView.stage = adopted.panel.querySelector('[data-dsh-kit-agent-view-stage]') || null;
-                  const sel = adopted.panel.querySelector('[data-kit-agent-view-preset]');
-                  agentView.ui = {
-                    state: adopted.panel.dataset.kitAgentViewState === 'expanded' ? 'expanded' : 'collapsed',
-                    preset: (sel && sel.value) || '2K',
-                    dpr: null,
-                  };
-                  if (agentView.stage) applyAgentViewLayout();
-                } catch { /* 忽略 */ }
-                try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ lease: adopted.lease, partition: adopted.partition, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
-                // 收养后接回 onOpenRequested 订阅与 URL 文本刷新
-                try {
-                  if (carrier && typeof carrier.onOpenRequested === 'function') {
-                    carrier.onOpenRequested(adopted.lease, (url) => { agentView.lastPopup = String(url || ''); });
+                  const frames2 = Array.from(adopted.panel.querySelectorAll('webview[data-dsh-kit-agent-view]'));
+                  agentView.tabs = frames2.map((el2, i2) => ({
+                    id: `tab-adopt-${i2 + 1}`,
+                    lease: el2.getAttribute('name') || null,
+                    partition: el2.getAttribute('partition') || null,
+                    el: el2,
+                    url: (() => { try { return el2.getURL(); } catch { return null; } })(),
+                    title: (() => { try { return el2.getTitle(); } catch { return null; } })(),
+                    ui: { preset: '2K', dpr: null, fit: false, zoom: 1 },
+                    createdAt: 'adopted-on-boot',
+                  }));
+                  agentView.tabSeq = agentView.tabs.length;
+                  const sel2 = adopted.panel.querySelector('[data-dsh-kit-agent-view-preset]');
+                  const uiState = adopted.panel.dataset.kitAgentViewState === 'expanded' ? 'expanded' : 'collapsed';
+                  if (agentView.tabs.length) {
+                    agentView.tabs[0].ui = { ...(agentView.tabs[0].ui || {}), preset: (sel2 && sel2.value) || '2K' };
+                    agentView.activeId = agentView.tabs[0].id;
+                    agentView.ui = { ...agentView.tabs[0].ui, state: uiState };
+                    setActiveAgentTab(agentView.activeId);
                   }
                 } catch { /* 忽略 */ }
+                try { localStorage.setItem(AGENT_VIEW_LEASE_KEY, JSON.stringify({ identity: agentView.identity || null, at: agentView.acquiredAt })); } catch { /* 忽略 */ }
+                // 收养后接回 onOpenRequested 订阅（每个窗口的租约都接）
+                try {
+                  if (carrier && typeof carrier.onOpenRequested === 'function') {
+                    for (const t of agentView.tabs) {
+                      if (t.lease) carrier.onOpenRequested(t.lease, (url) => { agentView.lastPopup = String(url || ''); });
+                    }
+                  }
+                } catch { /* 忽略 */ }
+                if (agentView.stage) applyAgentViewLayout();
               } else {
                 try {
                   const raw = localStorage.getItem(AGENT_VIEW_LEASE_KEY);
@@ -3192,6 +3442,45 @@ window.__ModuleLoader__.load({
                 };
               }
               if (op === 'close') return { ok: true, op, ...releaseAgentView(), ...agentViewStatus() };
+              // ── 多窗口（R-OWN v8）──
+              if (op === 'tabs') return { ok: true, op, ...agentViewStatus() };
+              if (op === 'tab-new') {
+                try {
+                  if (!agentView.panel) await ensureAgentView(c || {});
+                  const tab = await newAgentTab({ url: (c && c.url) ? String(c.url) : null });
+                  touchAgentView();
+                  return { ok: true, op, tabId: tab.id, url: tab.url || null, ...agentViewStatus() };
+                } catch (e) { return { ok: false, op, error: msgOf(e) }; }
+              }
+              if (op === 'tab-close') {
+                const wantId = c && (c.tabId || c.tab);
+                const id = wantId ? String(wantId) : (agentView.activeId || null);
+                if (!id) return { ok: false, op, error: '没有可关闭的窗口' };
+                if (!wantId && (agentView.tabs || []).length > 1) {
+                  // 不带 tabId 时只关活动窗口
+                }
+                const r = closeAgentTab(id);
+                return { ok: !!(r && r.ok), op, ...r, ...agentViewStatus() };
+              }
+              if (op === 'tab-select') {
+                const id = c && (c.tabId || c.tab) ? String(c.tabId || c.tab) : null;
+                if (!id) return { ok: false, op, error: '需要 tabId', tabs: (agentView.tabs || []).map((t) => t.id) };
+                const tab = setActiveAgentTab(id);
+                if (!tab) return { ok: false, op, error: `窗口不存在：${id}` };
+                touchAgentView();
+                return { ok: true, op, tabId: tab.id, ...agentViewStatus() };
+              }
+              if (op === 'annotate') {
+                // 把当前自持窗口加入/退出**共享批注**（与会话浏览器同一批注）；on/off/toggle
+                const el2 = agentViewWebview();
+                if (!el2) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
+                const want = c && c.on != null ? (c.on === true || c.on === 'true' ? 'on' : 'off') : 'toggle';
+                const st = stateRef.annot;
+                const joined = !!(st && st.active && (st.panes || []).some((p) => paneIdOf(p) === paneIdOf(el2)));
+                if ((want === 'on' && joined) || (want === 'off' && !joined)) return { ok: true, op, joined, unchanged: true };
+                const r = await togglePaneAnnot(el2);
+                return { ok: !!(r && r.ok), op, joined: !!(r && (r.joined === true || r.started === true)), sessionActive: !!(stateRef.annot && stateRef.annot.active), error: r && r.error };
+              }
               if (op === 'open') {
                 try {
                   if (c && c.idleReleaseMs == null) { /* 保持默认 10 分钟 */ }
@@ -3260,7 +3549,7 @@ window.__ModuleLoader__.load({
                 agentView.boot = r;
                 return { ok: true, op, ...r, ...agentViewStatus() };
               }
-              return { ok: false, op, error: `未知 op=${op}（open|navigate|expand|collapse|toggle|resolution|screenshot|close|status|cleanup）` };
+              return { ok: false, op, error: `未知 op=${op}（open|navigate|expand|collapse|toggle|resolution|zoom|fit|screenshot|idle|tabs|tab-new|tab-close|tab-select|annotate|close|status|cleanup）` };
             },
             'storage': async function (svc, c) {
               /* R-P2：页内存储读写（无 CDP 也能用）。op: get|set|remove|clear；kind: local|session|cookie。
@@ -4147,6 +4436,17 @@ window.__ModuleLoader__.load({
             const toolbarForms = () => Array.from(document.querySelectorAll(TOOLBAR_SEL))
               .filter((f) => f.parentElement && f.parentElement.querySelector('webview'));
             const webviewOfForm = (form) => form.parentElement.querySelector('webview');
+            /** 该面板所属会话 id（沿 DOM 上溯 `data-sidebar-right-session`）——用于身份探测。 */
+            const sessionIdOfForm = (form) => {
+              try {
+                let n = form;
+                for (let i = 0; i < 8 && n; i += 1, n = n.parentElement) {
+                  const sid = n.getAttribute && n.getAttribute('data-sidebar-right-session');
+                  if (sid) return sid;
+                }
+              } catch { /* 忽略 */ }
+              return null;
+            };
             /* ── 会话面板「设备尺寸」（2026-10-10 用户要求）──
              * 把 guest 视口设成预设分辨率，显示缩放**按当前浏览器板块的尺寸计算**（fit 到板块内）。 */
             const applyPaneDeviceSize = (pane, presetKey) => {
@@ -4256,6 +4556,7 @@ window.__ModuleLoader__.load({
                 { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击本窗口加入/退出共享批注）', svg: ANNOT_ICON_SVG, first: true },
                 { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false },
                 { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false },
+                { id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true },
               ];
               for (const form of toolbarForms()) {
                 const pane0 = webviewOfForm(form);
@@ -4295,6 +4596,25 @@ window.__ModuleLoader__.load({
                       const pane = webviewOfForm(form);
                       openPaneDeviceMenu(btn, pane);
                     });
+                  } else if (spec.id === 'dsh-kit-toolbar-own-btn') {
+                    // ↘：把该面板**当前页面**以同一 storage identity 开进自持浏览器（共享登录态）
+                    btn.addEventListener('click', async () => {
+                      const pane = webviewOfForm(form);
+                      if (!pane) return;
+                      let url = null;
+                      try { url = pane.getURL(); } catch { url = null; }
+                      if (!url || url.indexOf('about:blank') === 0) { btn.title = '当前页面还没有地址'; return; }
+                      const sid = sessionIdOfForm(form) || currentSurfaceSession();
+                      btn.style.background = TOOLBAR_ACCENT;
+                      btn.style.color = TOOLBAR_ACCENT_TEXT;
+                      try {
+                        const r = await openUrlInAgentView(url, { sessionId: sid });
+                        btn.title = r && r.ok
+                          ? `已在自持浏览器打开（同登录态）：${String(url).slice(0, 70)}`
+                          : `打开失败：${(r && r.error) || '未知'}`;
+                      } catch (e) { btn.title = `打开失败：${msgOf(e)}`; }
+                      setTimeout(() => { btn.style.background = 'transparent'; btn.style.color = 'inherit'; }, 900);
+                    });
                   } else {
                     btn.addEventListener('click', async () => {
                       const pane = webviewOfForm(form);
@@ -4310,7 +4630,19 @@ window.__ModuleLoader__.load({
                         : `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
                     });
                   }
-                  form.appendChild(btn);
+                  // ↘ 按钮尽量**紧贴 DSH「系统浏览器打开」图标右侧**（找不到就退回追加到工具条末尾）
+                  let host = null;
+                  if (spec.afterSystemBrowser) {
+                    try {
+                      host = Array.from(form.querySelectorAll('button')).find((bb) => {
+                        if (bb.id && bb.id.indexOf('dsh-kit') === 0) return false;
+                        const t = `${bb.getAttribute('title') || ''} ${bb.getAttribute('aria-label') || ''}`;
+                        return /系统浏览器|浏览器中打开|浏览器打开|BROWSER/i.test(t);
+                      }) || null;
+                    } catch { host = null; }
+                  }
+                  if (host && host.insertAdjacentElement) host.insertAdjacentElement('afterend', btn);
+                  else form.appendChild(btn);
                 }
                 attached += 1;
               }

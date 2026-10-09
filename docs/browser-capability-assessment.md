@@ -372,6 +372,22 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 - 实测：单次点击 `nonSvgImgs 0 → 1`（**正好一张**）；2s 内连点两次 `1 → 2`（只 +1，防连点有效）；
   按钮提示 `已插入输入框（图片附件）`、`verified:true`（渲染成 `blob:dsh-app://…` 缩略图）。
 
+### 3.9.8 R-OWN v8：同登录态开进自持 / 多窗口 + 地址栏 / 批注共享（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| 工具条「↘」：当前页以同登录态开进自持浏览器 | 紧贴 DSH「系统浏览器打开」（↗）右侧（`insertAdjacentElement('afterend')`，失败退回末尾）；读 `pane.getURL()` + 面板所属会话（上溯 `data-sidebar-right-session`）→ 用同一 storage identity 打开 | 四按钮就位：`own@2430`（↘，在系统浏览器图标右侧）、`annot@2462`、`size@2494`、`shot@2526` ✓ |
+| 多窗口（新增/关闭/切换） | 面板内标签条；每窗口各自 `acquire` 一份租约、各自 webview；`tabs/tab-new/tab-close/tab-select` 工具入口 | `open`→`tab1`；`tab-new`→`tab2`（example.com，标题自动成 "Example Domain"）；`tab-select` 回 tab1 且地址栏随之回填；`tab-close` 后剩 1 ✓ |
+| 地址栏可输入 | `<input>` + 「前往」，回车导航当前窗口；`did-navigate`/切窗口后自动回填 | `addrValue` 随活动窗口变化：keysion → example.com → keysion ✓ |
+| 批注进自持 + 与会话共用同一批注 | 「批注」按钮 → `togglePaneAnnot(活动窗口)`（该函数对任意 webview 生效）；同步循环按 `gid` **在所有成员间广播** ⇒ 天然共用 | 开启后自持窗口**页内**出现 `window.__dshKitAnnotator`（`ver 1.6.2`，与本插件期望版本一致）；`joined:true, sessionActive:true`；关闭 `joined:false` ✓ |
+
+**多窗口的关键安全取舍**：只让**活动窗口可见**（其余 `visibility:hidden` + `pointer-events:none` + `data-dsh-kit-agent-view-inactive`），
+且 `agentViewWebview()` **只返回活动窗口**——刻意避免对隐藏 surface 调 `capturePage`（P47-B 高危：隐藏/零尺寸面板
+截图会挂死或崩宿主）。实测 2 个窗口时 `frames:2 / visibleFrames:1` ✓。
+
+**收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
+丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

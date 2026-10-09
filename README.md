@@ -48,6 +48,14 @@
     - 尺寸弹层**向下展开**（向上会与 DSH 右上角图标堆叠重叠遮挡）；下方空间不足才翻到上方。
 14. **自持窗口「截图」= 同款图标**：点击后**直接插入会话输入框**（图片附件）+ 落盘（供 Agent `read_image` 分析）；`browser_agent_window {op:'screenshot', insertToComposer:true}` 亦同（`clipboard:true` 仍可显式要求写剪贴板，但缺省不做）。
 
+15. **工具条「↘」图标：把当前页以同登录态开进自持浏览器（2026-10-10 用户要求）**：紧贴 DSH「系统浏览器打开」图标（↗）右侧（`insertAdjacentElement('afterend')`，找不到才退回末尾）。点击读取该面板当前 URL 与该面板所属会话（沿 DOM 上溯 `data-sidebar-right-session`），用同一 storage identity 在自持窗口打开 ⇒ **登录态一致**。
+16. **自持浏览器多窗口 + 地址栏 + 批注（2026-10-10 用户要求）**：
+    - **多窗口**：面板内**标签条**——每个窗口一个 chip（标题 + ×，末尾「＋」新建）。每个窗口**各自 acquire 一份租约**（各自独立的浏览上下文），但共用同一 storage identity ⇒ 登录态一致。
+    - **地址栏**：可输入网址、回车（或「前往」）在当前窗口导航；切窗口/导航后自动回填。
+    - **只让活动窗口可见**（其余 `visibility:hidden` + `pointer-events:none` + `data-dsh-kit-agent-view-inactive`），且 `agentViewWebview()` **只返回活动窗口**——刻意避免对隐藏 surface 调 `capturePage`（P47-B 高危）。
+    - **批注可用且共享**：面板内「批注」按钮把当前自持窗口加入**共享批注成员表**（实测页面内出现 `window.__dshKitAnnotator` v1.6.2）——同步循环按 `gid` 在**所有成员间广播**，所以自持浏览器与 DSH 会话浏览器**共用同一批注**（同一页面两处都实时出现徽标）。
+    - 工具：`browser_agent_window {op:'tabs'|'tab-new'|'tab-close'|'tab-select'|'annotate'}`（`tabId`、`on` 参数；`status` 里带 `tabs[]/activeTabId/tabCount`）。
+
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 
 ## 2. 背景一页纸
