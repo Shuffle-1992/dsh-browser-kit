@@ -20,7 +20,7 @@
   if (window.__dshKitHidShimVersion) {
     return; // 幂等：重复注入直接返回
   }
-  window.__dshKitHidShimVersion = "1.0.0";
+  window.__dshKitHidShimVersion = "1.0.1";
 
   var REQ_SEQ = 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
@@ -47,7 +47,41 @@
     p.resolve(result);
   };
 
-  // ---------- 选择器 UI（复用批注面板视觉语言：暗底圆角 + 行悬停） ----------
+  // ---------- 主题（R-STYLE）：client 从 GUI 文档采集令牌实值传入，挂 guest CSS 变量 ----------
+
+  var THEME = window.__dshKitHidTheme || {
+    bg: "#243244", border: "#3a4a5e", text: "#e5e7eb", text2: "rgba(255,255,255,0.65)",
+    hover: "rgba(255,255,255,0.08)", shadow: "0 12px 40px rgba(0,0,0,0.5)",
+    danger: "rgba(220,38,38,0.85)", font: "13px/1.5 -apple-system,'Segoe UI','Noto Sans SC',sans-serif",
+    scheme: "dark",
+  };
+
+  /** 把主题值挂到 guest documentElement 的 --dshkit-* 变量（选择器样式全走变量——
+   *  主题翻转时 client 推新 THEME 后调 applyTheme 实时刷新）。 */
+  function applyTheme(theme) {
+    if (theme && typeof theme === "object") {
+      THEME = theme;
+    }
+    try {
+      var rootStyle = document.documentElement.style;
+      rootStyle.setProperty("--dshkit-hid-bg", THEME.bg);
+      rootStyle.setProperty("--dshkit-hid-border", THEME.border);
+      rootStyle.setProperty("--dshkit-hid-text", THEME.text);
+      rootStyle.setProperty("--dshkit-hid-text2", THEME.text2);
+      rootStyle.setProperty("--dshkit-hid-hover", THEME.hover);
+      rootStyle.setProperty("--dshkit-hid-shadow", THEME.shadow);
+      rootStyle.setProperty("--dshkit-hid-danger", THEME.danger);
+      rootStyle.setProperty("--dshkit-hid-font", THEME.font);
+      rootStyle.setProperty("--dshkit-hid-row-alt", THEME.scheme === "light" ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)");
+      rootStyle.setProperty("--dshkit-hid-row-hover", THEME.scheme === "light" ? "rgba(0,0,0,0.06)" : "rgba(124,196,255,0.15)");
+    } catch (_) { /* 变量挂载失败不拦桥 */ }
+  }
+  applyTheme(THEME);
+
+  /** client 推送主题更新入口（主题翻转实时跟随，无需重注 shim）。 */
+  window.__dshKitHidShimApplyTheme = function (theme) { applyTheme(theme); };
+
+  // ---------- 选择器 UI（样式全走 --dshkit-hid-* 变量，随 DSH 两主题） ----------
 
   var chooserState = null; // { overlay, list, chosen }
 
@@ -64,23 +98,25 @@
       var overlay = document.createElement("div");
       overlay.setAttribute("data-dsh-kit-hid-chooser", "");
       overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.45);"
-        + "display:flex;align-items:center;justify-content:center;font:13px/1.5 -apple-system,'Segoe UI','Noto Sans SC',sans-serif;";
+        + "display:flex;align-items:center;justify-content:center;font:var(--dshkit-hid-font);";
       var panel = document.createElement("div");
-      panel.style.cssText = "background:var(--dsw-alias-bg-primary,#243244);color:var(--dsw-alias-label-primary,#e5e7eb);"
-        + "border:1px solid var(--dsw-alias-border,#3a4a5e);border-radius:12px;min-width:360px;max-width:520px;"
-        + "box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;";
+      panel.style.cssText = "background:var(--dshkit-hid-bg);color:var(--dshkit-hid-text);"
+        + "border:1px solid var(--dshkit-hid-border);border-radius:12px;min-width:360px;max-width:520px;"
+        + "box-shadow:var(--dshkit-hid-shadow);overflow:hidden;";
       var head = document.createElement("div");
-      head.style.cssText = "padding:12px 16px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border,#3a4a5e);";
+      head.style.cssText = "padding:12px 16px;font-weight:600;border-bottom:1px solid var(--dshkit-hid-border);";
       head.textContent = "选择 HID 设备（dsh-browser-kit 桥）";
       var list = document.createElement("div");
       list.style.cssText = "max-height:320px;overflow:auto;";
       var foot = document.createElement("div");
-      foot.style.cssText = "padding:10px 16px;border-top:1px solid var(--dsw-alias-border,#3a4a5e);text-align:right;";
+      foot.style.cssText = "padding:10px 16px;border-top:1px solid var(--dshkit-hid-border);text-align:right;";
       var cancel = document.createElement("button");
       cancel.type = "button";
       cancel.textContent = "取消";
-      cancel.style.cssText = "background:transparent;border:1px solid var(--dsw-alias-border,#3a4a5e);color:inherit;"
+      cancel.style.cssText = "background:transparent;border:1px solid var(--dshkit-hid-border);color:var(--dshkit-hid-text);"
         + "border-radius:8px;padding:5px 14px;cursor:pointer;";
+      cancel.addEventListener("mouseenter", function () { cancel.style.borderColor = "var(--dshkit-hid-danger)"; cancel.style.color = "var(--dshkit-hid-danger)"; });
+      cancel.addEventListener("mouseleave", function () { cancel.style.borderColor = "var(--dshkit-hid-border)"; cancel.style.color = "var(--dshkit-hid-text)"; });
       cancel.addEventListener("click", function () { closeChooser(); resolve(null); });
       foot.appendChild(cancel);
       panel.append(head, list, foot);
@@ -91,16 +127,16 @@
       devices.forEach(function (d, i) {
         var row = document.createElement("div");
         row.style.cssText = "padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;gap:12px;"
-          + "border-bottom:1px solid rgba(255,255,255,0.06);";
-        if (i % 2 === 1) row.style.background = "rgba(255,255,255,0.03)";
+          + "border-bottom:1px solid var(--dshkit-hid-border);";
+        if (i % 2 === 1) row.style.background = "var(--dshkit-hid-row-alt)";
         var name = document.createElement("span");
         name.textContent = d.product || ("HID " + d.vendorId + ":" + d.productId);
         var meta = document.createElement("span");
-        meta.style.cssText = "opacity:0.65;font-size:12px;";
+        meta.style.cssText = "color:var(--dshkit-hid-text2);font-size:12px;";
         meta.textContent = (d.vendorId + ":" + d.productId) + (d.serialNumber ? " · " + d.serialNumber : "");
         row.append(name, meta);
-        row.addEventListener("mouseenter", function () { row.style.background = "rgba(124,196,255,0.15)"; });
-        row.addEventListener("mouseleave", function () { row.style.background = i % 2 === 1 ? "rgba(255,255,255,0.03)" : "transparent"; });
+        row.addEventListener("mouseenter", function () { row.style.background = "var(--dshkit-hid-row-hover)"; });
+        row.addEventListener("mouseleave", function () { row.style.background = i % 2 === 1 ? "var(--dshkit-hid-row-alt)" : "transparent"; });
         row.addEventListener("click", function () {
           var chosen = d;
           closeChooser();
@@ -228,4 +264,15 @@
   }
 
   window.__dshKitHidShim = shimHid; // 调试句柄
+  /** 重注入收尾（client 推送新版 shim 前调用）：关全部桥句柄 + 停轮询——
+   *  旧 shim 实例的轮询 interval 无人清理会一直空转打桥。 */
+  window.__dshKitHidShim.closeAllForReinject = function () {
+    Object.keys(OPEN_DEVICES).forEach(function (k) {
+      try {
+        if (OPEN_DEVICES[k] && OPEN_DEVICES[k].__dshKitStopPoll) OPEN_DEVICES[k].__dshKitStopPoll();
+      } catch (_) { /* 尽力而为 */ }
+      delete OPEN_DEVICES[k];
+    });
+    closeChooser();
+  };
 })();

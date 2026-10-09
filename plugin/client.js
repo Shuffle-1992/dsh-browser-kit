@@ -2332,7 +2332,27 @@ window.__ModuleLoader__.load({
             /* R-HID：WebHID shim 服务——每 webview 注入 shim（幂等，按 mtime）+ 消费 guest
              *  的桥请求队列（__dshKitHidQueue → face hidXxx → __dshKitHidResolve 回推）。
              *  face 未就绪时静默跳过（shim 队列积压到 face 就绪再消费，guest 侧 15s 超时自兜）。 */
-            const hidShimCache = { mtime: null, source: null };
+            const hidShimCache = { mtime: null, source: null, themeJson: null };
+            /** R-STYLE：从 GUI 文档取主题令牌实值（guest 页无 --dsh-alias-* 变量）——
+             *  打包传给 shim 挂 guest CSS 变量，选择器随 DSH 两主题。 */
+            const collectGuiTheme = () => {
+              const cs = getComputedStyle(document.body);
+              const pick = (name, fallback) => {
+                const v = cs.getPropertyValue(name).trim();
+                return v || fallback;
+              };
+              return {
+                bg: pick('--dsw-alias-bg-layer-2', pick('--dsw-alias-bg-layer-1', '#243244')),
+                border: pick('--dsw-alias-border-l2', pick('--dsw-alias-border-l1', '#3a4a5e')),
+                text: pick('--dsw-alias-label-primary', '#e5e7eb'),
+                text2: pick('--dsw-alias-label-secondary', pick('--dsw-alias-label-primary', 'rgba(255,255,255,0.65)')),
+                hover: pick('--dsw-alias-interactive-bg-hover', 'rgba(255,255,255,0.08)'),
+                shadow: pick('--dsw-shadow-lv3', '0 12px 40px rgba(0,0,0,0.5)'),
+                danger: pick('--dsw-alias-state-error-primary', 'rgba(220,38,38,0.85)'),
+                font: T.font,
+                scheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+              };
+            };
             // R-HID：typert 信封可能双层（face 自身 {ok,devices} 外再包 {ok,value}）——
             // peelTo 按目标形状防御下钻（P41 家族：单层 unwrap 假设错 = 静默失败）。
             const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
@@ -2359,7 +2379,16 @@ window.__ModuleLoader__.load({
                       hidShimCache.mtime = g.mtime;
                       say('info', `WebHID shim 源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
                     }
-                    await withTimeout(el.executeJavaScript('try { delete window.__dshKitHidShimVersion; } catch (_) {} try { delete window.__dshKitHidShimMtime; } catch (_) {} if (window.__dshKitHidShim && window.__dshKitHidShim.closeAllForReinject) { window.__dshKitHidShim.closeAllForReinject(); } window.__dshKitHidOldShim = navigator.hid; delete navigator.hid; window.__dshKitHidShimMtime = ' + JSON.stringify(hidShimCache.mtime) + ';\n' + hidShimCache.source, true), 5000, 'hid-shim-inject');
+                    // 主题令牌实值随注入传入（R-STYLE：guest 页无 --dsh-alias-* 变量——
+                    // 从 GUI computedStyle 取实值打包，shim 挂到 guest 的 documentElement 上）
+                    const themeJson = JSON.stringify(collectGuiTheme());
+                    await withTimeout(el.executeJavaScript('try { delete window.__dshKitHidShimVersion; } catch (_) {} try { delete window.__dshKitHidShimMtime; } catch (_) {} if (window.__dshKitHidShim && window.__dshKitHidShim.closeAllForReinject) { window.__dshKitHidShim.closeAllForReinject(); } window.__dshKitHidOldShim = navigator.hid; delete navigator.hid; window.__dshKitHidShimMtime = ' + JSON.stringify(hidShimCache.mtime) + '; window.__dshKitHidTheme = ' + themeJson + ';\n' + hidShimCache.source, true), 5000, 'hid-shim-inject');
+                  }
+                  // ② 主题翻转跟随（R-STYLE）：GUI 令牌实值变化 → 推新值进 guest（选择器开着也实时跟随）
+                  const themeJsonNow = JSON.stringify(collectGuiTheme());
+                  if (themeJsonNow !== hidShimCache.themeJson) {
+                    hidShimCache.themeJson = themeJsonNow;
+                    await withTimeout(el.executeJavaScript('window.__dshKitHidTheme = ' + themeJsonNow + '; if (window.__dshKitHidShim && window.__dshKitHidShim.applyTheme) window.__dshKitHidShim.applyTheme(window.__dshKitHidTheme);', true), 3000, 'hid-theme-push');
                   }
                   // ② 桥请求消费（guest 队列 → face → 回推）
                   if (state.q > 0) {
