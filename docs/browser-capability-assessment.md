@@ -538,6 +538,64 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 **判定口径**：`isRootTarget` 只挡"根元素 + 铺满视口的容器"，**其子节点照常可批注**——
 避免把整页应用的外层 wrapper 当成"不可批注"，同时消除"整页高亮 + `html 1920×864` 提示"的误选。
 
+### 3.9.23 v22 审查收敛（2026-10-10，用户要求 review / simplify / 解耦 / 强制优化 / 测试验收）
+
+流程：**实现 → 独立审计（只读 subagent，锚定提交 `2396f09`）→ 收敛 → 全量验收**。审计共报 9 项死代码、
+7 项重复耦合、8 项风险、4 项性能冗余、8 条测试缺口建议；下面记录**落地结论**。
+
+**A. 删除（面板改宿主渲染后遗留的死管道）**
+
+| 符号 | 为什么是死的 | 处置 |
+|---|---|---|
+| `visibleHeight` + `visibleBandHeight()` | 唯一消费者是"隐藏面板"的定位 | 删（保留 `visibleWidth`/`visibleBand()`：**提示条**仍需要） |
+| `bottomExtra` / `annotBottomExtra()` | §3.9.15 的"抬升让位"链终点是隐藏面板 | 全链删 |
+| `anchorRight/anchorBottom` / `annotAnchors()` | guest 侧屏幕锚点与宿主 `positionAnnotMirror` **重复且语义不一致** | 全链删（落位规则收敛到纯模块，见 C） |
+| `setVisibleWidth()` / `setUiScale()` | 全仓无运行时调用者（只有一条 pin 撑着） | 删 API + 删 pin |
+| `void annotOn` / `void 0` / `data-dsh-kit-agent-view-always` / `__dshKitLastSubmit` | 写入后无人读 | 删（`mirrorSnapshot({mirror,count})` 也一并瘦身为 `{rev,count,html}`） |
+
+**B. 修掉审计发现的真问题**
+
+| # | 问题（审计原文） | 修法 | 证据 |
+|---|---|---|---|
+| B1 | 镜像模式下"批注列表"永远展不开：`listExpanded` 唯一写者是被 `display:none` 的页内 chevron，`renderPanel` 在 `!listExpanded` 时提前 return ⇒ `panelList` 恒空，镜像点 ▸ 只能展开空容器 | 行数据**始终渲染**，展开只控 `display`；宿主侧用 `annotMirror.listOpen` 记住展开态并在每次重镜像后贴回 | 折叠时 `listRows:1`；点 ▸ → `listDisplay:block` 且**含真实行**「1 h1 (未填写意见)」✓ |
+| B2 | 自持窗口**展开态**时镜像面板被顶出屏幕（`bottom = innerHeight − bar.top + 12`，bar.top≈46 ⇒ 底边 y≈34，约 48px 被裁） | 落位改为"只有 bar 在视口下半才贴其上沿"，并加**上界夹取**（`bottom ≤ winH − panelH − gap`）+ `clipped` 标记 | 展开态实测 `top 1274 / bottom 1388 / onScreen:true` ✓ |
+| B3 | 1s tick 无单飞护栏：guest 若不 settle（P22 家族）每秒累积一个悬挂 IPC，无上界 | `annotMirror.busy` 单飞 | `test/annotator-v22-guards.test.mjs` T6 |
+| B4 | 镜像缓存可能失联：host 被外部移除/重建时，仅比较 html 会永远跳过填充，`root` 指向已脱离节点 | 校验 `isConnected/parentElement`，失联时调 `mirrorReset()` 强制取全量；并守住"`html===''` 表示未变，**不是**没有面板"（否则会清空镜像） | 代码路径 + 注释钉住 |
+| B5 | `finishSubmit` 无重入：双击镜像"提交"会 `mergeAndSave` 两次（两份落盘 + 重复提示） | `annotMirrorSubmitBusy` 重入护栏 | 代码 + T7 |
+| B6 | `mirrorMode` 粘滞：`endSession` 不复位 ⇒ 之后不带 `mirror` 的 `start()`（冒烟测试正是如此）继承"面板隐藏" | `endSession` 复位 `mirrorMode` | 代码 |
+| B7 | 会话复位两处字面量漂移：`finishSubmit` 漏复位 `count/startedAt/convo` ⇒ 提交后诊断报旧值 | 抽 `resetAnnotState(reason, keepLastSaved)` 单一真值，两条收尾路径都走它 | T7 断言字面量只出现 1 次 |
+
+**C. 解耦与优化**
+
+- 落位几何抽成纯模块 [`src/annot-mirror-anchor.mjs`](../src/annot-mirror-anchor.mjs)（`mirrorPlacement()`），
+  client 内嵌 **canonical 副本**对拍 → 消除"guest/宿主两套实现互相矛盾"（审计 §2）。
+- 镜像按钮改**稳定属性**绑定（`data-dsh-kit-panel-clear|submit|cancel|chevron`）→ 文案改字不再静默失联；
+  T3 双向断言"宿主绑定的属性都在批注器里存在"且"批注器新增的属性都被宿主绑定"。
+- `sysBrowserBtnOf` 去重（原先有一份逐字重复的内联孪生，正则漂移即失配）。
+- 反向缩放公式收敛为 `inverseScale()`（面板与提示条共用，原先提示条手搓同一公式）。
+- **跨进程开销**：指标推送加**值缓存**（`band|scale` 未变不发）；镜像快照加 **rev**（内容未变只回 rev，
+  不再每秒搬运整份 `outerHTML`）；tick 本体不再直接发起 `executeJavaScript`（T6 钉死）。
+
+**D. 验收（全量重跑）**
+
+- `node --test`：**180 项 / 179 过 / 1 跳过**（跳过项需 Chrome+CDP）。
+- 端到端（真实 GUI）：`guest 视口 1920×1080`（严格等于预设）✓、页面 `topAligned:true` ✓、
+  自持小窗在板块右下角 `barBottom 1388 ≈ hostBottom 1400` ✓、镜像面板 `264×82` 且距小窗 `12px`、
+  `panelBelowPage:true`（不遮挡网页）✓、悬停背景 `overlay:none` ✓ / 悬停真实元素 `overlay:block` ✓、
+  点真实元素 `count 1` ✓、镜像「清除」→ `count 0` ✓、「取消」→ `sessionActive:false` 且镜像移除 ✓、
+  小窗状态截图 `ok:true`（637KB）且 `stateAfter:collapsed` ✓、四个工具条图标与 DSH 图标同色
+  `rgb(207,211,214)` ✓。
+- 批注器版本 **1.7.3**：`EXPECTED_ANNOT_VERSION` 比对后自动重注入（实测 guest 由 1.7.2 自愈到 1.7.3，
+  且 `setVisibleWidth/setUiScale` 已不存在）。
+
+**E. 明确保留 / 未做（有意取舍，非遗漏）**
+
+- `data-kit-annot-on` 属性 + `!important` 背景规则：审计指出它"几乎无视觉作用"（背景已由 `mkToolbarBtn` 内联为透明）；
+  保留原因是 P60 的实例围栏与属性驱动仍承担"状态单一来源"，删它反而会重新引入多写者。
+- guest 面板交互面（`确保Panel` 的清除/提交/取消按钮）在生产路径 `mirror:true` 下不可达，
+  但 `annotator-smoke`（需 Chrome）走的是非镜像路径 ⇒ **保留**，并在 §5 记为"镜像路径尚无自动化覆盖"。
+- `captureShot` 的"临时展开 320ms"对用户可见（P69 取舍）：保持，因为隐藏面 `capturePage` 高危。
+
 **收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
 丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
 

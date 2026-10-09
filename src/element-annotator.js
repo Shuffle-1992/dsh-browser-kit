@@ -452,6 +452,8 @@
   var annotations = []; // { index, note, element, el, badge }
   var session = null; // { resolve, onSubmit }
   var mirrorMode = false; // R-OWN v20：宿主镜像渲染面板（guest 侧只保留状态与徽标）
+  var mirrorRev = 0; // v22：面板内容版本（renderPanel 每次自增）
+  var mirrorRevSent = -1; // v22：上一次已把 HTML 交给宿主的版本 ⇒ 未变时只回 rev（不再搬整份 outerHTML）
   var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
   var listExpanded = false; // 页内面板批注列表展开/收起（默认收起）
   var panelChevron = null;
@@ -462,7 +464,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.7.2"; // 1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.7.3"; // 1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -893,6 +895,7 @@
     if (!panel) {
       return;
     }
+    mirrorRev += 1; // v22：内容版本自增（宿主据此决定是否需要重新搬运 HTML）
     // R-OWN v20b：镜像模式下 guest 面板**一律不上屏**（宿主负责镜像渲染）。
     //  ★必须放在 renderPanel 里：面板"新建"路径不经过 ensurePanel 的"已存在"分支，
     //   只在那边隐藏会漏掉首次创建 ⇒ 用户实测"变成 2 个了"。
@@ -902,6 +905,9 @@
     if (panelCount) {
       panelCount.textContent = String(annotations.length);
     }
+    // v22 修复（审计发现）：**行数据必须始终渲染**，展开与否只控制显示。
+    //  旧实现在 `!listExpanded` 时提前 return ⇒ 宿主镜像拿到的 panelList 永远是空的
+    //  （guest 的 listExpanded 只有那个**隐藏的**页内 chevron 会写，镜像里的 ▸ 只能展开空容器）。
     if (panelChevron) {
       panelChevron.textContent = listExpanded ? "▾" : "▸";
       panelChevron.title = listExpanded ? "收起批注列表" : "展开批注列表";
@@ -911,9 +917,6 @@
     }
     panelList.style.display = listExpanded ? "" : "none";
     panelList.replaceChildren();
-    if (!listExpanded) {
-      return;
-    }
     annotations.forEach(function (record) {
       var row = makeElement("div", {
         alignItems: "baseline",
@@ -957,17 +960,15 @@
     });
   }
 
-  /* ── R-OWN v12：**可见带**定位 ──
-   * 面板套了"设备尺寸"后，guest 视口可能远宽于实际可见的板块宽（外层 `transform: scale` 只缩放显示），
-   * 此时 `position:fixed; right:12px` 的面板会落到可见区之外（用户实测：面板被挤出右边界看不到）。
-   * client 通过 `start({ visibleWidth })` / `setVisibleWidth(w)` 告知"可见的 guest 宽度"，
-   * 面板与提示条据此锚定；未告知时按视口宽（等价于原来的 right:12，布局不变）。 */
+  /* ── **可见带**定位（v22 收敛）─────────────────────────────────────────────
+   * 背景：面板套"设备尺寸"后 guest 视口可能远宽于实际可见的板块宽（外层 `transform: scale` 只缩放显示），
+   * `position:fixed; right:12px` 会落到可见区之外。所以需要 client 告知"可见的 guest 宽度"。
+   * ★v22：宿主已改为**镜像渲染面板**（`mirror: true`），面板不再上屏 ⇒ 仅**提示条(toast)**仍需
+   *   `visibleWidth` 与 `uiScale`。此前为面板定位叠加的 `visibleHeight / bottomExtra / 屏幕锚点`
+   *   三套机制已全部删除（它们是"面板还在 guest 内"时期的产物，留着就是死代码与假接口）。 */
+  var PANEL_W = 264; // 面板基准宽（实测 264×82）——镜像渲染时宿主也按 264 定位
   var visibleWidth = 0;
-  var visibleHeight = 0; // R-OWN v13：可见带高度（guest px）——自持窗口 100% 显示时 guest 比舞台高，底部会被裁
-  var bottomExtra = 0; // R-OWN v15：额外底部抬升（guest px）——给宿主右下角的浮层（自持小窗）让位
-  var anchorRight = 0; // R-OWN v17：宿主指定的**右缘**（guest px，0=不用）——按屏幕位置锚定，不随分辨率漂移
-  var anchorBottom = 0; // R-OWN v17：宿主指定的**下缘**（距视口顶的 guest px，0=不用）
-  var uiScale = 1; // R-OWN v13：guest→屏幕的放大倍数（设备尺寸缩放 × 页面缩放 × dpr）；面板据此**反向缩放**
+  var uiScale = 1; // guest→屏幕放大倍数（设备尺寸缩放 × 页面缩放 × dpr）；提示条据此反向缩放
   function viewportWidth() {
     try {
       return Math.max(1, document.documentElement.clientWidth || window.innerWidth || 1);
@@ -977,49 +978,33 @@
     var vw = viewportWidth();
     return visibleWidth > 0 ? Math.min(visibleWidth, vw) : vw;
   }
-  /** R-OWN v13：可见带高度（vh 内我们实际看得见的那段）。 */
-  function visibleBandHeight() {
-    var vh = 0;
-    try { vh = Math.max(1, document.documentElement.clientHeight || window.innerHeight || 1); } catch (e) { vh = 720; }
-    return visibleHeight > 0 ? Math.min(visibleHeight, vh) : vh;
+  /** 反向缩放片段（1/uiScale）；uiScale=1 时返回空串。**唯一来源**——面板与提示条共用。 */
+  function inverseScale() {
+    return (uiScale && uiScale !== 1) ? "scale(" + (1 / uiScale).toFixed(4) + ")" : "";
   }
-  /** R-OWN v13：面板/提示条的尺寸**固定不随分辨率变化** —— 用 1/uiScale 反向缩放抵消外层
-   *  （设备尺寸 transform、页面缩放、dpr），视觉尺寸恒为 264px 宽（实测基准 264×82）。 */
+  /** 元素尺寸**固定不随分辨率变化**：用 inverseScale() 抵消外层缩放（面板用；提示条还要叠加 translateX）。 */
   function applyPanelScale(el, origin) {
     if (!el) return;
     try {
-      if (uiScale && uiScale !== 1) {
+      var inv = inverseScale();
+      if (inv) {
         el.style.transformOrigin = origin;
-        el.style.transform = "scale(" + (1 / uiScale).toFixed(4) + ")";
+        el.style.transform = inv;
       } else {
         el.style.transformOrigin = "";
         el.style.transform = "none";
       }
     } catch (e) { /* 忽略 */ }
   }
-  /** 面板定位：**右下角**（用户 2026-10-10 指定）+ 落在可见带内。
-   *  用 offsetWidth（不受 transform 影响）算左边界，避免反向缩放后自反馈。 */
+  /** 面板定位（**仅在非镜像模式**下使用：宿主自带渲染时面板是隐藏的）。
+   *  规则：右下角，右缘贴可见带右侧（用 offsetWidth 算，避免反向缩放自反馈）。 */
   function positionPanel() {
     if (!panel || !panel.isConnected) return;
     try {
-      var band = visibleBand();
-      var w = panel.offsetWidth || 264;
-      var vh = 0;
-      try { vh = Math.max(1, document.documentElement.clientHeight || window.innerHeight || 1); } catch (e) { vh = 720; }
-      // R-OWN v17：**宿主给的屏幕锚点优先**（右缘 + 下缘，guest px）——改分辨率/缩放都不漂移
-      if (anchorRight > 0 && anchorBottom > 0) {
-        panel.style.top = "auto";
-        panel.style.bottom = Math.max(8, Math.round(vh - anchorBottom)) + "px";
-        panel.style.left = Math.max(8, Math.round(anchorRight - w)) + "px";
-        panel.style.right = "auto";
-        applyPanelScale(panel, "bottom right");
-        return;
-      }
-      // 右下角：右缘贴可见带右侧，下缘贴**可见带底部**（可见带底部可能高于视口底部——自持窗口 100% 显示时）
-      var bottomGap = Math.max(12, Math.round(vh - visibleBandHeight()) + 12) + (bottomExtra > 0 ? Math.round(bottomExtra) : 0);
+      var w = panel.offsetWidth || PANEL_W;
       panel.style.top = "auto";
-      panel.style.bottom = bottomGap + "px";
-      panel.style.left = Math.max(8, Math.round(band - w - 12)) + "px";
+      panel.style.bottom = "12px";
+      panel.style.left = Math.max(8, Math.round(visibleBand() - w - 12)) + "px";
       panel.style.right = "auto";
       applyPanelScale(panel, "bottom right");
     } catch (e) { /* 忽略 */ }
@@ -1414,7 +1399,7 @@
       left: Math.round(visibleBand() / 2) + "px", // R-OWN v12：可见带内居中（缩放裁剪下也看得见）
       padding: "8px 14px",
       position: "fixed",
-      transform: "translateX(-50%)" + (uiScale && uiScale !== 1 ? " scale(" + (1 / uiScale).toFixed(4) + ")" : ""),
+      transform: "translateX(-50%)" + (inverseScale() ? " " + inverseScale() : ""),
       transformOrigin: "bottom center", // R-OWN v13：与反向缩放配合，底边保持贴底
       zIndex: "2147483647",
     });
@@ -1677,6 +1662,7 @@
   function endSession(status) {
     var current = session;
     session = null;
+    mirrorMode = false; // v22（审计）：不复位会让后续不带 mirror 的 start() 继承"面板隐藏"
     removeAllLayers();
     hoverTarget = null; // B5：会话结束重置 hover 状态（防止新会话首 hover 跳过渲染）
     hoverPending = null; // B5 增强：丢弃挂起帧（rAF 回调自带 session 判空，双保险）
@@ -1717,31 +1703,16 @@
     stop: function () {
       stopAnnotating();
     },
-    /** R-OWN v12：设置"可见带宽度"（guest px）——设备尺寸缩放/裁剪时，面板与提示条据此锚定在可见区内。
-     *  传 0 或不传 = 按视口宽（原行为）。 */
-    setVisibleWidth: function (w) {
-      visibleWidth = Math.max(0, Number(w) || 0);
-      positionPanel();
-      return { visibleWidth: visibleWidth, band: visibleBand() };
-    },
-    /** R-OWN v13：设置 uiScale（guest→屏幕放大倍数）——面板按 1/uiScale 反向缩放，**视觉尺寸恒定**，
-     *  不随分辨率/页面缩放变化。 */
-    setUiScale: function (s) {
-      uiScale = Math.max(0.05, Number(s) || 1);
-      positionPanel();
-      return { uiScale: uiScale };
-    },
-    /** R-OWN v13：一次性同步"可见带 + 缩放"（client 侧合并调用，少一次跨进程往返）。 */
+    /** v22 收敛：唯一的指标入口。只保留**提示条**真正需要的两项：
+     *  `visibleWidth`（可见带宽度，guest px）与 `uiScale`（guest→屏幕放大倍数，用于反向缩放）。
+     *  历史包袱（visibleHeight / bottomExtra / 屏幕锚点 / setVisibleWidth / setUiScale）
+     *  已删除：它们都是"面板仍在 guest 内定位"时期的机制，镜像渲染后不再有人消费。 */
     setPaneMetrics: function (m) {
       var o = m || {};
       if (o.visibleWidth != null) visibleWidth = Math.max(0, Number(o.visibleWidth) || 0);
-      if (o.visibleHeight != null) visibleHeight = Math.max(0, Number(o.visibleHeight) || 0);
-      if (o.bottomExtra != null) bottomExtra = Math.max(0, Number(o.bottomExtra) || 0); // R-OWN v15：给宿主浮层让位
-      if (o.anchorRight != null) anchorRight = Math.max(0, Number(o.anchorRight) || 0); // R-OWN v17：屏幕锚点
-      if (o.anchorBottom != null) anchorBottom = Math.max(0, Number(o.anchorBottom) || 0);
       if (o.uiScale != null) uiScale = Math.max(0.05, Number(o.uiScale) || 1);
-      positionPanel();
-      return { visibleWidth: visibleWidth, visibleHeight: visibleHeight, band: visibleBand(), bandH: visibleBandHeight(), bottomExtra: bottomExtra, uiScale: uiScale };
+      if (!mirrorMode) positionPanel(); // 镜像模式下面板不上屏，无需定位
+      return { visibleWidth: visibleWidth, band: visibleBand(), uiScale: uiScale };
     },
     /** 打包当前批注（纯函数式：不结束会话、不清空）。 */
     submit: function () {
@@ -1755,14 +1726,22 @@
      *  宿主据此在自己的坐标系里画面板（页面可以顶部对齐，面板不再被 guest 视口夹住）。 */
     mirrorSnapshot: function () {
       try {
+        var include = mirrorRev !== mirrorRevSent; // 内容未变 ⇒ 只回 rev，不搬 outerHTML（P4 性能）
+        if (include) mirrorRevSent = mirrorRev;
         return {
           mirror: mirrorMode,
+          rev: mirrorRev,
           count: annotations.length,
-          html: panel ? panel.outerHTML : "",
+          html: (include && panel) ? panel.outerHTML : "",
         };
       } catch (e) {
-        return { mirror: mirrorMode, count: annotations.length, html: "" };
+        return { mirror: mirrorMode, rev: mirrorRev, count: annotations.length, html: "" };
       }
+    },
+    /** v22：宿主重建镜像节点时调用——强制下一次 mirrorSnapshot 带回完整 HTML。 */
+    mirrorReset: function () {
+      mirrorRevSent = -1;
+      return { ok: true, rev: mirrorRev };
     },
     /** 清空全部批注并移除徽标。
      *  ⚠️ R-02（评审）：**不写跨面板删除日志**——共享会话下其他窗口的 union 仍含这些 gid，

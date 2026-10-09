@@ -54,10 +54,27 @@
     - **布局对齐 DSH 浏览器（2026-10-10 用户要求）**：**行1** = `🤖` 标题 + 标签条（chip：标题+×）+ `＋` + 右侧 `−`/`✕`；**行2** = `‹ 后退` `› 前进` `↻ 刷新` + **加宽地址栏**（唯一弹性项，2K 下实测 2126px）+ 尺寸/缩放/截图/**批注图标**（`ANNOT_ICON_SVG`，与 DSH 批注图标同款）。已删除「前往」（回车即导航）。
     - **地址栏**：可输入网址、回车（或点右侧图标）在当前窗口导航；切窗口/导航后自动回填。
     - **只让活动窗口可见**（其余 `visibility:hidden` + `pointer-events:none` + `data-dsh-kit-agent-view-inactive`），且 `agentViewWebview()` **只返回活动窗口**——刻意避免对隐藏 surface 调 `capturePage`（P47-B 高危）。
-    - **批注面板可见带（R-OWN v12）**：批注面板是 `position:fixed; right:12px`，在「设备尺寸缩放」或「自持窗口 100% 显示但 guest 比舞台宽」时会被挤出可见区（实测：面板右半截看不见）。现由 client 计算**容器可见带**（`min(容器宽, 元素可见宽) / 缩放`）并通过 `start({visibleWidth})` / `setVisibleWidth()` 告知批注器，面板与提示条据此锚定；未告知时等价于原来的 `right:12`（布局不变）。
-    - **宿主页面 CSS 隔离**：批注面板/提示条加 `all: initial` 前缀，避免不同站点 CSS 影响面板排版（自持窗口与会话窗口的面板表现一致）；批注器版本升到 **1.6.3**（旧版本会自动重注入）。
+    - **批注面板 = 宿主渲染（R-OWN v20 → v22 审查收敛）**：面板**不再由 guest 页面渲染**。guest 侧以 `mirror: true` 启动（页内面板 `display:none`，只保留状态/徽标），宿主把面板 DOM **镜像**到 `#dsh-kit-annot-mirror`，在**屏幕坐标**里定位——**规则唯一真值**是 [`src/annot-mirror-anchor.mjs`](src/annot-mirror-anchor.mjs) 的 `mirrorPlacement()`（右缘贴板块、下缘贴自持小窗上沿、**上界夹取**，展开态不会被顶出屏幕）。原因：guest 内的 `position:fixed` 浮层**出不了 guest 视口**（= 页面底边），页面顶部对齐后必然压在网页内容上。
+      - 按钮按**稳定属性**绑定（`data-dsh-kit-panel-clear|submit|cancel|chevron`），文案改字不会静默失联；列表数据在 guest 侧**始终渲染**，展开/收起只控显示。
+      - 跨进程开销：指标推送带**值缓存**（不变不发）、镜像快照带 **rev**（内容未变只回 rev，不搬整份 outerHTML）、镜像同步有**单飞护栏**。
+    - **宿主页面 CSS 隔离**：批注面板/提示条加 `all: initial` 前缀，避免不同站点 CSS 影响面板排版（自持窗口与会话窗口表现一致）；批注器版本 **1.7.3**，由 client 的 `EXPECTED_ANNOT_VERSION` 与版本号比对后**自动重注入**。
     - **批注可用且共享**：面板内「批注」按钮 = **总开关**，把**所有**浏览器窗口（侧栏各面板 + 自持各标签）一起加入/退出**共享批注成员表**——同步循环按 `gid` 在所有成员间广播，所以自持浏览器与 DSH 会话浏览器**共用同一批注**，编号跨窗口延续，落盘每条带 `Window:` 归属行（如 `DSH 浏览器窗口 1（会话 xxxxxx）` / `自持浏览器 tab2 · Example Domain`）。
     - 工具：`browser_agent_window {op:'tabs'|'tab-new'|'tab-close'|'tab-select'|'annotate'}`（`tabId`、`on` 参数；`status` 里带 `tabs[]/activeTabId/tabCount`）。
+
+17. **v22 审查收敛（2026-10-10，用户要求 review/simplify/解耦/验收）**：一轮"实现 → 独立审计 → 收敛"的闭环。
+    - **删除**（面板改宿主渲染后遗留的死管道）：`visibleHeight`/`bottomExtra`/屏幕锚点三套定位机制、
+      `setVisibleWidth()`/`setUiScale()` 死接口、`visibleBandHeight()`、镜像模式下无人消费的字段与
+      被丢弃的写入（`void annotOn`/`void 0`/`__dshKitLastSubmit`/`data-dsh-kit-agent-view-always`）。
+      保留的只有**提示条**真正需要的两项：`visibleWidth` + `uiScale`（且公式收敛为 `inverseScale()` 单一来源）。
+    - **修掉审计发现的真 bug**：①镜像面板里"批注列表"永远展开为空（`listExpanded` 唯一写者是被隐藏的页内 chevron）
+      ②自持窗口**展开态**时镜像面板被顶出屏幕 ③1s tick 无单飞护栏（P22 失效类下 IPC 无界增长）
+      ④镜像缓存/陈旧 root 失联 ⑤`finishSubmit` 无重入护栏（双击提交落盘两次）⑥`mirrorMode` 粘滞
+      ⑦会话复位两处字面量漂移（提交后 `count/startedAt` 报旧值）。
+    - **解耦**：落位几何抽成纯模块 [`src/annot-mirror-anchor.mjs`](src/annot-mirror-anchor.mjs) + client 内嵌
+      canonical 副本对拍；按钮改**稳定属性**绑定；`sysBrowserBtnOf` 去重；会话复位收敛为 `resetAnnotState()` 单一真值。
+    - **测试**：新增 `test/annot-mirror-anchor.test.mjs`（4 例：canonical 对拍 / 展开态不被顶出屏幕 / 上界夹取 / 右缘公式）
+      与 `test/annotator-v22-guards.test.mjs`（5 条护栏：版本自洽 / 死接口不得复活 / 镜像按钮属性↔API 映射 /
+      tick IPC 预算与单飞 / 复位单一来源）。全量 **180 项：179 过 / 1 跳过**（跳过项需 Chrome/CDP）。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

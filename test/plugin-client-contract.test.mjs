@@ -30,7 +30,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   await t.test("自动加入与退出记忆：leftIds 存在且自动加入检查它；会话结束清空", () => {
     assert.match(clientSource, /leftIds: new Set\(\)/);
     assert.match(clientSource, /st\.leftIds\.has\(id\)/); // 自动加入跳过显式退出的面板
-    assert.match(clientSource, /st\.leftIds\.clear\(\)/);
+    assert.match(clientSource, /leftIds: new Set\(\), count: 0, convo: null, startedAt: null,/); // v22：复位集中在 resetAnnotState
   });
 
   await t.test("面板身份按 webContentsId 比对（重渲染换节点不失配）", () => {
@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.7\.2'/);
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.7\.3'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.7\.2"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.7\.3"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
@@ -376,7 +376,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const paneVisibleWidth = \(pane\) => \{/);
     assert.match(clientSource, /return Math\.max\(0, Math\.round\(Math\.min\(hostW, rectW\) \/ \(k > 0 \? k : 1\)\)\);/);
     assert.match(clientSource, /visibleWidth: \$\{Number\(vw\) \|\| 0\}/);
-    assert.match(clientSource, /setPaneMetrics\(\{ visibleWidth: \$\{band\}, visibleHeight: \$\{bandH\}, uiScale: \$\{s\}, bottomExtra: \$\{lift\}, anchorRight: \$\{aR\}, anchorBottom: \$\{aB\} \}\)/);
+    assert.match(clientSource, /setPaneMetrics\(\{ visibleWidth: \$\{band\}, uiScale: \$\{s\} \}\)/); // v22：只剩提示条需要的两项
     assert.match(clientSource, /\/\/ 顺序（用户 2026-10-10 指定）：尺寸 → 截图 → 批注；首个取 margin-left:auto 右对齐/);
     assert.match(clientSource, /const OWN_ICON_SVG = /);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true \},/);
@@ -425,25 +425,28 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   await t.test("R-OWN v12/v13：批注面板可见带 + 固定尺寸 + 页面 CSS 隔离（1.6.4）", () => {
     const annotSource2 = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
     assert.match(annotSource2, /visibleWidth = Math\.max\(0, Number\(opts\.visibleWidth\) \|\| 0\)/);
-    assert.match(annotSource2, /setVisibleWidth: function \(w\) \{/);
+    assert.doesNotMatch(annotSource2, /setVisibleWidth: function \(w\) \{/); // v22 收敛：死接口已删
+    assert.match(annotSource2, /if \(!mirrorMode\) positionPanel\(\); \/\/ 镜像模式下面板不上屏，无需定位/);
     assert.match(annotSource2, /all: "initial", \/\/ R-OWN v12：隔离宿主页面 CSS/);
     assert.match(annotSource2, /function positionPanel\(\) \{/);
     assert.match(annotSource2, /left: Math\.round\(visibleBand\(\) \/ 2\) \+ "px"/);
     assert.match(annotSource2, /positionPanel\(\); \/\/ R-OWN v12：按可见带锚定/);
     // R-OWN v13：固定尺寸（1/uiScale 反向缩放）+ 右下角 + 蓝色激活图标（不用背景色）
-    assert.match(annotSource2, /var uiScale = 1; \/\/ R-OWN v13/);
+    assert.match(annotSource2, /var uiScale = 1; \/\/ guest→屏幕放大倍数/);
     assert.match(annotSource2, /function applyPanelScale\(el, origin\) \{/);
-    assert.match(annotSource2, /panel\.style\.bottom = bottomGap \+ "px";/);
+    assert.match(annotSource2, /panel\.style\.bottom = "12px";/); // v22：面板定位简化为右下角 + 可见带
     assert.match(annotSource2, /setPaneMetrics: function \(m\) \{/);
     assert.match(clientSource, /const ANNOT_ICON_ACTIVE_SVG = /);
     // v14：激活图标 = 原图标**描边**变蓝（fill:none，不是蓝块）；批注激活时自持小窗换到左下角
     assert.match(clientSource, /fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/);
-    assert.match(clientSource, /const annotBottomExtra = \(pane\) => \{/);
+    assert.doesNotMatch(clientSource, /annotBottomExtra|annotAnchors|paneVisibleHeight/); // v22 收敛：面板定位死代码已删
     assert.match(clientSource, /const ANNOT_MIRROR_ID = 'dsh-kit-annot-mirror';/);
     // v20：宿主镜像面板（页面可顶部对齐、面板不再被 guest 视口夹住）
-    assert.match(clientSource, /mirror: true, onSubmit/);
+    assert.match(clientSource, /window\.__dshKitAnnotator\.start\(\{ mirror: true, startIndex:/); // v22：不再经 onSubmit 回写（提交走 finishSubmit → mergeAndSave）
     assert.match(clientSource, /const syncAnnotMirror = async \(\) => \{/);
     assert.match(clientSource, /const bindAnnotMirror = \(root, pane\) => \{/);
+    assert.match(clientSource, /b\.hasAttribute\('data-dsh-kit-panel-submit'\)/);
+    assert.match(clientSource, /const ANNOT_PANEL_W = 264;/);
     assert.match(annotSource2, /mirrorSnapshot: function \(\) \{/);
     assert.match(annotSource2, /var mirrorMode = false; \/\/ R-OWN v20/);
     assert.match(annotSource2, /if \(mirrorMode && panel\.style\.display !== "none"\) \{/);
@@ -453,8 +456,8 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(annotSource2, /if \(isRootTarget\(target\)\) \{/);
     assert.match(annotSource2, /function handlePointerLeave\(\) \{/);
     assert.match(annotSource2, /addSessionListener\(document, "mouseleave", handlePointerLeave, false\);/);
-    assert.match(annotSource2, /var bottomExtra = 0; \/\/ R-OWN v15/);
-    assert.match(annotSource2, /\(bottomExtra > 0 \? Math\.round\(bottomExtra\) : 0\)/);
+    assert.doesNotMatch(annotSource2, /var bottomExtra = 0/); // v22 收敛
+    assert.match(annotSource2, /var PANEL_W = 264; \/\/ 面板基准宽/);
     // v15：注入图标与 DSH 自带图标同色（两种主题一致）+ 小窗始终右下角
     assert.match(clientSource, /const sysBrowserBtnOf = \(form\) => \{/);
     assert.match(clientSource, /const syncToolbarIconColor = \(\) => \{/);
