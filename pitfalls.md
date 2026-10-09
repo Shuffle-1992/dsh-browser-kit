@@ -436,3 +436,13 @@
 - **做法**：激活图标 = 同一份 `<path>` 数据，只把 `stroke="currentColor"` 换成 `stroke="#2563eb"`，
   保持 `fill="none"` ✓（视觉上就是同一枚图标变蓝）。
 - **判据**：做"状态图标"时**复用原图标几何**，只改颜色/线宽；重画形状会被误读成"另一个功能"。
+### P67 `!important` 不区分写者：防覆盖规则会把自己的 inline 值也压掉
+- **现象**：为图标设置了 inline `color: rgb(207,211,214)`（与 DSH 自带图标同色，`style.color` 读出来也对），
+  但 `getComputedStyle` 却是 `rgb(249,250,251)` ✗。
+- **根因**：先前为"防背景色被覆盖"写了一条
+  `#dsh-kit-toolbar-btn[data-kit-annot-on="1"]{ background:transparent !important; color:inherit !important; }`
+  ——`!important` **不区分写者**，把自己 inline 设的 color 一起压掉了。
+- **对策**："防覆盖"规则只钉**真正需要钉死**的属性（这里是背景）；**还想自己设置的属性不要写进 !important 规则**。
+- **附带**：依赖会话状态的指标（如 `bottomExtra`）必须在**状态变化时重推**——只在"设备尺寸变化"时推，
+  会漏掉"点开批注"这条路径（实测底部抬升恒为 0）。
+- **判据**：`inline` 与 `computed` **不一致**时，先找 `!important` 规则（这是唯一能压 inline 的东西）。

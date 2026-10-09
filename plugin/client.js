@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
     const ensureAnnotOnStyle = () => {
       try {
         const css = '#dsh-kit-toolbar-btn[data-kit-annot-on="1"],[data-dsh-kit-agent-view-annot][data-kit-annot-on="1"]'
-          + '{background:transparent !important;color:inherit !important;box-shadow:none !important;}';
+          + '{background:transparent !important;box-shadow:none !important;}';
         const old = document.getElementById(ANNOT_ON_STYLE_ID);
         if (old && old.textContent === css) return; // 幂等：内容没变不重建
         if (old) old.remove();
@@ -801,7 +801,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.4';
+          const EXPECTED_ANNOT_VERSION = '1.6.5';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1500,14 +1500,30 @@ window.__ModuleLoader__.load({
               return Math.max(0, Math.round(Math.min(hostH, rectH) / (k > 0 ? k : 1)));
             } catch { return 0; }
           };
-          /** 一次性把"可见带(宽/高) + 放大倍数"推给批注器（少一次往返）。 */
+          /** R-OWN v15：侧栏面板的批注面板**抬升量**（guest px）——给右下角的**自持小窗**让位，
+           *  使得"批注面板在上、自持小窗在下"两者都可见（用户指定布局）。
+           *  仅侧栏面板需要（自持窗口的小窗在自己的面板内，不冲突）。 */
+          const annotBottomExtra = (pane) => {
+            try {
+              if (!(stateRef.annot && stateRef.annot.active)) return 0;
+              if (paneOwnerLabel(pane).kind !== 'session') return 0;
+              const p = agentView.panel;
+              if (!p || !document.contains(p)) return 0;
+              if ((agentView.ui && agentView.ui.state) === 'expanded') return 0; // 展开态不占右下角
+              // 小窗可见（收起）时**恒定抬升**「小窗高 + 间距」——严格对应"批注面板在上、小窗在下"的布局
+              const bar = p.getBoundingClientRect();
+              return Math.max(0, Math.round(bar.height) + 24);
+            } catch { return 0; }
+          };
+          /** 一次性把"可见带(宽/高) + 放大倍数 + 让位抬升"推给批注器（少一次往返）。 */
           const syncAnnotMetrics = (pane) => {
             try {
               if (!pane) return;
               const band = paneVisibleWidth(pane);
               const bandH = paneVisibleHeight(pane);
               const s = Number(paneUiScale(pane).toFixed(4));
-              pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setPaneMetrics) ? window.__dshKitAnnotator.setPaneMetrics({ visibleWidth: ${band}, visibleHeight: ${bandH}, uiScale: ${s} }) : 0`, true).catch(() => {});
+              const lift = annotBottomExtra(pane);
+              pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setPaneMetrics) ? window.__dshKitAnnotator.setPaneMetrics({ visibleWidth: ${band}, visibleHeight: ${bandH}, uiScale: ${s}, bottomExtra: ${lift} }) : 0`, true).catch(() => {});
             } catch { /* 忽略 */ }
           };
 
@@ -2276,6 +2292,7 @@ window.__ModuleLoader__.load({
                 const r = await togglePaneAnnot(el2);
                 const on = !!(stateRef.annot && stateRef.annot.active);
                 applyAnnotBtnState(stateRef);
+              try { syncToolbarIconColor(); } catch { /* 忽略 */ } // 主题切换后图标颜色跟上
                 agentStatus(r && r.ok
                   ? (on ? `批注已开启（${(stateRef.annot.panes || []).length} 个窗口参与）` : '批注已关闭（所有窗口同步停止）')
                   : `批注失败：${(r && r.error) || '未知'}`);
@@ -2425,13 +2442,14 @@ window.__ModuleLoader__.load({
             panel.style.width = expanded ? `${panelW}px` : '260px';
             panel.style.height = expanded ? `${panelH}px` : `${barH + 12}px`;
             // 展开：贴到标题栏下方（右上角窗口按钮不被遮挡）；收起：右下角小窗
-            // R-OWN v14：**批注会话激活时小窗换到左下角**——DSH 板块的批注面板在右下角，
-            //   两者叠一起会互相遮挡（用户实测反馈）；批注关闭后自动回到右下角。
+            // R-OWN v15：小窗**始终停右下角**；批注激活时不挪小窗，改由批注面板**抬升**让位
+            //   （用户指定布局：批注面板在上、自持小窗在下，两者都可见）。
             const annotOn = !!(stateRef.annot && stateRef.annot.active);
             panel.style.top = expanded ? `${topOffset}px` : 'auto';
             panel.style.bottom = expanded ? 'auto' : '16px';
-            panel.style.right = expanded ? '12px' : (annotOn ? 'auto' : '16px');
-            panel.style.left = (!expanded && annotOn) ? '12px' : 'auto';
+            panel.style.right = expanded ? '12px' : '16px';
+            panel.style.left = 'auto';
+            void annotOn;
             panel.style.zIndex = '2147483647'; // 置顶
             panel.dataset.kitAgentViewState = ui.state;
             // 控件可见性/文案随形态切换（用属性选择器，收养后也有效；display 用**记住的原值**恢复）
@@ -2504,10 +2522,21 @@ window.__ModuleLoader__.load({
             try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
             try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
-            // R-OWN v14：批注开关状态变化 → 重排小窗停靠（激活时让开右下角，避免与批注面板重叠）
+            // R-OWN v15：批注开关状态变化 → 重排停靠位置，并**重新推送所有面板指标**
+            //（bottomExtra 依赖"批注是否激活"，会话开启后必须再推一次，否则不会抬升）
             try {
               const on = !!(stateRef.annot && stateRef.annot.active);
-              if (agentView.lastAnnotOn !== on) { agentView.lastAnnotOn = on; applyAgentViewLayout(); }
+              if (agentView.lastAnnotOn !== on) {
+                agentView.lastAnnotOn = on;
+                applyAgentViewLayout();
+                const targets = new Set();
+                for (const p of (stateRef.annot && stateRef.annot.panes) || []) targets.add(p);
+                targets.add(agentViewWebview());
+                for (const w of Array.from(document.querySelectorAll('webview'))) {
+                  if (!targets.has(w)) continue;
+                  syncAnnotMetrics(w);
+                }
+              }
             } catch { /* 忽略 */ }
             const idle = Date.now() - (agentView.lastOpAt || 0);
             if (idle > AGENT_VIEW_IDLE_MS) agentViewSetBorder(false); // 空闲：撤掉青色边框
@@ -4860,6 +4889,32 @@ window.__ModuleLoader__.load({
               btn.innerHTML = svg;
               return btn;
             };
+            /** DSH 自带的「系统浏览器打开」按钮（图标颜色参照物）。 */
+            const sysBrowserBtnOf = (form) => {
+              try {
+                return Array.from(form.querySelectorAll('button')).find((bb) => {
+                  if (bb.id && bb.id.indexOf('dsh-kit') === 0) return false;
+                  const t = `${bb.getAttribute('title') || ''} ${bb.getAttribute('aria-label') || ''}`;
+                  return /系统浏览器|浏览器中打开|浏览器打开|BROWSER/i.test(t);
+                }) || null;
+              } catch { return null; }
+            };
+            /** R-OWN v15：让我们注入的图标与 DSH 自带图标**同色**（两种主题都一致）。
+             *  参照物 = DSH「系统浏览器打开」按钮的 computed color（主题切换后自动变化，2s tick 同步）。 */
+            const syncToolbarIconColor = () => {
+              try {
+                for (const form of toolbarForms()) {
+                  const src = sysBrowserBtnOf(form);
+                  if (!src) continue;
+                  const c = getComputedStyle(src).color;
+                  if (!c) continue;
+                  for (const id of ['dsh-kit-toolbar-size-btn', 'dsh-kit-toolbar-shot-btn', 'dsh-kit-toolbar-btn', 'dsh-kit-toolbar-own-btn']) {
+                    const b = form.querySelector('#' + id);
+                    if (b && b.style.color !== c) b.style.color = c;
+                  }
+                }
+              } catch { /* 忽略 */ }
+            };
             const ensureToolbarButtons = () => {
               let attached = 0;
               const specs = [
@@ -4957,12 +5012,14 @@ window.__ModuleLoader__.load({
                   // R-OWN v11：**创建即上色**——DSH 会周期性重渲染工具条，按钮重建后若是等到 2s 的样式
                   // tick 才补色，就会出现"蓝→透明→蓝"的闪烁（用户实测反馈）。这里同步按会话状态着色。
                   if (spec.id === 'dsh-kit-toolbar-btn') {
-                    // 创建即按会话状态点亮（属性驱动；见 applyAnnotBtnState）
+                    // 创建即按会话状态点亮（属性驱动；**颜色统一交给 syncToolbarIconColor**，勿在此写 color，
+                    //  否则会覆盖成 inherit（与 DSH 自带图标不同色）——实测踩过）
                     try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
                   }
                 }
                 attached += 1;
               }
+              try { syncToolbarIconColor(); } catch { /* 忽略 */ } // R-OWN v15：与 DSH 自带图标同色
               stateRef.toolbarBtnCount = attached;
               return attached;
             };
@@ -5176,6 +5233,7 @@ window.__ModuleLoader__.load({
               void sessionOn;
               // 属性驱动点亮（!important CSS）——内联被清也压不掉，见 applyAnnotBtnState 注释
               applyAnnotBtnState(stateRef);
+              try { syncToolbarIconColor(); } catch { /* 忽略 */ } // 主题切换后图标颜色跟上
             };
             const tickSelfHealAndAutoJoin = async (st, activeIds, webviews) => {
               if (!st || !st.active || autoJoinBusy) return;

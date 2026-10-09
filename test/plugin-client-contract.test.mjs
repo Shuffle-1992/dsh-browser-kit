@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.4'/);
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.5'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.4"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.5"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
@@ -363,14 +363,14 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const applyAnnotBtnState = \(stateRef2\) => \{/);
     assert.match(clientSource, /b\.setAttribute\('data-kit-annot-on', '1'\)/);
     // v13：不再有蓝色背景（改为蓝色激活图标）；规则只把背景钉成透明
-    assert.match(clientSource, /\{background:transparent !important;color:inherit !important;box-shadow:none !important;\}/);
+    assert.match(clientSource, /\{background:transparent !important;box-shadow:none !important;\}/);
     // ⑲R-OWN v11b：归属识别用 closest（P61：手写层数不够会静默失配）
     assert.match(clientSource, /host = pane\.closest \? pane\.closest\('\[data-sidebar-right-session\]'\) : null;/);
     // ⑳R-OWN v12：批注面板"可见带"定位（缩放/裁剪下不被挤出右边界）+ 页面 CSS 隔离 + 图标顺序
     assert.match(clientSource, /const paneVisibleWidth = \(pane\) => \{/);
     assert.match(clientSource, /return Math\.max\(0, Math\.round\(Math\.min\(hostW, rectW\) \/ \(k > 0 \? k : 1\)\)\);/);
     assert.match(clientSource, /visibleWidth: \$\{Number\(vw\) \|\| 0\}/);
-    assert.match(clientSource, /setPaneMetrics\(\{ visibleWidth: \$\{band\}, visibleHeight: \$\{bandH\}, uiScale: \$\{s\} \}\)/);
+    assert.match(clientSource, /setPaneMetrics\(\{ visibleWidth: \$\{band\}, visibleHeight: \$\{bandH\}, uiScale: \$\{s\}, bottomExtra: \$\{lift\} \}\)/);
     assert.match(clientSource, /\/\/ 顺序（用户 2026-10-10 指定）：尺寸 → 截图 → 批注；首个取 margin-left:auto 右对齐/);
     assert.match(clientSource, /const OWN_ICON_SVG = /);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true \},/);
@@ -432,8 +432,15 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const ANNOT_ICON_ACTIVE_SVG = /);
     // v14：激活图标 = 原图标**描边**变蓝（fill:none，不是蓝块）；批注激活时自持小窗换到左下角
     assert.match(clientSource, /fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/);
-    assert.match(clientSource, /panel\.style\.left = \(!expanded && annotOn\) \? '12px' : 'auto';/);
-    assert.match(clientSource, /if \(agentView\.lastAnnotOn !== on\) \{ agentView\.lastAnnotOn = on; applyAgentViewLayout\(\); \}/);
+    assert.match(clientSource, /const annotBottomExtra = \(pane\) => \{/);
+    assert.match(clientSource, /bottomExtra: \$\{lift\} \}\) : 0`, true\)/);
+    assert.match(annotSource2, /var bottomExtra = 0; \/\/ R-OWN v15/);
+    assert.match(annotSource2, /\(bottomExtra > 0 \? Math\.round\(bottomExtra\) : 0\)/);
+    // v15：注入图标与 DSH 自带图标同色（两种主题一致）+ 小窗始终右下角
+    assert.match(clientSource, /const sysBrowserBtnOf = \(form\) => \{/);
+    assert.match(clientSource, /const syncToolbarIconColor = \(\) => \{/);
+    assert.match(clientSource, /if \(b && b\.style\.color !== c\) b\.style\.color = c;/);
+    assert.match(clientSource, /panel\.style\.right = expanded \? '12px' : '16px';/);
     assert.match(clientSource, /if \(b\.innerHTML !== want\) b\.innerHTML = want;/);
     assert.match(clientSource, /const syncAnnotMetrics = \(pane\) => \{/);
     assert.match(clientSource, /const paneUiScale = \(pane\) => \{/);

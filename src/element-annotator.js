@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.4"; // 1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.6.5"; // 1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -937,6 +937,7 @@
    * 面板与提示条据此锚定；未告知时按视口宽（等价于原来的 right:12，布局不变）。 */
   var visibleWidth = 0;
   var visibleHeight = 0; // R-OWN v13：可见带高度（guest px）——自持窗口 100% 显示时 guest 比舞台高，底部会被裁
+  var bottomExtra = 0; // R-OWN v15：额外底部抬升（guest px）——给宿主右下角的浮层（自持小窗）让位
   var uiScale = 1; // R-OWN v13：guest→屏幕的放大倍数（设备尺寸缩放 × 页面缩放 × dpr）；面板据此**反向缩放**
   function viewportWidth() {
     try {
@@ -977,7 +978,7 @@
       var vh = 0;
       try { vh = Math.max(1, document.documentElement.clientHeight || window.innerHeight || 1); } catch (e) { vh = 720; }
       // 右下角：右缘贴可见带右侧，下缘贴**可见带底部**（可见带底部可能高于视口底部——自持窗口 100% 显示时）
-      var bottomGap = Math.max(12, Math.round(vh - visibleBandHeight()) + 12);
+      var bottomGap = Math.max(12, Math.round(vh - visibleBandHeight()) + 12) + (bottomExtra > 0 ? Math.round(bottomExtra) : 0);
       panel.style.top = "auto";
       panel.style.bottom = bottomGap + "px";
       panel.style.left = Math.max(8, Math.round(band - w - 12)) + "px";
@@ -1665,9 +1666,10 @@
       var o = m || {};
       if (o.visibleWidth != null) visibleWidth = Math.max(0, Number(o.visibleWidth) || 0);
       if (o.visibleHeight != null) visibleHeight = Math.max(0, Number(o.visibleHeight) || 0);
+      if (o.bottomExtra != null) bottomExtra = Math.max(0, Number(o.bottomExtra) || 0); // R-OWN v15：给宿主浮层让位
       if (o.uiScale != null) uiScale = Math.max(0.05, Number(o.uiScale) || 1);
       positionPanel();
-      return { visibleWidth: visibleWidth, visibleHeight: visibleHeight, band: visibleBand(), bandH: visibleBandHeight(), uiScale: uiScale };
+      return { visibleWidth: visibleWidth, visibleHeight: visibleHeight, band: visibleBand(), bandH: visibleBandHeight(), bottomExtra: bottomExtra, uiScale: uiScale };
     },
     /** 打包当前批注（纯函数式：不结束会话、不清空）。 */
     submit: function () {
