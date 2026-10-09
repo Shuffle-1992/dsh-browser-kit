@@ -196,3 +196,11 @@
 - **现象**（2026-10-06 实测）：Clash 代理（`127.0.0.1:7897`）开着，`curl.exe -x` 访问 github.com / api.github.com / 仓库 git 端点**全部 HTTP 200**，但 `git push/ls-remote` 一律 `schannel: failed to receive handshake, SSL/TLS connection failed`（换 `http.sslBackend=openssl` 则是 `unexpected eof while reading`）。看似网络不通，实为 **schannel 走 CRL/OCSP 吊销检查时经代理不可达**。
 - **对策**：仓库级固化 `git config http.schannelCheckRevoke false`（**证书链校验仍保留**，只跳过吊销检查——比 `sslVerify=false` 安全得多）。固化后不带任何 `-c` 参数即通：`git config http.proxy http://127.0.0.1:7897` + `http.schannelCheckRevoke false`。
 - **判据**：curl 通而 git 不通 + schannel 握手错误 → 直接上 `schannelCheckRevoke=false`，不要浪费时间排查代理/节点。
+### P41 typert face 返回值是双层信封：单层 unwrap 漏拆 = 静默失败
+- **现象**（2026-10-09 HID 桥实测）：client 调 `svc.hidList()` 返回 `{ok, value:{ok, devices}}`——**face 自身返回的 `{ok,devices}` 外面又被 typert 包了一层 `{ok, value}`**。既有 `unwrap()`（单层判定：`'value' in raw` 拆一层）拆完后 `r = {ok, value}` 的**内层对象**——但 handler 里 `r.devices` 仍 undefined（拆完才是真值），表现 = 命令返回 ok 但数据字段全空/`reading 'length'` 崩。
+- **证据**：探针三连——①直接 `Object.keys(raw)` = `ok,value`；②手写 `raw.value !== undefined` 下钻 = 拿到 `{ok,devices:[25]}`；③同一 unwrap 代码在探针里复现失败。gui-eval 探针 + 命令通道双通道对照定位（命令失败/探针成功的差异即信封层数差异）。
+- **对策**：跨 face 调用一律用 **`peelTo(x, done)` 防御下钻**（按目标形状递归拆信封，`x.value !== undefined` 继续、`done(x)` 命中终止）——不要假设信封层数。`hid-enumerate`/`tickHidBridge` 已全用此式。
+### P42 guest 侧注入物的热更新：幂等守卫 + 双侧 mtime 未知 = 死锁，解法是「未知即重注」
+- **现象**（2026-10-09 WebHID shim 实测）：shim 源更新后，guest 里跑的仍是旧版——三重死锁：①shim 自身幂等守卫（`if (version) return`）挡住重跑；②guest 里没有记录 mtime（旧版注入时未写）；③client 缓存空（重启后）→「mtime 比对」两侧都未知 → 永不重注入。
+- **对策**：三件套——①注入判定用 **「未知即重注」**（client 缓存或 guest mtime 任一未知 → 无条件重注一次建立基线；幂等成本低：一个 IIFE + 一次 face 调用）；②重注前 **`delete window.__dshKit<Name>Version`** 破掉幂等守卫 + **备份并 delete 被覆盖的 navigator 属性**；③注入时把源 mtime 写进 guest（`window.__dshKit<Name>Mtime`），下次 probe 带回比对。
+- **判据**：改了注入源但 guest 行为没变 + guest 里版本号没变 → 先查「重注入是否真的发生」（probe mtime），不要先怀疑新代码。
