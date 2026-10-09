@@ -175,6 +175,34 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 
 **仍需 DSH 宿主能力（本轮做不了，已列 §8）**：下载观测（session `will-download`）、整页/元素级截图（`Page.captureScreenshot`）、独立浏览器视图租约并发（`dshDesktop.browser.acquire/release` + 一个 UI 座位）、HttpOnly cookie 与 storage 分区级操作（CDP `Network.getCookies`/`Storage.*`）。
 
+## 3.8 探索：`dshDesktop.browser` 租约契约（插件自持浏览器视图的钥匙）
+
+实测（2026-10-10 00:3x，只读+成对释放，未遗留视图）：
+
+```
+dshDesktop.protocolVersion === 1
+dshDesktop.browser = { acquire, release, onOpenRequested }
+
+acquire(storageIdentity: string) → Promise<{ lease: string(uuid), partition: string }>
+   例：acquire('dsh-browser-kit:probe-a')
+     → { lease: '108cac36-…', partition: 'dsh-sidebar-browser-97c92b7d-…' }
+release(lease: string) → 成功（**必须传 lease 本身**，传整个 {lease,partition} 对象报
+   「desktop browser: invalid guest lease」——本轮踩过）
+acquire({workspaceKey}|{identity}|{storageIdentity}) → 报错「a workspace storage identity is required」
+   ⇒ 参数是**字符串**，不是对象
+不同 storageIdentity ⇒ 不同 partition（按 identity 隔离存储）
+acquire 本身**不创建 webview**（租约只是权限令牌；`<webview>` 仍需自己挂，且要带该 lease/partition
+才会被 main 的 will-attach-webview 放行）
+```
+
+**架构含义（强烈建议的下一步）**：把 `browser_*` 从「侧栏面板」搬到 **插件自持视图**——`acquire` 拿租约 →
+自建 `<webview>`（带该 partition）→ 挂在我们的浮层/面板里驱动。这样：
+- **彻底解决会话隔离**（不依赖任何会话的前台/挂载状态，也不碰用户侧栏）；
+- 后台会话也能持续自动化（不再受「用户停在别的会话 ⇒ 本会话面板未挂载」限制）；
+- 代价：要自己实现视图生命周期（挂载/尺寸/关闭/崩溃回收）、`onOpenRequested` 处理与 UI 座位。
+
+本轮只完成契约探测（未实现视图），因为它属于「新增一个自持浏览器面板」的独立特性。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
@@ -238,5 +266,8 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 ## 8. 后续可选项（按价值排序）
 
 1. **P2 交互/状态深化**：cookie/storage 读写（需 CDP 或 `webview` session 代理）、文件上传（`DOM.setFileInputFiles` 等价：Electron 无直接 API，可试 `input.files` 注入 + `DataTransfer`）、下载观测（session `will-download`）、多页面并发与租约隔离（`dshDesktop.browser.acquire/release`）。
+   - ✅ 已做：storage（页内，HttpOnly 除外）、文件上传（DOM+DataTransfer）、`browser_find` 省 token；
+   - ⏳ 租约自持视图：契约已钉死（§3.8），实现属独立特性；
+   - ⛔ 下载观测 / 整页截图 / HttpOnly：需 DSH 宿主侧能力。
 2. **省 token 再进一步**（横向调研 #9/#10）：`browser_find`（在快照里按文本/正则只回匹配节点+路径）、快照增量（`--delta`）、大输出落盘。
 3. **对 DSH 官方的诉求**：开放宿主主进程桥（`console-message` / `sendInputEvent` 之外还需 session 级 API）或允许 `--remote-debugging-port` + 插件作纯 CDP 客户端（§5.0 路线①/②）——那将一次性补齐控制台/网络/整页截图/文件上传。可与 WebHID 的 Discussion 合并提出。
