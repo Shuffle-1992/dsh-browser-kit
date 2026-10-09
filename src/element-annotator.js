@@ -462,7 +462,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.7.0"; // 1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.7.1"; // 1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -873,6 +873,12 @@
     if (!panel) {
       return;
     }
+    // R-OWN v20b：镜像模式下 guest 面板**一律不上屏**（宿主负责镜像渲染）。
+    //  ★必须放在 renderPanel 里：面板"新建"路径不经过 ensurePanel 的"已存在"分支，
+    //   只在那边隐藏会漏掉首次创建 ⇒ 用户实测"变成 2 个了"。
+    if (mirrorMode && panel.style.display !== "none") {
+      panel.style.display = "none";
+    }
     if (panelCount) {
       panelCount.textContent = String(annotations.length);
     }
@@ -1002,8 +1008,10 @@
   function ensurePanel() {
     if (panel && panel.isConnected) {
       renderPanel();
-      if (mirrorMode) panel.style.display = "none"; // R-OWN v20：宿主镜像渲染时，guest 面板只留状态不上屏
-      else positionPanel();
+      if (!mirrorMode) {
+        panel.style.display = ""; // 非镜像模式：恢复上屏
+        positionPanel();
+      }
       return;
     }
     panel = makeElement("div", {

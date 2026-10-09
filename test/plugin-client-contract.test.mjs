@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.7\.0'/);
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.7\.1'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.7\.0"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.7\.1"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
@@ -446,7 +446,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const bindAnnotMirror = \(root, pane\) => \{/);
     assert.match(annotSource2, /mirrorSnapshot: function \(\) \{/);
     assert.match(annotSource2, /var mirrorMode = false; \/\/ R-OWN v20/);
-    assert.match(annotSource2, /if \(mirrorMode\) panel\.style\.display = "none";/);
+    assert.match(annotSource2, /if \(mirrorMode && panel\.style\.display !== "none"\) \{/);
     assert.match(annotSource2, /var bottomExtra = 0; \/\/ R-OWN v15/);
     assert.match(annotSource2, /\(bottomExtra > 0 \? Math\.round\(bottomExtra\) : 0\)/);
     // v15：注入图标与 DSH 自带图标同色（两种主题一致）+ 小窗始终右下角
