@@ -20,7 +20,7 @@
   if (window.__dshKitHidShimVersion) {
     return; // 幂等：重复注入直接返回
   }
-  window.__dshKitHidShimVersion = "1.1.1";
+  window.__dshKitHidShimVersion = "1.1.2";
 
   var REQ_SEQ = 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
@@ -183,6 +183,42 @@
   var DEVICE_OPEN_STATE = {}; // path -> boolean（桥侧句柄是否已开）
   var listeners = {}; // path -> { inputreport: [fn] }（addEventListener 形态的事件表，R-COMM）
 
+  // R-MIG（1.1.2，评审问题 3 收尾）：**跨重注入状态迁移**——client 检测 shim 源更新会
+  // 重注入（旧 IIFE 作用域销毁、页面闭包里的旧设备实例失效），若不迁移：
+  //  ① GRANTS 丢 → 页面要重新授权；② OPEN 状态丢 → 桥句柄悬空；③ 旧实例轮询停 → 数据断流。
+  // 迁移通道：window.__dshKitHidMigrate（client 重注入前由旧 shim 的 closeAllForReinject 写入，
+  // 新 IIFE 启动时恢复——含**自动恢复打开**（桥句柄是 client 域资源，re-open 幂等）。
+  (function migrateIn() {
+    try {
+      var m = window.__dshKitHidMigrate;
+      if (m && typeof m === "object") {
+        if (Array.isArray(m.grants)) GRANTS = m.grants;
+        var needReopen = []; // 桥侧句柄在 DSH/桥重启后已失效——需真 re-open（异步，见下）
+        if (m.openPaths) {
+          m.openPaths.forEach(function (p) { DEVICE_OPEN_STATE[p] = true; needReopen.push(p); });
+        }
+        delete window.__dshKitHidMigrate;
+        // R-MIG：恢复已开设备——为每个已开 path 建新实例；桥侧 re-open **异步**进行
+        // （MIG 时桥句柄可能已随桥重启失效——open() 的幂等守卫会被 DEVICE_OPEN_STATE
+        //  骗过，所以这里直接调桥 hidOpen 并以结果回写状态）。
+        GRANTS.filter(function (g) { return needReopen.indexOf(g.path) >= 0; }).forEach(function (g) {
+          if (!DEVICE_INSTANCES[g.path]) {
+            DEVICE_INSTANCES[g.path] = new ShimHIDDevice(g);
+          }
+          callBridge("hidOpen", { path: g.path }, 20000).then(function (opened) {
+            if (opened && opened.ok) {
+              DEVICE_INSTANCES[g.path].__dshKitHandleId = opened.handleId;
+              DEVICE_OPEN_STATE[g.path] = true;
+              DEVICE_INSTANCES[g.path].__dshKitStartPoll();
+            } else {
+              DEVICE_OPEN_STATE[g.path] = false; // 桥拒绝（设备拔出/被占）：回退状态
+            }
+          }).catch(function () { DEVICE_OPEN_STATE[g.path] = false; });
+        });
+      }
+    } catch (_) { /* 迁移失败不拦启动 */ }
+  })();
+
   function loadGrants() {
     try {
       var raw = sessionStorage.getItem("__dshKitHidGrants");
@@ -219,23 +255,22 @@
       collections: { get: function () { return []; } },
     });
     this.oninputreport = null;
-    var listeners = { inputreport: [] }; // R-COMM：addEventListener("inputreport") 形态同样支持
+    var listenersLocal = { inputreport: [] }; // R-STOPGAP：无人监听就不轮询（空转 hidRead 洪峰曾打爆宿主）
+    function hasListener() { return !!self.oninputreport || listenersLocal.inputreport.length > 0; }
     var pollTimer = 0;
     function startPoll() {
       if (pollTimer) return;
       pollTimer = setInterval(function () {
         var handleId = DEVICE_INSTANCES[info.path] && DEVICE_INSTANCES[info.path].__dshKitHandleId;
-        if (!DEVICE_OPEN_STATE[info.path] || !handleId) return;
+        if (!DEVICE_OPEN_STATE[info.path] || !handleId || !hasListener()) return;
         callBridge("hidRead", { handleId: handleId, timeoutMs: 200 }, 5000).then(function (r) {
           if (!(r && r.ok && Array.isArray(r.data) && r.data.length)) return;
           // Chrome 语义：ev.data 不含 report id；reportId 单列。桥读到的首字节即 report id。
           var reportId = r.data[0];
           var data = new Uint8Array(r.data.slice(1));
-          var hasListener = self.oninputreport || (listeners.inputreport && listeners.inputreport.length);
-          if (!hasListener) return;
           var ev = { data: data, device: self, reportId: reportId };
           if (self.oninputreport) { try { self.oninputreport(ev); } catch (_) {} }
-          (listeners.inputreport || []).slice().forEach(function (fn) {
+          listenersLocal.inputreport.slice().forEach(function (fn) {
             try { fn(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
           });
         }).catch(function () { /* 桥超时：下轮再试 */ });
@@ -245,16 +280,11 @@
     this.__dshKitStopPoll = function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
   }
   ShimHIDDevice.prototype.addEventListener = function (type, fn) {
-    if (type === "inputreport" && typeof fn === "function") { listenersInit(this); listeners[this.__dshKitPath].inputreport.push(fn); }
+    if (type === "inputreport" && typeof fn === "function") { this.__dshKitAddListener(type, fn); }
   };
   ShimHIDDevice.prototype.removeEventListener = function (type, fn) {
-    if (type === "inputreport" && listeners[this.__dshKitPath]) {
-      listeners[this.__dshKitPath].inputreport = listeners[this.__dshKitPath].inputreport.filter(function (f) { return f !== fn; });
-    }
+    if (type === "inputreport") { this.__dshKitRemoveListener(type, fn); }
   };
-  function listenersInit(self) {
-    if (!listeners[self.__dshKitPath]) listeners[self.__dshKitPath] = { inputreport: [] };
-  }
   ShimHIDDevice.prototype.open = function () {
     var self = this;
     var path = this.__dshKitPath;
@@ -387,15 +417,13 @@
   }
 
   window.__dshKitHidShim = shimHid; // 调试句柄
-  /** 重注入收尾（client 推送新版 shim 前调用）：关全部桥句柄 + 停轮询——
-   *  旧 shim 实例的轮询 interval 无人清理会一直空转打桥。 */
+  /** 重注入收尾（client 推送新版 shim 前调用）——R-MIG：**写迁移数据而非破坏**：
+   *  GRANTS + 已开路径交给新 shim（新实例 re-open 幂等接管桥句柄、重启轮询），
+   *  页面闭包里的旧设备对象继续引用旧实例（其轮询已随旧作用域停——旧对象仅存，
+   *  页面下一次 getDevices/requestDevice 会拿到新实例）。closeChooser 防残留。 */
   window.__dshKitHidShim.closeAllForReinject = function () {
-    Object.keys(DEVICE_INSTANCES).forEach(function (p) {
-      try {
-        if (DEVICE_INSTANCES[p] && DEVICE_INSTANCES[p].__dshKitStopPoll) DEVICE_INSTANCES[p].__dshKitStopPoll();
-      } catch (_) { /* 尽力而为 */ }
-      DEVICE_OPEN_STATE[p] = false;
-    });
+    var openPaths = Object.keys(DEVICE_OPEN_STATE).filter(function (p) { return DEVICE_OPEN_STATE[p]; });
+    window.__dshKitHidMigrate = { grants: GRANTS, openPaths: openPaths };
     closeChooser();
   };
 })();

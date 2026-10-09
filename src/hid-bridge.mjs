@@ -39,11 +39,25 @@ function hid() {
   }
 }
 
-const handles = new Map(); // handleId -> { dev, open, queue, waiters }
-let handleSeq = 0;
+/* R-IMPL：handles/seq **挂 globalThis 单例**——impl 热换（?ts= 重载）会重建本模块
+ *  作用域，但**已打开的 HID 实例与其原生读线程活在进程里**：表重建 = 句柄丢失 =
+ *  旧读线程抢走 input report（页面收不到数据——实锤于 HID 联调）。单例守护让
+ *  impl 重载后仍能管理既有句柄（close/super-sede 正常工作）。 */
+const HID_GLOBAL = (function () {
+  try {
+    if (!globalThis.__dshKitHidBridgeState) {
+      globalThis.__dshKitHidBridgeState = { handles: new Map(), seq: 0 };
+    }
+    return globalThis.__dshKitHidBridgeState;
+  } catch (_) {
+    return { handles: new Map(), seq: 0 };
+  }
+})();
+const handles = HID_GLOBAL.handles; // 单例 Map（跨 impl 重载存活）
+function nextHandleSeq() { HID_GLOBAL.seq += 1; return HID_GLOBAL.seq; }
 
 /** 通讯 trace（环形 200 条，hidTraceImpl 读）。 */
-const TRACE = [];
+const TRACE = (function(){ try { if (!globalThis.__dshKitHidTrace) globalThis.__dshKitHidTrace = []; return globalThis.__dshKitHidTrace; } catch (_) { return []; } })();
 function tracePush(dir, handleId, bytes) {
   TRACE.push({ at: new Date().toISOString(), dir, handleId, hex: (bytes || []).map((b) => (b < 16 ? '0' : '') + b.toString(16)).join(' ') });
   if (TRACE.length > 200) TRACE.splice(0, TRACE.length - 200);
@@ -71,15 +85,28 @@ export async function hidListImpl() {
   }
 }
 
-/** 独占打开设备：sync HID + on('data')（原生读线程）——write 主线程独立不被阻塞。 */
+/** 独占打开设备：sync HID + on('data')（原生读线程）——write 主线程独立不被阻塞。
+ *  R-DUP：**同 path 只允许一个活句柄**——新 open 自动关旧句柄（双句柄会竞争
+ *  input report 广播：响应被旧句柄截胡 → 页面"连接后读不到"，用户实测复现）。 */
 export async function hidOpenImpl(path) {
   try {
     if (!path || typeof path !== 'string') return { ok: false, error: 'path 必填（hidList 返回的设备路径）' };
     const h = hid();
+    for (const [hidOld, entryOld] of handles) {
+      if (entryOld.path === path) {
+        handles.delete(hidOld);
+        entryOld.open = false;
+        for (const w of entryOld.waiters.splice(0)) {
+          clearTimeout(w.timer);
+          w.resolve({ ok: false, error: 'superseded' });
+        }
+        try { entryOld.dev.close(); } catch (_) { /* 尽力而为 */ }
+      }
+    }
     const dev = new h.HID(path);
-    handleSeq += 1;
-    const handleId = `hid-${handleSeq}`;
-    const entry = { dev, open: true, queue: [], waiters: [] };
+    const seq = nextHandleSeq();
+    const handleId = `hid-${seq}`;
+    const entry = { dev, open: true, queue: [], waiters: [], path };
     handles.set(handleId, entry);
     dev.on('data', (data) => {
       if (!entry.open) return;
@@ -166,7 +193,11 @@ export async function hidCloseAllImpl() {
   return { ok: true, closed: ids.length };
 }
 
-/** 通讯 trace（桥收发十六进制记录，环形 200 条）。 */
+/** 通讯 trace（桥收发十六进制记录，环形 200 条）+ 当前句柄表（调试双输出）。 */
 export function hidTraceImpl() {
-  return { ok: true, trace: TRACE.slice() };
+  return {
+    ok: true,
+    trace: TRACE.slice(),
+    handles: [...handles.entries()].map(([id, e]) => ({ id, path: e.path || null, open: e.open, queued: e.queue.length, waiters: e.waiters.length })),
+  };
 }

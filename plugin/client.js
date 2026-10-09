@@ -2404,7 +2404,11 @@ window.__ModuleLoader__.load({
                       el.executeJavaScript('JSON.stringify(window.__dshKitHidQueue.splice(0, window.__dshKitHidQueue.length))', true),
                       3000, 'hid-queue-take');
                     const list = JSON.parse(reqs || '[]');
-                    for (const req of list) {
+                    // R-STOPGAP：每 tick 限流 4 个桥请求（多余留 guest 队列下轮取——
+                    // 洪峰曾打爆宿主 face 通道，gui-eval 全超时）。取走的放回队首。
+                    const batch = list.slice(0, 4);
+                    const deferred = list.slice(4);
+                    for (const req of batch) {
                       try {
                         let r = null;
                         if (req.method === 'hidList') r = peelTo(await svc.hidList(), (x) => Array.isArray(x.devices));
@@ -2419,6 +2423,12 @@ window.__ModuleLoader__.load({
                       } catch (e) {
                         await el.executeJavaScript(`window.__dshKitHidResolve(${JSON.stringify(req.id)}, { ok:false, error:${JSON.stringify(msgOf(e))} })`, true).catch(() => {});
                       }
+                    }
+                    if (deferred.length) {
+                      // 限流溢出：放回 guest 队列**队首**（保持 FIFO 顺序），下轮 tick 优先处理
+                      await withTimeout(
+                        el.executeJavaScript(`window.__dshKitHidQueue = ${JSON.stringify(deferred)}.concat(window.__dshKitHidQueue || [])`, true),
+                        3000, 'hid-queue-defer');
                     }
                   }
                 } catch { /* 单面板失败不影响其他面板/主流程 */ }
