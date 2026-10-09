@@ -237,3 +237,10 @@
 - **现象 D（参数名撞信封）**：新命令 `browser-panel {action:'close'}` 返回「未知命令 action=close」——**命令信封的 `action` 键已被「命令名」占用**（handler 里 `c.action === 'browser-panel'`），业务参数再叫 `action` 会在 JSON 里覆盖命令名。
   - **对策**：业务参数改用别的名字（本例 `op`），并在注释里钉死这条；`id` 同理已被信封占用。
 - **判据**：想给内置浏览器加能力时，先分清三层——**client 插件（可达 GUI DOM/`<webview>`/`ctx.sidebarRight`/`ctx.layout`/`dshDesktop`）** > **host 插件（纯 Node，只有系统层直连）** > **CDP/DevTools（不可达）**。
+### P48 给 DSH 加 host 侧能力三连坑：host 不热换 / 服务必须 inject / plain Node 读不了 asar
+- **现象 A（改了不生效）**：`host.impl.mjs` 与新增 host 模块改完，探针报告 `implLoadedAt` 纹丝不动、新工具不出现——**host 半边不会热换**（薄壳只在 `apply()` 时按 mtime 生成 import URL）。**client.js 却会被 `clientModules.rebuilt` 热换**，容易误判「两边都热」。
+  - **对策**：用插件管理器 toggle 重激活（`include:<patchId>` 先 disable 再 enable）；以 `probe-report.json` 的 `implLoadedAt` 变化作为「真的重载了」的判据（本轮实测两次 toggle 后 16:02:08 → 16:03:20 才确认）。
+- **现象 B（读服务就抛）**：host 侧 `ctx.tools` 直接读抛 `cannot get property "tools" without inject`——cordis 禁止访问未 inject 的服务。
+  - **对策**：①读服务一律包 try/catch（否则异常会吃掉整段注册逻辑，症状是「什么都没发生」）；②**不要**把 `tools` 写进顶层 `inject`（服务缺失 ⇒ apply 不被调用 ⇒ 整个插件阵亡），改用**惰性** `ctx.inject(['tools'], (scoped) => …)`，在回调作用域里访问 `.tools`。
+- **现象 C（单测里解析不到）**：plain Node 里 `import('…/app.asar/dsh/node_modules/@deepseek-ai/dsh-tools/lib/index.js')` 必然失败——**asar 的 fs 补丁只存在于 DSH 的 Electron/Node 运行时**。故 defineTool 解析单测要跳过或注入桩；实机证据 = 工具真的出现在 agent 工具表里并可调用（本轮 11 个 `browser_*` 全部注册成功）。
+- **判据**：工具「写了没生效」先查三处——**激活时间戳**（`implLoadedAt`）、**inject 语义**（顶层还是惰性）、**解析来源**（`tools.defineToolSource`）。

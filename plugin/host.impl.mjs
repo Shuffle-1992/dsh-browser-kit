@@ -30,6 +30,15 @@ const loadHidBridge = async () => {
 let wireCacheBust = 'init';
 const loadWire = async () => import(`./wire.host.mjs?ts=${wireCacheBust}`).then((m) => m);
 
+/* R-TOOL：agent 一等工具层（browser_*）。**?ts= 动态 import**——静态 import 会命中进程级模块缓存，
+ * 改了不生效（P13 家族，同 hid-bridge/wire 的缓存纪律）。 */
+let browserToolsMod = null;
+const loadBrowserTools = async () => {
+  if (browserToolsMod) return browserToolsMod;
+  browserToolsMod = await import(`./browser-tools.host.mjs?ts=${wireCacheBust}`);
+  return browserToolsMod;
+};
+
 const msg = (e) => (e && e.message ? `${e.message}` : String(e));
 const safe = (fn) => {
   try {
@@ -259,6 +268,8 @@ function writeReport(reportPath, state, reason) {
           host: state.host,
           client: state.client,
           clientReceivedAt: state.clientReceivedAt,
+          // R-TOOL：agent 工具注册诊断（defineTool 来源 / 已注册清单 / 失败原因）
+          tools: state.tools || null,
         },
         null,
         2,
@@ -722,6 +733,39 @@ export async function apply(ctx, _config = {}, paths = {}) {
     }
   } catch (e) {
     log('warn', `远端面注册失败（不影响 host 探测）：${msg(e)}`);
+  }
+
+  /* ---- R-TOOL：agent 一等工具注册（browser_*）----
+   * 纪律：**绝不写进顶层 inject**——本插件还承载批注/截图/HID 等能力，若因 `tools` 服务缺失
+   * 导致 apply 不被调用，等于全插件阵亡。故先试 ctx.tools，缺则用惰性 ctx.inject(['tools'])，
+   * 两条路都失败只 warn。注册结果落 state.tools（写进 probe-report.json，便于重启后一眼定位）。 */
+  try {
+    const mod = await loadBrowserTools();
+    const register = (scope, label) => {
+      mod.registerBrowserTools(scope, paths.pluginDir, log)
+        .then((diag) => {
+          state.tools = { at: new Date().toISOString(), via: label, ...diag };
+          log('info', `浏览器工具注册（${label}）：${diag.registered.length} 个（来源 ${diag.defineToolSource || 'n/a'}）`);
+        })
+        .catch((e) => { state.tools = { at: new Date().toISOString(), via: label, fatal: msg(e) }; log('warn', `浏览器工具注册失败：${msg(e)}`); });
+    };
+    /* 注意：cordis 下**未 inject 直接读 `ctx.tools` 会抛**「cannot get property "tools" without inject」
+     * （实测 16:03:20）。所以①读服务必须包 try/catch；②真正的通路是 `ctx.inject(['tools'], cb)` 的
+     * 作用域上下文——在回调里才能合法访问 `.tools`。顶层 inject 不能加（tools 缺失会让整个插件不激活）。 */
+    let toolsApi = null;
+    try { toolsApi = ctx ? ctx.tools : null; } catch { toolsApi = null; }
+    if (toolsApi && typeof toolsApi.register === 'function') {
+      register(ctx, 'ctx.tools');
+    } else if (ctx && typeof ctx.inject === 'function') {
+      ctx.inject(['tools'], (scoped) => register(scoped, 'ctx.inject([tools])'));
+      log('info', 'ctx.tools 需 inject：已登记惰性 inject([tools])，服务就绪后自动注册');
+    } else {
+      state.tools = { at: new Date().toISOString(), fatal: 'ctx.tools 与 ctx.inject 都不可用' };
+      log('warn', 'ctx.tools / ctx.inject 都不可用：浏览器工具未注册（命令通道照常可用）');
+    }
+  } catch (e) {
+    state.tools = { at: new Date().toISOString(), fatal: msg(e) };
+    log('warn', `浏览器工具层加载失败（不影响其它能力）：${msg(e)}`);
   }
 
   /* ---- host 探测异步执行（不阻塞激活） ---- */

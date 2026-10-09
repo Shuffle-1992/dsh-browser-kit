@@ -1930,14 +1930,41 @@ window.__ModuleLoader__.load({
                 } catch (e) { return { ok: false, error: `取活动标签失败：${msgOf(e)}` }; }
               }
               if (!tabId) return { ok: false, error: '没有可关闭的标签（未给 tabId 且取不到活动标签）' };
-              const before = (() => { try { const s = sidebarRightSvc.openTabs && sidebarRightSvc.openTabs.getSnapshot(); return Array.isArray(s) ? s.length : null; } catch { return null; } })();
+              /* tabId 是**会话内**编号（不同会话可能同名 tab3/tab14），必须把前后比较都钉在
+               * 「被关标签所属会话」上——否则别的会话里有同名标签就会误报 stillOpen:true（实测）。 */
+              const snapshot = () => {
+                try {
+                  const store = sidebarRightSvc.openTabs;
+                  const s = store && typeof store.getSnapshot === 'function' ? store.getSnapshot() : null;
+                  return Array.isArray(s) ? s : null;
+                } catch { return null; }
+              };
+              const beforeSnap = snapshot();
+              const beforeEntry = beforeSnap ? (beforeSnap.find((t) => t && t.tabId === tabId) || null) : null;
+              const scopeSession = beforeEntry ? beforeEntry.sessionId : null;
+              const countIn = (list) => (Array.isArray(list)
+                ? (scopeSession ? list.filter((t) => t && t.sessionId === scopeSession).length : list.length)
+                : null);
               try { sidebarRightSvc.close(tabId); }
               catch (e) { return { ok: false, error: `close 抛错：${msgOf(e)}` }; }
               await new Promise((r) => setTimeout(r, 600));
-              const store = sidebarRightSvc.openTabs;
-              const snap = (() => { try { return store && typeof store.getSnapshot === 'function' ? store.getSnapshot() : null; } catch { return null; } })();
-              const tabs = Array.isArray(snap) ? snap.map((t) => ({ sessionId: (t && t.sessionId) || null, tabId: (t && t.tabId) || null, type: (t && (t.type || t.kind)) || null })) : null;
-              return { ok: true, closed: tabId, resolvedFrom, tabsBefore: before, tabsAfter: tabs ? tabs.length : null, stillOpen: tabs ? tabs.some((t) => t.tabId === tabId) : null };
+              const afterSnap = snapshot();
+              const stillOpen = Array.isArray(afterSnap)
+                ? (scopeSession
+                  ? afterSnap.some((t) => t && t.tabId === tabId && t.sessionId === scopeSession)
+                  : afterSnap.some((t) => t && t.tabId === tabId))
+                : null;
+              return {
+                ok: true,
+                closed: tabId,
+                resolvedFrom,
+                sessionId: scopeSession,
+                tabsBefore: countIn(beforeSnap),
+                tabsAfter: countIn(afterSnap),
+                tabsBeforeAll: beforeSnap ? beforeSnap.length : null,
+                tabsAfterAll: afterSnap ? afterSnap.length : null,
+                stillOpen,
+              };
             },
             'browser-panel': async function (svc, c) {
               // R-BROWSER：**开/关「浏览器窗口」本体**（右侧栏面板）。
