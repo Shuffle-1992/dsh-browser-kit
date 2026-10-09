@@ -404,6 +404,15 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 修法：①创建时**记下原始 display**（`data-kit-own-display`，且必须在设完 cssText 之后再记）；②对结构性容器
 （`addrRow`）在布局里**强制 `flex/none`**，不依赖记忆值（收养来的旧面板可能已丢值）；③自定义缩放输入框单独管理显示。
 
+### 3.9.10 R-OWN v10：顶栏细节（用户 2026-10-10 要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| 标签旁的网址不再显示 | 删除"把 URL 写进 urlText"的同步；`urlText` 只作**临时状态提示**（6s 自动清空，`agentStatus()`） | 顶栏只剩 `🤖 Agent 浏览器` + 标签 chip；网址只在地址栏 ✓ |
+| ←→↻ 加方框、合适间距、图标居中 | `mkNav` 与截图/批注共用同款**方框**：`26×22 + inline-flex + align/justify center`；行内 `gap:6px` | 三个导航键与截图/批注同为方框且字形/图标居中 ✓ |
+| 截图/批注图标居中于方框 | `mkBtn` 改为 `display:inline-flex;align-items:center;justify-content:center;width:26px;height:22px;padding:0;line-height:1` | 图标垂直/水平居中 ✓ |
+| **默认尺寸改 1920×1080 档位** | `AGENT_VIEW_PRESETS` 把 `1080p` 提到**首位**并作为默认；`agentViewResolvePreset` 兜底、`ui.preset` 初始化、收养兜底全部改 `'1080p'` | 新开窗口 `resolution: 1920×1080`、预设下拉首项为 Desktop · 1920×1080 ✓ |
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

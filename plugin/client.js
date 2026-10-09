@@ -1734,14 +1734,14 @@ window.__ModuleLoader__.load({
             return { ok: true };
           };
           /** 建/复用自持视图（面板 + webview），返回 agentView。 */
-          /* ── 分辨率预设（参考 Chrome DevTools 设备模式；默认 2K）──
+          /* ── 分辨率预设（参考 Chrome DevTools 设备模式；**默认 1920×1080**，用户 2026-10-10 指定）──
            * guest 视口 = webview 自身的 CSS 尺寸；展开时用 `transform: scale(k)` **只缩放显示**，
            * 不改 guest 视口（页面按目标分辨率布局，屏幕不够大也能看全）。dpr 走 setZoomFactor
            * （≈ 设备像素比；同时让 sendInputEvent 的坐标换算保持一致——inputZoom 会读到它）。 */
           const AGENT_VIEW_PRESETS = {
+            '1080p': { w: 1920, h: 1080, dpr: 1, label: 'Desktop · 1920×1080' },
             '2K': { w: 2560, h: 1440, dpr: 1, label: '2K · 2560×1440' },
             '4K': { w: 3840, h: 2160, dpr: 1, label: '4K · 3840×2160' },
-            '1080p': { w: 1920, h: 1080, dpr: 1, label: 'Desktop · 1920×1080' },
             '1440x900': { w: 1440, h: 900, dpr: 1, label: 'Laptop · 1440×900' },
             '1280x720': { w: 1280, h: 720, dpr: 1, label: 'Laptop · 1280×720' },
             'iPad Pro': { w: 1024, h: 1366, dpr: 2, label: 'iPad Pro · 1024×1366' },
@@ -1756,7 +1756,7 @@ window.__ModuleLoader__.load({
             if (AGENT_VIEW_PRESETS[key]) return { key, ...AGENT_VIEW_PRESETS[key] };
             const m = key.match(/^(\d{2,5})\s*[x×]\s*(\d{2,5})$/i);
             if (m) return { key, w: Number(m[1]), h: Number(m[2]), dpr: 1, label: `自定义 · ${m[1]}×${m[2]}` };
-            return { key: '2K', ...AGENT_VIEW_PRESETS['2K'] };
+            return { key: '1080p', ...AGENT_VIEW_PRESETS['1080p'] };
           };
 
           /* ── R-OWN-ID：**登录态复用** —— 找出侧栏窗口用的 storage identity，让自持窗口共享同一分区 ──
@@ -1903,6 +1903,19 @@ window.__ModuleLoader__.load({
             return { dark, changed: true };
           };
 
+          /** 临时状态提示（6s 后自动清空）——**不再用来显示网址**（用户要求：地址栏已有网址，
+           *  标签旁边那串网址去掉）。 */
+          const AGENT_STATUS_MS = 6000;
+          const agentStatus = (msg) => {
+            try {
+              const el = agentView.urlText;
+              if (!el) return;
+              el.textContent = msg || '';
+              if (agentView.statusTimer) clearTimeout(agentView.statusTimer);
+              if (msg) agentView.statusTimer = setTimeout(() => { try { el.textContent = ''; } catch { /* 忽略 */ } }, AGENT_STATUS_MS);
+            } catch { /* 忽略 */ }
+          };
+
           const ensureAgentView = async (opts = {}) => {
             const b0 = agentViewCarrier();
             if (!b0 || typeof b0.acquire !== 'function') {
@@ -1974,7 +1987,7 @@ window.__ModuleLoader__.load({
             });
             const urlText = document.createElement('span');
             urlText.setAttribute('data-dsh-kit-agent-view-url', '');
-            urlText.textContent = 'about:blank';
+            urlText.textContent = ''; // 只作临时状态提示；网址由地址栏显示（用户要求）
             // 收窄：给右侧按钮组留位（auto 会把标签条挤到最右，DSH 同款是标签紧邻标题）
             urlText.style.cssText = 'flex:0 1 auto;max-width:230px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8;';
             const mkBtn = (labelText, tip, onClick) => {
@@ -1982,8 +1995,11 @@ window.__ModuleLoader__.load({
               btn.type = 'button';
               btn.textContent = labelText;
               btn.title = tip;
-              btn.style.cssText = 'flex:none;cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
-                + T.text + ';border-radius:6px;padding:1px 6px;font:' + T.font + ';';
+              // 统一的「方框图标按钮」：固定尺寸 + flex 居中（截图/批注/最小化/关闭共用）
+              btn.style.cssText = 'flex:none;display:inline-flex;align-items:center;justify-content:center;'
+                + 'width:26px;height:22px;box-sizing:border-box;padding:0;line-height:1;'
+                + 'cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
+                + T.text + ';border-radius:6px;font:' + T.font + ';';
               btn.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } onClick(); });
               return btn;
             };
@@ -2003,7 +2019,7 @@ window.__ModuleLoader__.load({
             // ①分辨率选择框（Chrome DevTools 同款预设 + 自定义）
             const presetSel = mkSelect(
               Object.keys(AGENT_VIEW_PRESETS).map((k) => ({ value: k, label: AGENT_VIEW_PRESETS[k].label })),
-              '分辨率预设（默认 2K；装不下可滚动）',
+              '分辨率预设（默认 1920×1080；装不下可滚动）',
             );
             presetSel.setAttribute('data-dsh-kit-agent-view-preset', '');
             presetSel.addEventListener('change', () => {
@@ -2049,9 +2065,10 @@ window.__ModuleLoader__.load({
               try {
                 const r = await captureShot({ target: 'agent', insertToComposer: true });
                 const cp = r && r.composer;
-                if (r && r.ok) urlText.textContent = cp && cp.verified ? '已插入输入框（图片附件）+ 落盘' : '已提交插入（请确认输入框）';
-                else urlText.textContent = `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
-              } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
+                agentStatus(r && r.ok
+                  ? (cp && cp.verified ? '已插入输入框（图片附件）+ 落盘' : '已提交插入（请确认输入框）')
+                  : `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`);
+              } catch (e) { agentStatus(`截图失败：${msgOf(e)}`); }
             });
             shootBtn.innerHTML = SHOT_ICON_SVG;
             // ④批注（R-OWN v8）：把**当前自持窗口**加入共享批注成员表——与会话浏览器**共用同一批注**
@@ -2059,12 +2076,12 @@ window.__ModuleLoader__.load({
             const annotBtn = mkBtn('', '批注（当前自持窗口；与会话浏览器共用同一批注）', async () => {
               try {
                 const el2 = agentViewWebview();
-                if (!el2) { urlText.textContent = '无活动窗口'; return; }
+                if (!el2) { agentStatus('无活动窗口'); return; }
                 const r = await togglePaneAnnot(el2);
                 annotBtn.style.background = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT : 'transparent';
                 annotBtn.style.color = r && (r.joined === true || r.started === true) ? TOOLBAR_ACCENT_TEXT : '';
-                urlText.textContent = r && r.ok ? (r.joined || r.started ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`;
-              } catch (e) { urlText.textContent = `批注失败：${msgOf(e)}`; }
+                agentStatus(r && r.ok ? (r.joined || r.started ? '已加入共享批注' : '已退出批注') : `批注失败：${(r && r.error) || '未知'}`);
+              } catch (e) { agentStatus(`批注失败：${msgOf(e)}`); }
             });
             annotBtn.innerHTML = ANNOT_ICON_SVG; // 与 DSH 批注图标同款
             annotBtn.setAttribute('data-dsh-kit-agent-view-annot', '');
@@ -2086,7 +2103,7 @@ window.__ModuleLoader__.load({
             head.appendChild(closeBtn);
             // ── 行 2：← → ↻ + **加宽地址栏** + 尺寸/缩放/截图/批注图标（DSH 同款排布）──
             const addrRow = document.createElement('div');
-            addrRow.style.cssText = `flex:none;display:flex;align-items:center;gap:4px;padding:3px 6px;font:${T.font};`
+            addrRow.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:${T.font};`
               + 'border-bottom:1px solid ' + T.border + ';';
             markExpandedOnly(addrRow); // ★必须在 cssText 之后：否则存到的是 block（见 markExpandedOnly 注释）
             const mkNav = (labelText, tip, onClick) => {
@@ -2094,8 +2111,11 @@ window.__ModuleLoader__.load({
               btn.type = 'button';
               btn.textContent = labelText;
               btn.title = tip;
-              btn.style.cssText = 'flex:none;cursor:pointer;border:0;background:transparent;color:'
-                + T.text + ';border-radius:6px;padding:1px 5px;font:' + T.font + ';opacity:.9;';
+              // 与截图/批注同款**方框**：固定 26×22 + flex 居中（图标/字形都居中）
+              btn.style.cssText = 'flex:none;display:inline-flex;align-items:center;justify-content:center;'
+                + 'width:26px;height:22px;box-sizing:border-box;padding:0;line-height:1;font-size:14px;'
+                + 'cursor:pointer;border:1px solid ' + T.border + ';background:transparent;color:'
+                + T.text + ';border-radius:6px;font-family:inherit;';
               btn.addEventListener('click', (ev) => { try { ev.stopPropagation(); } catch { /* 忽略 */ } onClick(); });
               return btn;
             };
@@ -2146,7 +2166,7 @@ window.__ModuleLoader__.load({
             agentView.urlText = urlText;
             agentView.ui = {
               state: (opts && opts.state === 'expanded') ? 'expanded' : 'collapsed',
-              preset: (opts && opts.resolution) ? String(opts.resolution) : '2K',
+              preset: (opts && opts.resolution) ? String(opts.resolution) : '1080p',
               dpr: opts && opts.dpr != null ? Number(opts.dpr) : null,
               fit: opts && opts.fit === true, // 默认 false = 100% 显示不缩放
               zoom: opts && opts.zoom != null ? Math.min(5, Math.max(0.25, Number(opts.zoom) || 1)) : 1, // 页面缩放，默认 100%
@@ -2176,7 +2196,7 @@ window.__ModuleLoader__.load({
             const panel = agentView.panel;
             const frame = agentView.el;
             if (!panel || !frame) return null;
-            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '2K', dpr: null, fit: false, zoom: 1 };
+            const ui = agentView.ui = agentView.ui || { state: 'collapsed', preset: '1080p', dpr: null, fit: false, zoom: 1 };
             const res = agentViewResolvePreset(ui.preset);
             const dpr = Number(ui.dpr || res.dpr || 1) || 1;
             const zoom = Math.min(5, Math.max(0.25, Number(ui.zoom || 1) || 1)); // 页面缩放（Chrome 语义）
@@ -2242,14 +2262,8 @@ window.__ModuleLoader__.load({
             // 把面板级 state 与窗口级 ui 回写：窗口记录持有自己的预设/缩放/适配（多窗口互不影响）
             const act = activeAgentTab();
             if (act) act.ui = { preset: ui.preset, dpr: ui.dpr, fit, zoom };
-            // 标题行右侧的地址文本 + 地址栏（活动窗口）
-            try {
-              if (agentView.urlText) {
-                const u = (act && act.el && typeof act.el.getURL === 'function' ? act.el.getURL() : null) || (act && act.url) || 'about:blank';
-                agentView.urlText.textContent = u;
-              }
-              renderAgentAddress();
-            } catch { /* 忽略 */ }
+            // 地址栏随活动窗口刷新（**不再把网址写到标题旁**——用户要求）
+            try { renderAgentAddress(); } catch { /* 忽略 */ }
             // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
             let theme = null;
             try { theme = agentViewApplyTheme(); } catch { theme = null; }
@@ -2409,7 +2423,7 @@ window.__ModuleLoader__.load({
               el: null,
               url: null,
               title: null,
-              ui: { preset: '2K', dpr: null, fit: false, zoom: 1 },
+              ui: { preset: '1080p', dpr: null, fit: false, zoom: 1 },
               createdAt: new Date().toISOString(),
             };
             const frame = document.createElement('webview');
@@ -2624,14 +2638,14 @@ window.__ModuleLoader__.load({
                     el: el2,
                     url: (() => { try { return el2.getURL(); } catch { return null; } })(),
                     title: (() => { try { return el2.getTitle(); } catch { return null; } })(),
-                    ui: { preset: '2K', dpr: null, fit: false, zoom: 1 },
+                    ui: { preset: '1080p', dpr: null, fit: false, zoom: 1 },
                     createdAt: 'adopted-on-boot',
                   }));
                   agentView.tabSeq = agentView.tabs.length;
                   const sel2 = adopted.panel.querySelector('[data-dsh-kit-agent-view-preset]');
                   const uiState = adopted.panel.dataset.kitAgentViewState === 'expanded' ? 'expanded' : 'collapsed';
                   if (agentView.tabs.length) {
-                    agentView.tabs[0].ui = { ...(agentView.tabs[0].ui || {}), preset: (sel2 && sel2.value) || '2K' };
+                    agentView.tabs[0].ui = { ...(agentView.tabs[0].ui || {}), preset: (sel2 && sel2.value) || '1080p' };
                     agentView.activeId = agentView.tabs[0].id;
                     agentView.ui = { ...agentView.tabs[0].ui, state: uiState };
                     setActiveAgentTab(agentView.activeId);

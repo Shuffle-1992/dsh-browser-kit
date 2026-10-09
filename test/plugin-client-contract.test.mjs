@@ -241,9 +241,11 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("R-OWN v2：分辨率预设 / 右下角小窗 / 登录态复用 / 截图（2026-10-10 用户需求）", () => {
-    // ①分辨率预设（参考 Chrome DevTools），默认 2K
+    // ①分辨率预设（参考 Chrome DevTools）；**默认 1920×1080**（用户 2026-10-10 指定）
     assert.match(clientSource, /const AGENT_VIEW_PRESETS = \{/);
-    assert.match(clientSource, /'2K': \{ w: 2560, h: 1440, dpr: 1, label: '2K · 2560×1440' \}/);
+    assert.match(clientSource, /'1080p': \{ w: 1920, h: 1080, dpr: 1, label: 'Desktop · 1920×1080' \},\s*'2K': \{ w: 2560, h: 1440, dpr: 1, label: '2K · 2560×1440' \},/);
+    assert.match(clientSource, /return \{ key: '1080p', \.\.\.AGENT_VIEW_PRESETS\['1080p'\] \};/);
+    assert.match(clientSource, /preset: \(opts && opts\.resolution\) \? String\(opts\.resolution\) : '1080p',/);
     assert.match(clientSource, /'iPhone 15 Pro': \{ w: 393, h: 852, dpr: 3/);
     assert.match(clientSource, /const agentViewResolvePreset = \(spec\) => \{/);
     assert.match(clientSource, /\^\(\\d\{2,5\}\)\\s\*\[x×\]\\s\*\(\\d\{2,5\}\)\$/); // 自定义 WxH
@@ -315,6 +317,15 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const markExpandedOnly = \(el\) => \{/);
     assert.match(clientSource, /el\.setAttribute\('data-kit-own-display', d\);/);
     assert.match(clientSource, /const want = expanded \? \(el\.getAttribute\('data-kit-own-display'\) \|\| ''\) : 'none';/);
+    // ⑯R-OWN v10：标签旁不再显示网址（地址栏已有）·←→↻/截图/批注统一方框且图标居中
+    assert.match(clientSource, /urlText\.textContent = ''; \/\/ 只作临时状态提示；网址由地址栏显示（用户要求）/);
+    assert.doesNotMatch(clientSource, /agentView\.urlText\.textContent = u;/);
+    assert.match(clientSource, /const agentStatus = \(msg\) => \{/); // 临时提示 6s 自动清空
+    assert.match(clientSource, /\/\/ 与截图\/批注同款\*\*方框\*\*：固定 26×22 \+ flex 居中（图标\/字形都居中）/);
+    assert.match(clientSource, /width:26px;height:22px;box-sizing:border-box;padding:0;line-height:1;/);
+    assert.match(clientSource, /\/\/ 统一的「方框图标按钮」：固定尺寸 \+ flex 居中（截图\/批注\/最小化\/关闭共用）/);
+    assert.match(clientSource, /align-items:center;justify-content:center;'\s*\+ 'width:26px;height:22px/);
+    assert.match(clientSource, /addrRow\.style\.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:\$\{T\.font\};`/);
     assert.doesNotMatch(clientSource, /head\.appendChild\(presetSel\)/);
     // ⑭R-OWN v8：多窗口（标签）+ 地址栏 + 批注按钮 + 侧栏「↘ 同登录态开进自持」
     assert.match(clientSource, /const activeAgentTab = \(\) => \(agentView\.tabs \|\| \[\]\)\.find/);
