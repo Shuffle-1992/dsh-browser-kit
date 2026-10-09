@@ -801,7 +801,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.6';
+          const EXPECTED_ANNOT_VERSION = '1.7.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1427,33 +1427,38 @@ window.__ModuleLoader__.load({
             }
           };
 
+          /** R-OWN v20：提交收尾（guest「提交」与**宿主镜像面板**的「提交」共用）。 */
+          const finishSubmit = async () => {
+            const st = stateRef.annot;
+            if (!st) return null;
+            const r = await mergeAndSave();
+            for (const p of st.panes) {
+              try {
+                await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+              } catch { /* 面板已关闭等：死面板由后续刷新自愈 */ }
+            }
+            try { await syncPanes(); } catch { /* 广播失败：删除日志仍在，后续自愈 */ }
+            st.active = false;
+            st.panes = [];
+            st.lastSaved = r && r.ok ? r : null;
+            if (r && r.ok === false) st.error = r.error;
+            st.origins = {};
+            st.originUrls = {};
+            st.pending = [];
+            if (st.leftIds) st.leftIds.clear();
+            removeAnnotMirror();
+            announceSubmission(r);
+            say('info', `共享批注会话提交完成（单次消耗，批注已全窗口清空）：${r && r.ok ? r.path : r.error}`);
+            return r;
+          };
+
           const sessionSettled = async (winner) => {
             const st = stateRef.annot;
             if (!st || !st.active) return;
             st.pending = (st.pending || []).filter((e) => e.pane !== winner.pane);
             if (winner.how === 'submitted') {
-              const r = await mergeAndSave();
-              // 单次消耗（用户需求 2026-10-05）：提交即全窗口清空——逐面板 stop + clearAll
-              // （clearAll 全量 gid 进删除日志），随后趁 st.active 仍真跑一轮 syncPanes 把
-              // 删除广播到所有窗口。旧实现 stopAllPanes(true) 的 clear() 在 stop 之后
-              // session=null（removeBadges 已由 endSession 兜住）且**不写删除日志**，若
-              // 1.5s 同步圈恰好落在逐面板清空中段，会把成员批注从其他窗口推回来。
-              for (const p of st.panes) {
-                try {
-                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
-                } catch { /* 面板已关闭等：死面板由后续刷新自愈 */ }
-              }
-              try { await syncPanes(); } catch { /* 广播失败：删除日志仍在，后续自愈 */ }
-              st.active = false;
-              st.panes = [];
-              st.lastSaved = r && r.ok ? r : null;
-              if (r && r.ok === false) st.error = r.error;
-              st.origins = {}; // 编号来源表随会话结束清空
-              st.originUrls = {}; // 来源页 URL 表（同页门控用）随会话结束清空
-              st.pending = [];
-              if (st.leftIds) st.leftIds.clear(); // 显式退出记忆随会话结束清空
-              announceSubmission(r); // 会话输入框提示（N 条 + 路径）
-              say('info', `共享批注会话提交完成（单次消耗，批注已全窗口清空）：${r && r.ok ? r.path : r.error}`);
+              // 单次消耗（用户需求 2026-10-05）：提交即全窗口清空（见 finishSubmit 注释）
+              await finishSubmit();
             } else {
               // 取消/Esc/重启动：**成员身份保留**（退出必须走 leavePane 显式开关）——
               // 否则 drive 自愈式 start 重启会把自己踢出成员表，跨面板同步随即失效。
@@ -1552,6 +1557,117 @@ window.__ModuleLoader__.load({
             } catch { /* 忽略 */ }
           };
 
+          /* ── R-OWN v20：**宿主镜像批注面板** ────────────────────────────────────────
+           * 为什么不让面板留在 guest：guest 内的 `position:fixed` 浮层**出不了 guest 视口**
+           * （= 页面底边）；页面顶部对齐后它必然压在网页内容上（用户实测反馈）。
+           * 做法：guest 侧以 `mirror:true` 启动，只保留状态/徽标；宿主把面板 DOM **镜像**过来，
+           * 在**屏幕坐标**里定位（右缘贴板块、下缘贴自持小窗上沿），按钮改由宿主调用批注器 API。 */
+          const ANNOT_MIRROR_ID = 'dsh-kit-annot-mirror';
+          const annotMirror = { html: '', bound: false, root: null };
+          const annotAnchorPane = () => {
+            try {
+              const list = (stateRef.annot && stateRef.annot.panes) || [];
+              return list.find((p) => paneOwnerLabel(p).kind === 'session') || list[0] || null;
+            } catch { return null; }
+          };
+          const positionAnnotMirror = () => {
+            try {
+              const host = document.getElementById(ANNOT_MIRROR_ID);
+              if (!host) return;
+              const pane = annotAnchorPane();
+              const er = pane ? pane.getBoundingClientRect() : null;
+              const bar = (agentView.panel && document.contains(agentView.panel)) ? agentView.panel.getBoundingClientRect() : null;
+              host.style.right = `${er ? Math.max(12, Math.round(window.innerWidth - er.right + 12)) : 16}px`;
+              host.style.bottom = `${bar && bar.top > 0 ? Math.max(12, Math.round(window.innerHeight - bar.top + 12)) : 16}px`;
+            } catch { /* 忽略 */ }
+          };
+          const removeAnnotMirror = () => {
+            try {
+              const host = document.getElementById(ANNOT_MIRROR_ID);
+              if (host) host.remove();
+              annotMirror.html = '';
+              annotMirror.bound = false;
+              annotMirror.root = null;
+            } catch { /* 忽略 */ }
+          };
+          const bindAnnotMirror = (root, pane) => {
+            try {
+              Array.from(root.querySelectorAll('button')).forEach((b) => {
+                const t = (b.textContent || '').trim();
+                if (b.hasAttribute('data-dsh-kit-panel-chevron') || t === '▸' || t === '▾') {
+                  b.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const body = root.children[1];
+                    if (!body) return;
+                    const hidden = body.style.display === 'none';
+                    body.style.display = hidden ? '' : 'none';
+                    b.textContent = hidden ? '▾' : '▸';
+                  });
+                  return;
+                }
+                if (t === '清除') {
+                  b.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    for (const p of ((stateRef.annot && stateRef.annot.panes) || [])) {
+                      p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.clearAll) ? window.__dshKitAnnotator.clearAll() : 0', true).catch(() => {});
+                    }
+                    say('info', '已清除全部批注（所有窗口同步移除）');
+                  });
+                  return;
+                }
+                if (t === '提交') {
+                  b.addEventListener('click', (ev) => { ev.stopPropagation(); finishSubmit().catch(() => {}); });
+                  return;
+                }
+                if (t === '取消') {
+                  b.addEventListener('click', (ev) => { ev.stopPropagation(); endAnnotSession(pane).catch(() => {}); });
+                  return;
+                }
+              });
+            } catch { /* 忽略 */ }
+          };
+          const syncAnnotMirror = async () => {
+            try {
+              if (!(stateRef.annot && stateRef.annot.active)) { removeAnnotMirror(); return; }
+              const pane = annotAnchorPane();
+              if (!pane) { removeAnnotMirror(); return; }
+              const snap = await pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.mirrorSnapshot) ? window.__dshKitAnnotator.mirrorSnapshot() : null', true);
+              if (!snap || !snap.html) { removeAnnotMirror(); return; }
+              let host = document.getElementById(ANNOT_MIRROR_ID);
+              if (!host) {
+                host = document.createElement('div');
+                host.id = ANNOT_MIRROR_ID;
+                host.setAttribute('data-dsh-kit-annot-mirror', '');
+                host.style.cssText = 'position:fixed;z-index:2147483647;display:block;';
+                document.body.appendChild(host);
+              }
+              if (annotMirror.html !== snap.html) {
+                annotMirror.html = snap.html;
+                host.innerHTML = snap.html;
+                const root = host.firstElementChild;
+                if (root) {
+                  // 覆盖 guest 的定位/显隐（改为由宿主容器定位；`display` 用 !important 压过 mirror 隐藏）
+                  root.style.setProperty('display', 'flex', 'important');
+                  root.style.setProperty('position', 'static', 'important');
+                  root.style.setProperty('left', 'auto', 'important');
+                  root.style.setProperty('right', 'auto', 'important');
+                  root.style.setProperty('top', 'auto', 'important');
+                  root.style.setProperty('bottom', 'auto', 'important');
+                  root.style.setProperty('transform', 'none', 'important');
+                  root.style.setProperty('width', '264px', 'important');
+                  root.style.setProperty('max-height', '60vh', 'important');
+                  annotMirror.root = root;
+                  annotMirror.bound = false;
+                }
+              }
+              if (annotMirror.root && !annotMirror.bound) {
+                bindAnnotMirror(annotMirror.root, pane);
+                annotMirror.bound = true;
+              }
+              positionAnnotMirror();
+            } catch { /* 忽略 */ }
+          };
+
           const startPaneInSession = async (target, startIndex) => {
             const howPromise = (async () => {
               let how = 'cancelled';
@@ -1560,7 +1676,7 @@ window.__ModuleLoader__.load({
                 const vh = paneVisibleHeight(target);
                 const us = Number(paneUiScale(target).toFixed(4));
                 how = await target.executeJavaScript(
-                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0}, visibleWidth: ${Number(vw) || 0}, visibleHeight: ${Number(vh) || 0}, uiScale: ${us} })`,
+                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ mirror: true, onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0}, visibleWidth: ${Number(vw) || 0}, visibleHeight: ${Number(vh) || 0}, uiScale: ${us} })`,
                   true,
                 );
               } catch (e) {
@@ -1740,6 +1856,7 @@ window.__ModuleLoader__.load({
             }
             try { await syncPanes(); } catch { /* 广播删除日志失败：后续自愈 */ }
             stateRef.annot = { active: false, panes: [], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: null, startedAt: null, lastSaved: (st && st.lastSaved) || null, error: null };
+            removeAnnotMirror(); // R-OWN v20：会话结束撤掉宿主镜像面板
             say('info', '共享批注会话已关闭（所有窗口同步停止）');
             return { ok: true, ended: true, sessionActive: false };
           };
@@ -2576,12 +2693,15 @@ window.__ModuleLoader__.load({
             try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
             try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
-            // R-OWN v16：批注进行中**周期性重推抬升量**——小窗可见性/尺寸变化后批注面板始终贴在小窗上方
+            // R-OWN v20：批注进行中——①宿主镜像面板同步 ②指标重推（可见带/缩放/让位）
             try {
               if (stateRef.annot && stateRef.annot.active) {
+                syncAnnotMirror().catch(() => {});
                 for (const p of (stateRef.annot.panes || [])) {
                   if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
                 }
+              } else {
+                removeAnnotMirror();
               }
             } catch { /* 忽略 */ }
             // R-OWN v15：批注开关状态变化 → 重排停靠位置，并**重新推送所有面板指标**
@@ -4889,11 +5009,9 @@ window.__ModuleLoader__.load({
                 const availW = Math.max(200, Math.round(hr.width) - 2);
                 const availH = Math.max(160, Math.round(hr.height) - 2);
                 const k = Math.min(1, availW / res.w, availH / res.h);
-                /* ★R-OWN v19：**视口必须严格等于预设**（用户纠正：1920×1080 却成了 1920×2689）。
-                 *  为了让 guest 内的批注面板能贴到**板块右下角**，改为把元素**底对齐容器**：
-                 *  用 translateY 把元素视觉底边推到容器底边（上方留白），视口尺寸保持 res.w×res.h 不变。
-                 *  注意：transform 里的 translate 在 scale 之后 ⇒ 本地位移 = 视觉位移 / k。 */
-                const slackY = Math.max(0, Math.round(availH - res.h * k));
+                /* ★R-OWN v20：视口**严格等于预设**且元素**顶部对齐**（用户要求：页面保持在顶部，
+                 *  下方留黑区给批注面板与自持小窗，避免遮挡网页内容）。 */
+                void 0;
                 /* ★实测坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，普通 inline width 会被压回
                  * 面板原宽（style 写 393px，getBoundingClientRect 仍 1149px）⇒ 必须 `!important`。 */
                 pane.style.setProperty('width', `${res.w}px`, 'important');
@@ -4902,8 +5020,7 @@ window.__ModuleLoader__.load({
                 pane.style.setProperty('max-width', 'none', 'important');
                 pane.style.flex = '0 0 auto';
                 pane.style.transformOrigin = 'top left';
-                // 底对齐容器：transform 里 translate 在 scale 之后 ⇒ 本地 dy = 视觉空隙 / k
-                pane.style.setProperty('transform', `scale(${k}) translateY(${(slackY / (k > 0 ? k : 1)).toFixed(2)}px)`, 'important');
+                pane.style.setProperty('transform', `scale(${k})`, 'important'); // v20：顶部对齐，不再做底对齐位移
                 try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
                 try { pane.dataset.kitZoomFactor = String(Number(res.dpr) || 1); } catch { /* 忽略 */ } // v13：面板反缩放用（勿读 getZoomFactor，含显示器缩放）
                 pane.dataset.kitDevicePreset = res.key;

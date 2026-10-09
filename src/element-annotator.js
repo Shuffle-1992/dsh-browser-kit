@@ -451,6 +451,7 @@
 
   var annotations = []; // { index, note, element, el, badge }
   var session = null; // { resolve, onSubmit }
+  var mirrorMode = false; // R-OWN v20：宿主镜像渲染面板（guest 侧只保留状态与徽标）
   var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
   var listExpanded = false; // 页内面板批注列表展开/收起（默认收起）
   var panelChevron = null;
@@ -461,7 +462,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.6"; // 1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.7.0"; // 1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -1001,7 +1002,8 @@
   function ensurePanel() {
     if (panel && panel.isConnected) {
       renderPanel();
-      positionPanel();
+      if (mirrorMode) panel.style.display = "none"; // R-OWN v20：宿主镜像渲染时，guest 面板只留状态不上屏
+      else positionPanel();
       return;
     }
     panel = makeElement("div", {
@@ -1563,6 +1565,7 @@
     }
     closeNoteInput(true);
     var opts = options || {};
+    if (opts.mirror != null) mirrorMode = !!opts.mirror; // R-OWN v20：面板由宿主渲染（guest 面板隐藏、只做状态）
     if (opts.startIndex != null) {
       indexBase = Number(opts.startIndex) || 0; // 多面板共享编号：后加入窗口从全局最大号之后继续
     }
@@ -1691,6 +1694,19 @@
     /** 当前批注列表（stale 实时判定）。 */
     list: function () {
       return annotations.map(publicAnnotation);
+    },
+    /** R-OWN v20：宿主镜像渲染用——把 guest 面板的 DOM 快照与计数交给宿主。
+     *  宿主据此在自己的坐标系里画面板（页面可以顶部对齐，面板不再被 guest 视口夹住）。 */
+    mirrorSnapshot: function () {
+      try {
+        return {
+          mirror: mirrorMode,
+          count: annotations.length,
+          html: panel ? panel.outerHTML : "",
+        };
+      } catch (e) {
+        return { mirror: mirrorMode, count: annotations.length, html: "" };
+      }
     },
     /** 清空全部批注并移除徽标。
      *  ⚠️ R-02（评审）：**不写跨面板删除日志**——共享会话下其他窗口的 union 仍含这些 gid，
