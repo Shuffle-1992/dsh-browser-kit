@@ -2032,11 +2032,15 @@ window.__ModuleLoader__.load({
             };
             zoomInput.addEventListener('change', commitZoomInput);
             zoomInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commitZoomInput(); } });
-            // ③截图（文字按钮，不用图标）
-            const shootBtn = mkBtn('截图', '截图当前窗口（供 Agent 视觉分析）', async () => {
+            // ③截图（文字按钮，不用图标）——落盘 + **复制到剪贴板**（用户 2026-10-10 要求）
+            const shootBtn = mkBtn('截图', '截图当前窗口到剪贴板（同时落盘供 Agent 分析）', async () => {
               try {
-                const r = await captureShot({ target: 'agent' });
-                urlText.textContent = r && r.ok ? `已截图 → ${String(r.path).split('\\').pop()}` : `截图失败：${(r && r.error) || '未知'}`;
+                const r = await captureShot({ target: 'agent', clipboard: true });
+                const clip = r && r.clipboard;
+                if (r && r.ok) urlText.textContent = clip && clip.ok
+                  ? `已复制到剪贴板（${clip.size || ''}）+ 落盘`
+                  : `已落盘 → ${String(r.path || '').split('\\').pop()}`;
+                else urlText.textContent = `截图失败：${(r && (r.error || (clip && clip.error))) || '未知'}`;
               } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
             });
             // ④最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
@@ -3240,10 +3244,11 @@ window.__ModuleLoader__.load({
                 return { ok: true, op, idleReleaseMs: agentView.idleReleaseMs, releasedForIdle: agentView.releasedForIdle };
               }
               if (op === 'screenshot') {
-                // R-OWN：**把自持窗口当前画面截下来**（供 Agent 视觉分析/布局复刻）——复用截图护栏
+                // R-OWN：**把自持窗口当前画面截下来**（供 Agent 视觉分析/布局复刻）——复用截图护栏；
+                // clipboard:true 时同时写入系统剪贴板
                 if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
-                const r = await captureShot({ target: 'agent' });
-                return { ok: !!(r && r.ok), op, path: r && r.path, bytes: r && r.bytes, error: r && r.error, resolution: agentViewStatus().resolution, dpr: agentViewStatus().dpr };
+                const r = await captureShot({ target: 'agent', clipboard: c && c.clipboard === true });
+                return { ok: !!(r && r.ok), op, path: r && r.path, bytes: r && r.bytes, clipboard: r && r.clipboard, error: r && r.error, resolution: agentViewStatus().resolution, dpr: agentViewStatus().dpr };
               }
               if (op === 'cleanup') {
                 // 清理游离/重复的自持视图实例（热换残留），保留当前收养的那个
@@ -3677,6 +3682,61 @@ window.__ModuleLoader__.load({
             }
           } catch { /* localStorage 不可用：跳过断路器 */ }
 
+          /* ── 截图复制到剪贴板（2026-10-10 用户要求）──
+           * 实测（本机 Electron）：`new ClipboardItem({'image/png': blob})` 若 blob 来自
+           * `fetch(dataURL)` 或手搓 `new Blob([Uint8Array])` 会报
+           * `DataError: Failed to read or decode ClipboardItemData`；而
+           * ①`canvas.toBlob` 得到的 blob → `clipboard.write` **可用**；
+           * ②选中 `<img>` 后 `document.execCommand('copy')` **也可用**。
+           * 已用 PowerShell `[Windows.Forms.Clipboard]::GetImage()` 独立核验剪贴板确为图片。
+           * 故按 ①→② 顺序回退。 */
+          const copyPngToClipboard = async (dataUrl) => {
+            const u = String(dataUrl || '');
+            if (u.indexOf('data:image') !== 0) return { ok: false, error: '不是图片 dataURL' };
+            let img = null;
+            try {
+              img = await new Promise((resolve, reject) => {
+                const el = new Image();
+                el.onload = () => resolve(el);
+                el.onerror = () => reject(new Error('图片解码失败'));
+                el.src = u;
+              });
+            } catch (e) { return { ok: false, error: msgOf(e) }; }
+            // 路径①：canvas.toBlob → ClipboardItem
+            try {
+              const cv = document.createElement('canvas');
+              cv.width = img.naturalWidth || img.width;
+              cv.height = img.naturalHeight || img.height;
+              const ctx2d = cv.getContext('2d');
+              ctx2d.drawImage(img, 0, 0);
+              const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+              if (blob && navigator.clipboard && typeof ClipboardItem === 'function') {
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                return { ok: true, method: 'clipboard-write', size: `${cv.width}×${cv.height}`, bytes: blob.size };
+              }
+            } catch { /* 落到路径② */ }
+            // 路径②：execCommand('copy') 选中 <img>
+            try {
+              const host = document.createElement('div');
+              host.setAttribute('contenteditable', 'true');
+              host.style.cssText = 'position:fixed;left:-9999px;top:0;';
+              const im = document.createElement('img');
+              im.src = u;
+              host.appendChild(im);
+              document.body.appendChild(host);
+              const range = document.createRange();
+              range.selectNodeContents(host);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+              const ok = document.execCommand('copy');
+              sel.removeAllRanges();
+              host.remove();
+              if (ok) return { ok: true, method: 'execCommand', size: `${img.naturalWidth || img.width}×${img.naturalHeight || img.height}` };
+            } catch (e) { return { ok: false, error: msgOf(e) }; }
+            return { ok: false, error: '剪贴板写入失败（两条路径均不可用）' };
+          };
+
           const captureShot = async (ctxCmd) => {
             const out = { ok: false, error: null, path: null, bytes: null };
             try {
@@ -3688,7 +3748,8 @@ window.__ModuleLoader__.load({
               const sessionEls = scopedWebviews(ctxCmd && ctxCmd.sessionId);
               const avShot = agentViewWebview();
               let cands;
-              if (wantShot === 'agent') cands = avShot ? [avShot] : [];
+              if (ctxCmd && ctxCmd.el) cands = [ctxCmd.el]; // 指定元素（UI 按钮用：精确截用户点的那块）
+              else if (wantShot === 'agent') cands = avShot ? [avShot] : [];
               else if (wantShot === 'session') cands = sessionEls;
               else cands = (avShot ? [avShot] : []).concat(sessionEls.filter((x) => x !== avShot));
               // 只在**可见**面板上截：隐藏/后台 surface 是 capturePage 挂死/崩溃的高危场景
@@ -3734,6 +3795,12 @@ window.__ModuleLoader__.load({
               out.path = r && r.path ? r.path : null;
               out.bytes = r && r.bytes ? r.bytes : null;
               out.error = r && r.error ? r.error : null;
+              out.url = meta && meta.url ? meta.url : null;
+              // 复制到系统剪贴板（两条实测可用路径，见 copyPngToClipboard）
+              if (ctxCmd && ctxCmd.clipboard) {
+                out.clipboard = await copyPngToClipboard(dataUrl);
+                if (!out.ok && out.clipboard && out.clipboard.ok) out.ok = true; // 落盘失败但剪贴板成功也算部分成功
+              }
             } catch (e) {
               out.error = msgOf(e);
             }
@@ -3987,48 +4054,165 @@ window.__ModuleLoader__.load({
             const toolbarForms = () => Array.from(document.querySelectorAll(TOOLBAR_SEL))
               .filter((f) => f.parentElement && f.parentElement.querySelector('webview'));
             const webviewOfForm = (form) => form.parentElement.querySelector('webview');
+            /* ── 会话面板「设备尺寸」（2026-10-10 用户要求）──
+             * 把 guest 视口设成预设分辨率，显示缩放**按当前浏览器板块的尺寸计算**（fit 到板块内）。 */
+            const applyPaneDeviceSize = (pane, presetKey) => {
+              if (!pane) return { ok: false, error: '无面板' };
+              try {
+                if (!presetKey || presetKey === 'reset') {
+                  for (const p of ['width', 'height', 'min-width', 'max-width', 'transform', 'transform-origin']) {
+                    try { pane.style.removeProperty(p); } catch { /* 忽略 */ }
+                  }
+                  pane.style.flex = '';
+                  pane.style.transformOrigin = '';
+                  try { delete pane.dataset.kitDevicePreset; } catch { /* 忽略 */ }
+                  try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(1); } catch { /* 忽略 */ }
+                  return { ok: true, reset: true };
+                }
+                const res = agentViewResolvePreset(presetKey);
+                const host = pane.parentElement || pane;
+                const hr = host.getBoundingClientRect();
+                const availW = Math.max(200, Math.round(hr.width) - 2);
+                const availH = Math.max(160, Math.round(hr.height) - 2);
+                const k = Math.min(1, availW / res.w, availH / res.h);
+                /* ★实测坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，普通 inline width 会被压回
+                 * 面板原宽（style 写 393px，getBoundingClientRect 仍 1149px）⇒ 必须 `!important`。 */
+                pane.style.setProperty('width', `${res.w}px`, 'important');
+                pane.style.setProperty('height', `${res.h}px`, 'important');
+                pane.style.setProperty('min-width', '0', 'important');
+                pane.style.setProperty('max-width', 'none', 'important');
+                pane.style.flex = '0 0 auto';
+                pane.style.transformOrigin = 'top left';
+                pane.style.setProperty('transform', `scale(${k})`, 'important');
+                try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
+                pane.dataset.kitDevicePreset = res.key;
+                return { ok: true, preset: res.key, resolution: `${res.w}×${res.h}`, scale: Number(k.toFixed(3)), paneW: availW, paneH: availH };
+              } catch (e) { return { ok: false, error: msgOf(e) }; }
+            };
+            let paneDeviceMenu = null;
+            /** 尺寸选择弹层（点尺寸图标弹出；选完即应用并关闭）。 */
+            const openPaneDeviceMenu = (btn, pane) => {
+              try { if (paneDeviceMenu) paneDeviceMenu.remove(); } catch { /* 忽略 */ }
+              const dark = detectUiDark();
+              const menu = document.createElement('div');
+              menu.setAttribute('data-dsh-browser-kit-device-menu', '');
+              menu.setAttribute('data-dsh-kit-ui', '');
+              menu.style.cssText = 'position:fixed;z-index:2147483647;min-width:198px;max-height:60vh;overflow:auto;padding:4px;'
+                + 'border-radius:8px;box-sizing:border-box;'
+                + `font:${T.font};color-scheme:${dark ? 'dark' : 'light'};`
+                + `background:${dark ? 'rgba(30,32,38,.98)' : 'rgba(250,250,252,.98)'};`
+                + `color:${dark ? '#e7e9ee' : '#16181d'};border:1px solid ${T.border};box-shadow:${T.shadow};`;
+              const cur = pane && pane.dataset ? pane.dataset.kitDevicePreset : null;
+              const items = Object.keys(AGENT_VIEW_PRESETS).map((k) => ({ key: k, label: AGENT_VIEW_PRESETS[k].label }))
+                .concat([{ key: 'reset', label: '重置（恢复自适应面板）' }]);
+              for (const it of items) {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.textContent = (it.key === cur ? '✓ ' : '') + it.label;
+                row.style.cssText = 'display:block;width:100%;text-align:left;border:0;border-radius:6px;padding:4px 8px;cursor:pointer;'
+                  + `background:${it.key === cur ? 'rgba(56,189,248,.18)' : 'transparent'};color:inherit;font:${T.font};`;
+                row.addEventListener('mouseenter', () => { row.style.background = 'rgba(128,128,128,.18)'; });
+                row.addEventListener('mouseleave', () => { row.style.background = it.key === cur ? 'rgba(56,189,248,.18)' : 'transparent'; });
+                row.addEventListener('click', () => {
+                  const r = applyPaneDeviceSize(pane, it.key);
+                  btn.title = r && r.ok
+                    ? (r.reset ? '尺寸：已重置（自适应面板）' : `尺寸：${r.resolution} · 缩放 ${Math.round(r.scale * 100)}%（按板块 ${r.paneW}×${r.paneH} 计算）`)
+                    : `尺寸设置失败：${(r && r.error) || '未知'}`;
+                  try { menu.remove(); } catch { /* 忽略 */ }
+                  paneDeviceMenu = null;
+                });
+                menu.appendChild(row);
+              }
+              document.body.appendChild(menu);
+              const br = btn.getBoundingClientRect();
+              menu.style.left = `${Math.max(8, Math.min(br.left - 40, window.innerWidth - 214))}px`;
+              menu.style.top = `${Math.max(8, br.top - menu.offsetHeight - 6)}px`;
+              paneDeviceMenu = menu;
+              const onDown = (ev) => {
+                if (menu.contains(ev.target) || ev.target === btn) return;
+                try { menu.remove(); } catch { /* 忽略 */ }
+                paneDeviceMenu = null;
+                try { document.removeEventListener('mousedown', onDown, true); } catch { /* 忽略 */ }
+              };
+              setTimeout(() => { try { document.addEventListener('mousedown', onDown, true); } catch { /* 忽略 */ } }, 0);
+              return menu;
+            };
+            const SIZE_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 17v3.5"/></svg>';
+            const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
+            /** 工具条按钮（批注 / 尺寸 / 截图到剪贴板），带 P37 认领戳。 */
+            const mkToolbarBtn = (id, title, svg, first) => {
+              const btn = document.createElement('button');
+              btn.id = id;
+              btn.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
+              btn.type = 'button';
+              btn.title = title;
+              btn.style.cssText = (first ? 'margin-left:auto;' : '')
+                + 'display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;'
+                + 'background:transparent;color:inherit;cursor:pointer;flex:none;';
+              btn.innerHTML = svg;
+              return btn;
+            };
             const ensureToolbarButtons = () => {
               let attached = 0;
+              const specs = [
+                { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击本窗口加入/退出共享批注）', svg: ANNOT_ICON_SVG, first: true },
+                { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false },
+                { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器到剪贴板', svg: SHOT_ICON_SVG, first: false },
+              ];
               for (const form of toolbarForms()) {
-                const owned = form.querySelector('#dsh-kit-toolbar-btn');
-                if (owned) {
-                  /* P37 认领制（戳同款，判定**有意差异**：工具条对无主/更旧按钮拆除重挂——
-                   *  click 闭包归属创建实例，不接管则批注动作永远路由进旧实例；故不用
-                   *  共享 iAmNewer 的退让分支，仅复用 ownerBootOf 取戳）。 */
-                  const owner = ownerBootOf(owned);
-                  const myBoot = String(stateRef.clientBootAt);
-                  if (owner === myBoot || (owner && owner > myBoot)) { attached += 1; continue; }
-                  owned.remove();
-                }
-                const pane = webviewOfForm(form);
-                if (!pane) continue;
-                const btn = document.createElement('button');
-                btn.id = 'dsh-kit-toolbar-btn';
-                btn.dataset.ownerBoot = String(stateRef.clientBootAt); // P37 认领戳
-                btn.type = 'button';
-                btn.title = '元素批注（点击本窗口加入/退出共享批注）';
-                btn.style.cssText = 'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;flex:none;';
-                btn.innerHTML = ANNOT_ICON_SVG;
-                btn.addEventListener('click', () => {
-                  try {
-                    // 即时视觉反馈（2s 同步循环随后校正）；面板点击时现取，
-                    // 避免闭包持有重渲染前的旧 webview 节点（身份失配 = 永不点亮）
-                    const pane = webviewOfForm(form);
-                    if (!pane) return;
-                    btn.style.background = TOOLBAR_ACCENT;
-                    btn.style.color = TOOLBAR_ACCENT_TEXT;
-                    stateRef.lastToggleError = null;
-                    togglePaneAnnot(pane).then((r) => {
-                      if (r && r.ok === false) {
-                        stateRef.lastToggleError = r.error || null;
-                        btn.title = '批注失败：' + (r.error || '');
-                      }
-                    }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
-                  } catch (e) {
-                    stateRef.lastToggleError = msgOf(e);
+                const pane0 = webviewOfForm(form);
+                if (!pane0) continue;
+                for (const spec of specs) {
+                  const owned = form.querySelector('#' + spec.id);
+                  if (owned) {
+                    const owner = ownerBootOf(owned);
+                    const myBoot = String(stateRef.clientBootAt);
+                    if (owner === myBoot || (owner && owner > myBoot)) continue;
+                    owned.remove();
                   }
-                });
-                form.appendChild(btn);
+                  const btn = mkToolbarBtn(spec.id, spec.title, spec.svg, spec.first);
+                  if (spec.id === 'dsh-kit-toolbar-btn') {
+                    btn.addEventListener('click', () => {
+                      try {
+                        // 即时视觉反馈（2s 同步循环随后校正）；面板点击时现取，
+                        // 避免闭包持有重渲染前的旧 webview 节点（身份失配 = 永不点亮）
+                        const pane = webviewOfForm(form);
+                        if (!pane) return;
+                        btn.style.background = TOOLBAR_ACCENT;
+                        btn.style.color = TOOLBAR_ACCENT_TEXT;
+                        stateRef.lastToggleError = null;
+                        togglePaneAnnot(pane).then((r) => {
+                          if (r && r.ok === false) {
+                            stateRef.lastToggleError = r.error || null;
+                            btn.title = '批注失败：' + (r.error || '');
+                          }
+                        }).catch((e) => { stateRef.lastToggleError = msgOf(e); });
+                      } catch (e) {
+                        stateRef.lastToggleError = msgOf(e);
+                      }
+                    });
+                  } else if (spec.id === 'dsh-kit-toolbar-size-btn') {
+                    btn.addEventListener('click', (ev) => {
+                      try { ev.stopPropagation(); } catch { /* 忽略 */ }
+                      const pane = webviewOfForm(form);
+                      openPaneDeviceMenu(btn, pane);
+                    });
+                  } else {
+                    btn.addEventListener('click', async () => {
+                      const pane = webviewOfForm(form);
+                      if (!pane) return;
+                      btn.style.background = TOOLBAR_ACCENT;
+                      btn.style.color = TOOLBAR_ACCENT_TEXT;
+                      const r = await captureShot({ el: pane, clipboard: true });
+                      setTimeout(() => { btn.style.background = 'transparent'; btn.style.color = 'inherit'; }, 700);
+                      const clip = r && r.clipboard;
+                      btn.title = r && clip && clip.ok
+                        ? `已复制到剪贴板（${clip.size || ''}，${clip.method || ''}）`
+                        : `截图失败：${(r && (r.error || (clip && clip.error))) || '未知'}`;
+                    });
+                  }
+                  form.appendChild(btn);
+                }
                 attached += 1;
               }
               stateRef.toolbarBtnCount = attached;

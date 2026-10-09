@@ -323,6 +323,28 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 | 自造浅色（只改面板内联背景，不动 DSH 主题） | 1.6s 后自动切换：`panelScheme/selScheme:'light'`、`option {bg:#ffffff, color:rgb(22,24,29)}`、`select bg rgba(0,0,0,.05)` |
 | 还原深色 | 1.6s 内切回深色样式 ✓（缓存键驱动，无闪烁） |
 
+### 3.9.6 R-OWN v6：侧栏工具条「设备尺寸 / 截图到剪贴板」+ 自持窗口截图进剪贴板（2026-10-10 用户要求）
+
+**位置**：挂在批注图标同一处（`form[class*="toolbar"]`，P37 认领制，与批注按钮共用接管/重挂逻辑）。
+
+| 能力 | 实现 | 实测 |
+|---|---|---|
+| 设备尺寸图标（弹出选项） | 点击弹出预设清单（11 个预设 + 重置）；选中后设 guest 视口=预设分辨率，**显示缩放按当前板块尺寸算**：`k = min(1, 板块宽/预设宽, 板块高/预设高)` | 选 2K：`width:2560px`、`transform:scale(0.448)`（1147/2560）、rect 1147×645、**页内 `window.innerWidth = 2560×1440`**；重置后回 1149×1284 ✓ |
+| 截图到剪贴板图标 | `captureShot({el: 该面板, clipboard:true})`（精确截用户点的那块） | 按钮提示 `已复制到剪贴板（1149×1284，clipboard-write）`；PowerShell `GetImage()` 读回 **2560×1440** 图片 ✓ |
+| 自持窗口「截图」 | 落盘 + 剪贴板；工具 `{op:'screenshot', clipboard:true}` 亦同（缺省 false，不抢用户剪贴板） | `{path, bytes:1019038, clipboard:{ok:true, method:'clipboard-write', size:'2560×1440'}}` ✓ |
+
+**剪贴板写入的实测结论（重要）**：本机 Electron 下
+`new ClipboardItem({'image/png': blob})` 若 blob 来自 `fetch(dataURL).blob()` 或 `new Blob([Uint8Array])`
+→ **`DataError: Failed to read or decode ClipboardItemData for type image/png`**；
+而 ①`canvas.toBlob(...)` 得到的 blob + `navigator.clipboard.write` **可用**；②选中 `<img>` 后
+`document.execCommand('copy')` **可用**。故 `copyPngToClipboard()` 按 ①→② 回退，并用
+**PowerShell `[Windows.Forms.Clipboard]::GetImage()` 独立核验**（读到 8×8 探针图与 2560×1440 实拍图）。
+另注：`navigator.clipboard.writeText` 一直是通的 ⇒ 不是权限墙问题，是 blob 来源问题。
+
+**★新坑（已记 P55）**：DSH 侧栏 webview 的宽度由 flex/百分比决定，**普通 inline `width` 会被压回面板原宽**
+（写 `393px`，`getBoundingClientRect().width` 仍 `1149px`）⇒ 设备尺寸必须用
+`style.setProperty('width', px, 'important')`（height/min-width/max-width/transform 同理），并 `flex:0 0 auto`。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

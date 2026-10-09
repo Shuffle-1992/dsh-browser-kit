@@ -37,6 +37,14 @@
     - **截图供视觉分析**：`browser_agent_window {op:'screenshot'}`（或 `browser_screenshot {target:'agent'}`）把当前窗口画面落盘（实测 2K 下 2560×1440 / 1.37MB），再用 `read_image` 做视觉鉴定或布局复刻。
     - 页面级工具统一带 `target: agent|session`，**缺省自持窗口优先**（用户要求：默认不碰他的窗口），没有自持窗口才退回本会话面板。
 
+13. **侧栏浏览器工具条新增两个图标（2026-10-10 用户要求）**：挂在**批注图标同一处**（`form[class*="toolbar"]`，P37 认领制，与批注按钮同一套接管逻辑）——
+    - **设备尺寸**：点击弹出分辨率清单（2K/4K/1080p/1440×900/1280×720/iPad/iPhone/Pixel/Galaxy + 重置）。选中后把该面板的 guest 视口设成预设分辨率，**显示缩放按「当前浏览器板块的尺寸」计算**（`k = min(1, 板块宽/预设宽, 板块高/预设高)`）。
+      实测：选 2K → `width:2560px` + `transform:scale(0.448)`（1147/2560）、**页内 `window.innerWidth = 2560×1440`**；重置即恢复自适应面板。
+      ★踩坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，**普通 inline width 会被压回原宽**（写 393px 实际仍 1149px）⇒ 必须 `style.setProperty(..., 'important')`。
+    - **截图到剪贴板**：点击把**当前浏览器截图写入系统剪贴板**（直接用 `Ctrl+V` 粘贴）。
+      剪贴板写入实测结论：`ClipboardItem` 用 `fetch(dataURL)`/手搓 `Blob` 会报 `DataError: Failed to read or decode ClipboardItemData`；**`canvas.toBlob` → `clipboard.write` 可用**，`document.execCommand('copy')` 选中 `<img>` 也可用（按此顺序回退）。已用 PowerShell `[Windows.Forms.Clipboard]::GetImage()` 独立核验剪贴板确为图片。
+14. **自持窗口「截图」按钮同样复制到剪贴板**：落盘（供 Agent `read_image` 分析）+ 写入系统剪贴板；`browser_agent_window {op:'screenshot', clipboard:true}` 亦同（缺省不抢用户剪贴板）。
+
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 
 ## 2. 背景一页纸

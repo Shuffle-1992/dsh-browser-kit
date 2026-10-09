@@ -318,3 +318,13 @@
   改完用一句 DOM 查询自证「panels/frames/stages 各为 1」。
 - **判据**：清理/收养类逻辑长期报「没有可清理的」，但现场确实有残留 ⇒ **先验证选择器能命中**
   （打印 `querySelectorAll(...).length`），再怀疑逻辑。
+### P55 inline `width` 压不住 flex/百分比：设备尺寸写进去了但没生效
+- **现象**：给侧栏 webview 设 `style.width = '393px'`（iPhone 15 Pro），`dataset` 也记上了，看起来成功；
+  但 `getBoundingClientRect().width` 仍是 **1149px**（面板原宽）——视口宽度根本没变（高度 852px 生效了，
+  所以只看高度会误判"成功"）。
+- **根因**：DSH 侧栏容器的宽度由 flex/百分比布局决定，普通内联声明参与级联但被布局约束压回。
+- **对策**：设备尺寸类改写必须用 `element.style.setProperty('width', px, 'important')`（`height`/`min-width`/
+  `max-width`/`transform` 同理），并配 `flex: 0 0 auto`；重置时用 `removeProperty` 逐个撤。
+- **判据**：**别只看自己写的 `style` 或 dataset，要回读 `getBoundingClientRect()` 与页内
+  `window.innerWidth/innerHeight`**——页内视口值才是设备模拟是否真正生效的权威判据
+  （实测：2K → 页内 `innerWidth=2560` ✓）。

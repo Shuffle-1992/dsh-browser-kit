@@ -369,6 +369,7 @@ export const BROWSER_TOOL_SPECS = [
       zoom: { type: 'number', description: 'op=open/zoom：页面缩放倍数（等同 Chrome 缩放，0.25–5，如 1.25；也可用 zoomPct 传百分比）' },
       zoomPct: { type: 'number', description: 'op=zoom：缩放百分比（如 125 表示 125%）' },
       fit: { type: 'boolean', description: '显示尺度：缺省 false=**100% 不缩放**（装不下可滚动）；true=缩放到窗口内看得全。op=fit 时生效，也可随 open/resolution 传入' },
+      clipboard: { type: 'boolean', description: 'op=screenshot：除落盘外**同时复制到系统剪贴板**（供直接粘贴）。UI 上的「截图」按钮默认就会复制；Agent 调用缺省 false，避免抢占用户剪贴板' },
       dpr: { type: 'number', description: '设备像素比（缺省按预设；走 webview setZoomFactor）' },
       state: { type: 'string', description: 'op=open 时的初始形态：collapsed（默认，小窗）| expanded' },
       idleReleaseMs: { type: 'number', description: '空闲自动释放毫秒数（缺省 600000=10 分钟；0=不自动释放）。op=idle 时设置，也可随 open 传入' },
