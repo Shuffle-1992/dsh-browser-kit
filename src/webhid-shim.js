@@ -22,21 +22,40 @@
   }
   window.__dshKitHidShimVersion = "1.2.0";
 
-  var REQ_SEQ = 0;
+  var REQ_SEQ = window.__dshKitHidReqSeq || 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
-  var PENDING = {}; // reqId -> { resolve, reject, timer }
+  /* R-SHARE：PENDING 表也挂 window（**跨重注入共享**）——旧实例发出的请求在共享队列里，若回推
+   *  只认新 shim 的闭包表，旧请求永远无人应答 → 页面侧写/开 8s 超时（重注入后「connected 但读
+   *  全 timeout」的第二半）。seq 同步共享，避免跨代 id 撞车。 */
+  var PENDING = (function () {
+    try {
+      if (!window.__dshKitHidPending) window.__dshKitHidPending = {};
+      return window.__dshKitHidPending;
+    } catch (_) { return {}; }
+  })();
   var OPEN_DEVICES = {}; // handleId -> HIDDevice shim 实例
   /* R-DIAG：现场可视诊断（挂 window，跨重注入保留）——「桥读了 N 次 / 真正投递给页面 M 次」
    *  一眼区分「没读到」与「读到了没投递」两类故障（本轮 P43 排查就是缺这一层计数）。 */
   var DIAG = window.__dshKitHidDiag = window.__dshKitHidDiag || { reads: 0, delivered: 0, samples: [], lastErr: null };
 
+  /** 请求 id：计数器挂 window（跨代共享，避免重注入后两代同号）。 */
+  function nextReqId() {
+    try {
+      window.__dshKitHidReqSeq = (window.__dshKitHidReqSeq || 0) + 1;
+      return "r" + window.__dshKitHidReqSeq + "_" + Date.now();
+    } catch (_) {
+      REQ_SEQ += 1;
+      return "r" + REQ_SEQ + "_" + Date.now();
+    }
+  }
+
   function callBridge(method, params, timeoutMs) {
     return new Promise(function (resolve, reject) {
-      var id = "r" + (++REQ_SEQ) + "_" + Date.now();
+      var id = nextReqId();
       var timer = setTimeout(function () {
         if (PENDING[id]) { delete PENDING[id]; reject(new Error("HID 桥超时：" + method)); }
       }, timeoutMs || 15000);
-      PENDING[id] = { resolve: resolve, reject: reject };
+      PENDING[id] = { resolve: resolve, reject: reject, timer: timer };
       REQ_QUEUE.push({ id: id, method: method, params: params || {} });
     });
   }
@@ -202,24 +221,24 @@
   //    （sessionStorage 持久化——页面刷新不丢，跨标签同源共享），下次无需再授权。
 
   var GRANTS = []; // 已授权设备信息（{vendorId, productId, serialNumber, product, path}）
-  var DEVICE_INSTANCES = {}; // path -> ShimHIDDevice（实例复用；handleId 惰性分配）
-  var DEVICE_OPEN_STATE = {}; // path -> boolean（桥侧句柄是否已开）
-  // 事件表迁到 window 级 SHARED.listeners（见下 R-SHARE）；旧 `var listeners` 已废，避免双源。
+  var DEVICE_INSTANCES = {}; // path -> ShimHIDDevice（实例复用；句柄见 SHARED.handles）
+  // 事件表 / 打开态 / 句柄 全部走 window 级 SHARED（见下 R-SHARE）——不再用闭包内副本，避免双源。
 
-  /* R-SHARE（1.2.0）：跨重注入共享「监听器表 + 轮询所有权」。
+  /* R-SHARE（1.2.0）：跨重注入共享「监听器表 + 轮询所有权 + 打开态 + 桥句柄」。
    *  client 会因 shim 源 mtime 变化重注入（旧 IIFE 作用域销毁，但**页面闭包里仍持旧 HIDDevice
-   *  实例**）：旧实现下旧实例的轮询握着**已失效的桥句柄**空转、新实例却因为没有监听器不轮询
-   *  ⇒ 数据流彻底断（现场：句柄 hid-2/hid-3 漂移、事件 0、页面全 timeout）。
-   *  共享表让重注入后旧实例的 addEventListener 仍登记到同一张表，新 shim 的轮询直接把事件
-   *  投递给它们；轮询所有权（token）保证同一设备**只有一个活循环**（多循环会分散响应）。 */
+   *  实例**）：只共享监听器还不够——旧实例的 `sendReport` 若继续用旧闭包里的 **过期 handleId**，
+   *  写包会被桥以「句柄不存在」拒绝（迁移 re-open 后句柄号已变），页面表现为「connected 但读全
+   *  timeout」（实测：重注入后 trace 再无 W 记录）。故 handleId/openState 一律以 SHARED 为准。 */
   var SHARED = (function () {
     try {
-      if (!window.__dshKitHidShared) window.__dshKitHidShared = { listeners: {}, polls: {} };
+      if (!window.__dshKitHidShared) window.__dshKitHidShared = {};
       var s = window.__dshKitHidShared;
       if (!s.listeners) s.listeners = {};
       if (!s.polls) s.polls = {};
+      if (!s.handles) s.handles = {}; // path -> 桥句柄 id（**唯一真源**）
+      if (!s.open) s.open = {};       // path -> boolean
       return s;
-    } catch (_) { return { listeners: {}, polls: {} }; }
+    } catch (_) { return { listeners: {}, polls: {}, handles: {}, open: {} }; }
   })();
 
   // R-MIG（1.1.2，评审问题 3 收尾）：**跨重注入状态迁移**——client 检测 shim 源更新会
@@ -234,11 +253,11 @@
         if (Array.isArray(m.grants)) GRANTS = m.grants;
         var needReopen = []; // 桥侧句柄在 DSH/桥重启后已失效——需真 re-open（异步，见下）
         if (m.openPaths) {
-          m.openPaths.forEach(function (p) { DEVICE_OPEN_STATE[p] = true; needReopen.push(p); });
+          m.openPaths.forEach(function (p) { SHARED.open[p] = true; needReopen.push(p); });
         }
         delete window.__dshKitHidMigrate;
         // R-MIG：恢复已开设备——为每个已开 path 建新实例；桥侧 re-open **异步**进行
-        // （MIG 时桥句柄可能已随桥重启失效——open() 的幂等守卫会被 DEVICE_OPEN_STATE
+        // （MIG 时桥句柄可能已随 DSH/桥重启失效——open() 的幂等守卫会被打开态
         //  骗过，所以这里直接调桥 hidOpen 并以结果回写状态）。
         GRANTS.filter(function (g) { return needReopen.indexOf(g.path) >= 0; }).forEach(function (g) {
           if (!DEVICE_INSTANCES[g.path]) {
@@ -247,13 +266,14 @@
           callBridge("hidOpen", { path: g.path }, 20000).then(function (opened) {
             opened = bridgeResult(opened); // P43：信封泄漏防御
             if (opened && opened.ok) {
-              DEVICE_INSTANCES[g.path].__dshKitHandleId = opened.handleId;
-              DEVICE_OPEN_STATE[g.path] = true;
+              SHARED.handles[g.path] = opened.handleId; // R-SHARE：句柄写共享表（旧实例的写/读都走它）
+              DEVICE_INSTANCES[g.path].__dshKitHandleId = opened.handleId; // 诊断镜像
+              SHARED.open[g.path] = true;
               DEVICE_INSTANCES[g.path].__dshKitStartPoll();
             } else {
-              DEVICE_OPEN_STATE[g.path] = false; // 桥拒绝（设备拔出/被占）：回退状态
+              SHARED.open[g.path] = false; // 桥拒绝（设备拔出/被占）：回退状态
             }
-          }).catch(function () { DEVICE_OPEN_STATE[g.path] = false; });
+          }).catch(function () { SHARED.open[g.path] = false; });
         });
       }
     } catch (_) { /* 迁移失败不拦启动 */ }
@@ -287,7 +307,7 @@
     var self = this;
     this.__dshKitPath = info.path;
     Object.defineProperties(this, {
-      opened: { get: function () { return !!DEVICE_OPEN_STATE[info.path]; } },
+      opened: { get: function () { return !!SHARED.open[info.path]; } },
       vendorId: { get: function () { return info.vendorId; } },
       productId: { get: function () { return info.productId; } },
       productName: { get: function () { return info.product || ""; } },
@@ -335,8 +355,8 @@
     function pollOnce() {
       pollTimer = 0;
       if (!ownsPoll()) return; // 已被更新的实例接管：静默退场
-      if (!DEVICE_OPEN_STATE[info.path] || !hasListener()) return; // 已关闭/无监听：停泵
-      var handleId = DEVICE_INSTANCES[info.path] && DEVICE_INSTANCES[info.path].__dshKitHandleId;
+      if (!SHARED.open[info.path] || !hasListener()) return; // 已关闭/无监听：停泵
+      var handleId = SHARED.handles[info.path]; // R-SHARE：句柄唯一真源（迁移 re-open 后旧实例也读到新句柄）
       if (!handleId) return;
       DIAG.reads++;
       callBridge("hidRead", { handleId: handleId, timeoutMs: 800 }, 8000).then(function (r) {
@@ -350,7 +370,7 @@
     }
     function schedulePoll() {
       if (pollTimer || !ownsPoll()) return;
-      if (!DEVICE_OPEN_STATE[info.path] || !hasListener()) return;
+      if (!SHARED.open[info.path] || !hasListener()) return;
       pollTimer = setTimeout(pollOnce, 0);
     }
     function startPoll() {
@@ -382,12 +402,13 @@
   ShimHIDDevice.prototype.open = function () {
     var self = this;
     var path = this.__dshKitPath;
-    if (DEVICE_OPEN_STATE[path]) { self.__dshKitStartPoll(); return Promise.resolve(); } // 已开：幂等（Chrome 同语义）+ 确保读泵在跑
+    if (SHARED.open[path]) { self.__dshKitStartPoll(); return Promise.resolve(); } // 已开：幂等（Chrome 同语义）+ 确保读泵在跑
     return callBridge("hidOpen", { path: path }).then(function (opened) {
       opened = bridgeResult(opened); // P43：信封泄漏防御
       if (!opened || !opened.ok) throw new Error((opened && opened.error) || "设备打开失败");
-      DEVICE_INSTANCES[path].__dshKitHandleId = opened.handleId;
-      DEVICE_OPEN_STATE[path] = true;
+      SHARED.handles[path] = opened.handleId; // R-SHARE：句柄写共享表（唯一真源）
+      if (DEVICE_INSTANCES[path]) DEVICE_INSTANCES[path].__dshKitHandleId = opened.handleId; // 诊断镜像
+      SHARED.open[path] = true;
       self.__dshKitStartPoll();
       return;
     });
@@ -395,21 +416,25 @@
   ShimHIDDevice.prototype.close = function () {
     var path = this.__dshKitPath;
     this.__dshKitStopPoll();
-    var handleId = DEVICE_INSTANCES[path] && DEVICE_INSTANCES[path].__dshKitHandleId;
-    DEVICE_OPEN_STATE[path] = false;
+    var handleId = SHARED.handles[path];
+    SHARED.open[path] = false;
     if (!handleId) return Promise.resolve();
-    DEVICE_INSTANCES[path].__dshKitHandleId = null;
+    delete SHARED.handles[path];
+    if (DEVICE_INSTANCES[path]) DEVICE_INSTANCES[path].__dshKitHandleId = null;
     return callBridge("hidClose", { handleId: handleId }).then(function () {});
   };
   ShimHIDDevice.prototype.sendReport = function (reportId, data) {
-    if (!DEVICE_OPEN_STATE[this.__dshKitPath]) return Promise.reject(new Error("InvalidStateError: 设备未打开（先调 open()）"));
+    var path = this.__dshKitPath;
+    if (!SHARED.open[path]) return Promise.reject(new Error("InvalidStateError: 设备未打开（先调 open()）"));
+    var handleId = SHARED.handles[path]; // R-SHARE：**必须读共享句柄**——重注入迁移 re-open 后句柄号已变，
+    if (!handleId) return Promise.reject(new Error("InvalidStateError: 桥句柄缺失（重新 open()）")); //  旧实例持旧号会被桥拒绝 = 「connected 但读全 timeout」
     var bytes = Array.prototype.slice.call(data instanceof Uint8Array ? data : new Uint8Array(data));
     // R-COMM v2 线格式（2026-10-09 实测定论）：线包 = [reportId || 0] + dataBytes，
     // **总长补齐 64**（Windows WriteFile 硬性要求 = Output Report 长度；本设备
     // outputReports id=75/84 均 63+1=64，报告描述符 Chrome collections 已确认）。
     bytes.unshift(reportId || 0);
     while (bytes.length < 64) bytes.push(0);
-    return callBridge("hidWrite", { handleId: DEVICE_INSTANCES[this.__dshKitPath].__dshKitHandleId, data: bytes }).then(function (r) {
+    return callBridge("hidWrite", { handleId: handleId, data: bytes }).then(function (r) {
       r = bridgeResult(r); // P43：信封泄漏防御（外层 {ok,value} 会把桥错误伪装成成功）
       if (!r || !r.ok) throw new Error((r && r.error) || "hidWrite 失败");
       return;
@@ -513,12 +538,12 @@
   }
 
   window.__dshKitHidShim = shimHid; // 调试句柄
-  /** 重注入收尾（client 推送新版 shim 前调用）——R-MIG：**写迁移数据而非破坏**：
-   *  GRANTS + 已开路径交给新 shim（新实例 re-open 幂等接管桥句柄、重启轮询），
-   *  页面闭包里的旧设备对象继续引用旧实例（其轮询已随旧作用域停——旧对象仅存，
-   *  页面下一次 getDevices/requestDevice 会拿到新实例）。closeChooser 防残留。 */
+  /** 重注入收尾（client 推送新版 shim 前调用）——R-MIG / R-SHARE：**写迁移数据而非破坏**：
+   *  GRANTS + 已开路径交给新 shim（新实例 re-open 接管桥句柄、重启轮询）；监听器表/打开态/句柄
+   *  本身就在 window 级 SHARED 里，重注入后**页面闭包里的旧设备对象继续可用**（写用共享句柄、
+   *  读由新实例的轮询投递到共享监听器表）。closeChooser 防残留。 */
   window.__dshKitHidShim.closeAllForReinject = function () {
-    var openPaths = Object.keys(DEVICE_OPEN_STATE).filter(function (p) { return DEVICE_OPEN_STATE[p]; });
+    var openPaths = Object.keys(SHARED.open).filter(function (p) { return SHARED.open[p]; });
     window.__dshKitHidMigrate = { grants: GRANTS, openPaths: openPaths };
     closeChooser();
   };

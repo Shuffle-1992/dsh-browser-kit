@@ -13,7 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSandbox, evalScriptFile } from './helpers/sandbox.mjs';
+import { createSandbox, evalScriptFile, evalInSandbox } from './helpers/sandbox.mjs';
 import { projectRoot } from './helpers/chrome.mjs';
 
 const SHIM = `${projectRoot}/src/webhid-shim.js`;
@@ -152,4 +152,49 @@ test('P43 单飞：读泵不堆积——连续多轮读，未决请求数始终 
     drain(sandbox, () => ({ ok: false, error: 'timeout' }));
   }
   assert.ok(maxInflight <= 1, `未决读请求应 ≤1，实测 ${maxInflight}（旧实现 250ms 定时空转 = 堆积）`);
+});
+
+/** 兜底：无论断言是否失败都让沙箱的读泵停下（否则挂起测试进程）。 */
+function stopSim(sandbox) {
+  try {
+    const s = sandbox.window.__dshKitHidShared;
+    if (s) {
+      delete s.polls[DEV.path];
+      s.open[DEV.path] = false;
+    }
+  } catch { /* 沙箱已亡 */ }
+}
+
+test('R-SHARE 重注入：旧实例改用新句柄写、旧监听器仍收事件（无需刷新页面）', async (t) => {
+  const sandbox = boot();
+  t.after(() => stopSim(sandbox));
+  const { device } = await connect(sandbox); // 旧实例，句柄 hid-1
+  const seen = [];
+  device.addEventListener('inputreport', (ev) => seen.push(ev));
+  assert.equal(sandbox.window.__dshKitHidShared.handles[DEV.path], 'hid-1');
+
+  // 模拟 client 的重注入：closeAllForReinject（写迁移数据）→ 删幂等守卫 → 就地重跑 shim 源
+  // 注意：删守卫必须在 **vm 上下文内**执行——从外面 delete 沙箱对象上的属性对 contextified global 无效（测试桩坑）
+  sandbox.window.__dshKitHidShim.closeAllForReinject();
+  evalInSandbox(sandbox, 'delete window.__dshKitHidShimVersion; delete window.__dshKitHidShimMtime;');
+  evalScriptFile(sandbox, SHIM);
+  await tick();
+  drain(sandbox, (req) => (req.method === 'hidOpen' ? { ok: true, handleId: 'hid-2' } : { ok: true }));
+  await tick(40);
+  assert.equal(sandbox.window.__dshKitHidShared.handles[DEV.path], 'hid-2', '迁移 re-open 应把新句柄写进共享表');
+
+  // 页面闭包里的**旧设备对象**继续写：必须用新句柄（旧实现用旧闭包句柄 → 桥拒绝 → 页面假死）
+  const sent = device.sendReport(75, new Uint8Array([0x80, 0x0c]));
+  await tick();
+  const writes = drain(sandbox, (req) => (req.method === 'hidRead' ? { ok: true, data: REPORT } : { ok: true }));
+  await sent;
+  const write = writes.find((r) => r.method === 'hidWrite');
+  assert.ok(write, '旧实例的写请求应发出');
+  assert.equal(write.params.handleId, 'hid-2', '旧实例必须用共享表里的新句柄写');
+
+  // 新实例的轮询把事件投递给共享监听器表 → 旧监听器照收
+  await tick(30);
+  drain(sandbox, (req) => (req.method === 'hidRead' ? { ok: true, data: REPORT } : { ok: true }));
+  await tick(30);
+  assert.ok(seen.length >= 1, '重注入后旧监听器仍应收到 inputreport');
 });
