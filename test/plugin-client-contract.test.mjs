@@ -272,6 +272,17 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /panel\.style\.zIndex = '2147483647'; \/\/ 置顶/);
     assert.match(clientSource, /frame\.setZoomFactor\(zoom \* dpr\)/);
     assert.match(clientSource, /if \(op === 'zoom'\) \{/);
+    // ⑩R-OWN v5 主题适配（用户 2026-10-10）：按面板实际背景判明暗 → color-scheme + 选项显式上色（修下拉弹层）
+    assert.match(clientSource, /const colorLuminance = \(color\) => \{/);
+    assert.match(clientSource, /const detectUiDark = \(\) => \{/);
+    assert.match(clientSource, /const agentViewApplyTheme = \(force\) => \{/);
+    assert.match(clientSource, /panel\.style\.colorScheme = dark \? 'dark' : 'light';/);
+    assert.match(clientSource, /el\.style\.colorScheme = dark \? 'dark' : 'light';/);
+    assert.match(clientSource, /opt\.style\.background = optBg;/);
+    assert.match(clientSource, /opt\.style\.color = optFg;/);
+    assert.match(clientSource, /if \(panelBg === null\) panel\.style\.background = dark \? 'rgba\(30, 32, 38, 0\.98\)' : 'rgba\(250, 250, 252, 0\.98\)';/);
+    assert.match(clientSource, /try \{ agentViewApplyTheme\(\); \} catch \{ \/\* 主题自检失败不影响空闲逻辑 \*\/ \}/);
+    assert.match(clientSource, /uiDark: agentView\.theme \? agentView\.theme\.dark : detectUiDark\(\),/);
     // ④登录态复用：官方身份公式 cwd:<workspace.path> + 用 partition 比对验证
     assert.match(clientSource, /const discoverStorageIdentity = async \(sessionId, workspacePath\) => \{/);
     assert.match(clientSource, /if \(workspacePath\) cands\.push\(`cwd:\$\{workspacePath\}`\);/);

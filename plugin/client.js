@@ -1828,6 +1828,70 @@ window.__ModuleLoader__.load({
             return { identity: null, reason: 'no-match', tried, targets };
           };
 
+          /* ── R-OWN 主题适配（2026-10-10 用户要求）──
+           * 面板自身的配色走主题 CSS 变量（`T.*`，天然跟随明暗主题）；但**原生 `<select>` 的弹出列表**
+           * 不吃页面的 CSS 变量——它按 `color-scheme` 渲染，深色主题下会变成「白底白字」（实测截图）。
+           * 故：按面板**实际解析出来的背景色**判断明暗 → 给面板与所有控件设 `color-scheme`，
+           * 并给每个 `<option>` 显式上色；主题一变（每秒自检）立刻重刷。 */
+          const colorLuminance = (color) => {
+            const m = String(color || '').match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/i);
+            if (!m) return null;
+            const a = m[4] === undefined ? 1 : Number(m[4]);
+            if (a < 0.5) return null; // 透明/半透明：不算数，继续找父级
+            const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])];
+            return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+          };
+          /** 从面板往上找第一个不透明背景，判断当前 DSH 是深色还是浅色。 */
+          const detectUiDark = () => {
+            let node = agentView.panel;
+            for (let i = 0; i < 6 && node; i += 1, node = node.parentElement) {
+              try {
+                const lum = colorLuminance(getComputedStyle(node).backgroundColor);
+                if (lum !== null) return lum < 0.5;
+              } catch { /* 忽略 */ }
+            }
+            return true; // 兜底：DSH 桌面默认深色
+          };
+          const agentViewThemeKey = { key: null };
+          /** 应用主题到面板与其原生控件（force=true 忽略缓存）。 */
+          const agentViewApplyTheme = (force) => {
+            const panel = agentView.panel;
+            if (!panel) return null;
+            let fg = null;
+            try { fg = getComputedStyle(panel).color || null; } catch { fg = null; }
+            const dark = detectUiDark();
+            const key = `${dark}|${fg || ''}`;
+            if (!force && agentViewThemeKey.key === key) return { dark, changed: false };
+            agentViewThemeKey.key = key;
+            try {
+              panel.style.colorScheme = dark ? 'dark' : 'light';
+              // 浮层上下文里主题令牌可能解析成 transparent（实测面板背景 rgba(0,0,0,0)）⇒ 用显式兜底色，
+              // 保证无论令牌是否可用，顶栏在两种主题下都清晰可读
+              let panelBg = null;
+              try { panelBg = colorLuminance(getComputedStyle(panel).backgroundColor); } catch { panelBg = null; }
+              if (panelBg === null) panel.style.background = dark ? 'rgba(30, 32, 38, 0.98)' : 'rgba(250, 250, 252, 0.98)';
+              const optBg = dark ? '#22262e' : '#ffffff';
+              const optFg = dark ? '#e7e9ee' : '#16181d';
+              const ctrlBg = dark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.05)';
+              for (const el of Array.from(panel.querySelectorAll('select'))) {
+                el.style.colorScheme = dark ? 'dark' : 'light';
+                el.style.background = ctrlBg;
+                el.style.color = optFg;
+                for (const opt of Array.from(el.options)) {
+                  opt.style.background = optBg;
+                  opt.style.color = optFg;
+                }
+              }
+              for (const el of Array.from(panel.querySelectorAll('input'))) {
+                el.style.colorScheme = dark ? 'dark' : 'light';
+                el.style.background = ctrlBg;
+                el.style.color = optFg;
+              }
+            } catch { /* 忽略 */ }
+            agentView.theme = { dark, at: new Date().toISOString() };
+            return { dark, changed: true };
+          };
+
           const ensureAgentView = async (opts = {}) => {
             const b0 = agentViewCarrier();
             if (!b0 || typeof b0.acquire !== 'function') {
@@ -2102,9 +2166,12 @@ window.__ModuleLoader__.load({
             }
             const sel = panel.querySelector('[data-dsh-kit-agent-view-preset]');
             if (sel && sel.value !== ui.preset && AGENT_VIEW_PRESETS[ui.preset]) sel.value = ui.preset;
+            // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
+            let theme = null;
+            try { theme = agentViewApplyTheme(); } catch { theme = null; }
             return {
               state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
-              scale: Number(k.toFixed(3)), stageW, stageH, topOffset,
+              scale: Number(k.toFixed(3)), stageW, stageH, topOffset, theme: theme ? theme.dark : null,
             };
           };
 
@@ -2129,6 +2196,7 @@ window.__ModuleLoader__.load({
           };
           const agentViewIdleTick = () => {
             if (!agentViewWebview()) return;
+            try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             const idle = Date.now() - (agentView.lastOpAt || 0);
             if (idle > AGENT_VIEW_IDLE_MS) agentViewSetBorder(false); // 空闲：撤掉青色边框
             const limit = Number(agentView.idleReleaseMs || 0);
@@ -2190,6 +2258,7 @@ window.__ModuleLoader__.load({
               resolution: `${res.w}×${res.h}`,
               dpr: Number(ui.dpr || res.dpr || 1) || 1,
               zoom: Number(ui.zoom || 1) || 1,
+              uiDark: agentView.theme ? agentView.theme.dark : detectUiDark(),
             };
             if (el) {
               try { s.url = el.getURL(); } catch { s.url = null; }

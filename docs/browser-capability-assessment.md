@@ -302,6 +302,27 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 **注**：`zoom` 与预设 `dpr` 共用 `setZoomFactor` ⇒ 取乘积 `zoom × dpr`（`inputZoom()` 读到的就是乘积，
 可信输入的坐标换算自动自洽）。
 
+### 3.9.5 R-OWN v5：主题适配（修下拉弹层不可读，2026-10-10 用户要求）
+
+**问题**：面板本身用主题 CSS 变量（`T.*`）会跟随明暗主题，但**原生 `<select>` 的弹出列表不吃页面 CSS 变量**
+——它按 `color-scheme` 渲染；深色主题下弹层是「白底 + 浅字」，几乎看不清（用户截图）。
+
+**修法**：
+1. `colorLuminance()` 解析 `rgb()/rgba()`；`detectUiDark()` 从面板向上找**第一个不透明背景**判明暗（浮层里
+   令牌可能解析成 `transparent`，所以要向上找，兜底深色）；
+2. `agentViewApplyTheme()`：给面板设 `color-scheme`，给每个 `select`/`input` 设 `color-scheme` + 控件底色，
+   并给**每个 `<option>` 显式设背景/文字色**（深色 `#22262e/#e7e9ee`，浅色 `#ffffff/#16181d`）；
+3. 面板背景若解析为透明（令牌未定义）⇒ 用显式兜底色（深 `rgba(30,32,38,.98)` / 浅 `rgba(250,250,252,.98)`）；
+4. **主题跟随**：布局调用时立即刷，空闲 tick 每秒自检一次（主题切换 1 秒内跟上；带缓存键避免频繁重写）。
+
+**实测**：
+
+| 场景 | 结果 |
+|---|---|
+| 深色主题（当前） | `panelScheme:'dark'`、`panelBg:rgba(30,32,38,0.98)`、`select colorScheme:'dark'`、`option {bg:rgb(34,38,46), color:rgb(231,233,238)}`、边框 `rgba(255,255,255,0.12)` |
+| 自造浅色（只改面板内联背景，不动 DSH 主题） | 1.6s 后自动切换：`panelScheme/selScheme:'light'`、`option {bg:#ffffff, color:rgb(22,24,29)}`、`select bg rgba(0,0,0,.05)` |
+| 还原深色 | 1.6s 内切回深色样式 ✓（缓存键驱动，无闪烁） |
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
