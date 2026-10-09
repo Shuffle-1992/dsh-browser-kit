@@ -254,6 +254,23 @@ export const BROWSER_TOOL_SPECS = [
     },
   },
   {
+    name: 'browser_console',
+    action: 'console-observer',
+    timeoutMs: 30000,
+    dynamicSource: 'src/console-observer.js',
+    description: '读取内置浏览器当前页面的**控制台与网络事件**（DSH 无 DevTools/CDP，本工具用页内观察器实现）：console.log/warn/error、未捕获异常、未处理 Promise 拒绝、fetch/XHR（method/url/status/耗时，不读 body）。会自动注入观察器；页面刷新或新开标签后再次调用会**自动重装（自愈）**。',
+    parameters: {
+      op: { type: 'string', description: 'dump（默认）读日志 | install 安装并看状态 | clear 清空缓冲 | mark 打时间锚点 | stats 计数 | uninstall 卸载还原' },
+      level: { type: 'string', description: '级别过滤：all（默认）| error（含未捕获异常/未处理拒绝）| warn | info | log | debug' },
+      limit: { type: 'number', description: '最多返回末尾 N 条（默认 50，硬上限 500）' },
+      filter: { type: 'string', description: '对日志文本做子串过滤' },
+      net: { type: 'boolean', description: 'true 时只返回 fetch/xhr 网络条目' },
+      since: { type: 'number', description: '只返回 t >= since（毫秒时间戳；可先用 op=mark 拿锚点）' },
+      label: { type: 'string', description: 'op=mark 时的锚点标签' },
+      tab: { type: 'number', description: '目标面板序号（0 起；默认第一个）' },
+    },
+  },
+  {
     name: 'browser_screenshot',
     action: 'screenshot',
     timeoutMs: 30000,
@@ -304,7 +321,15 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
           parameters: spec.parameters || {},
           output: OUT,
           execute: async (args) => {
-            const params = args && typeof args === 'object' ? args : {};
+            const params = args && typeof args === 'object' ? { ...args } : {};
+            // dynamicSource：源码随命令下发（页内观察器需要；hook 随页面销毁，下发即自愈）
+            if (spec.dynamicSource) {
+              try {
+                params.source = readFileSync(join(pluginDir, '..', spec.dynamicSource), 'utf8');
+              } catch (e) {
+                return { tool: spec.name, action: spec.action, ok: false, error: `读取 ${spec.dynamicSource} 失败：${errOf(e)}` };
+              }
+            }
             const r = await runBrowserCommand(pluginDir, spec.action, params, spec.timeoutMs || 25000);
             // 结果统一带工具名与客户端 action，便于排障（工具名 ≠ action 名，别让模型混淆）
             return { tool: spec.name, action: spec.action, ...(r && typeof r === 'object' ? r : { value: r }) };

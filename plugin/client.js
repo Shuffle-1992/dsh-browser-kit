@@ -1993,6 +1993,64 @@ window.__ModuleLoader__.load({
               const expandedAfter = (() => { try { return hasSidebarToggle ? sidebarRightSvc.isExpanded() : null; } catch { return null; } })();
               return { ok: true, action: act, via, expandedBefore, expandedAfter };
             },
+            'console-observer': async function (svc, c) {
+              /* R-CONSOLE：页内控制台通道（DSH 拿不到 CDP/DevTools 的现实解，见 docs 评估 §5.0）。
+               * 设计要点：**源码随命令下发**（host 侧读 src/console-observer.js 塞进 params.source）——
+               * hook 随页面销毁，页面刷新/新开标签后无需人工重装：本命令在 dump/clear/mark/stats 前
+               * 先探测 `window.__dshKitConsole`，缺失就用下发源码补注入（自愈）。 */
+              const op = String((c && c.op) || 'dump').toLowerCase();
+              const els = Array.from(document.querySelectorAll('webview'));
+              const tabIdx = Number(c.tab);
+              const target = (Number.isFinite(tabIdx) && els[tabIdx]) || pickGuestEl();
+              if (!target) return { ok: false, error: '无 webview（先打开内置浏览器）' };
+              const src = String(c.source || '');
+              const parse = (v) => {
+                if (typeof v === 'string') { try { return JSON.parse(v); } catch { return { raw: v }; } }
+                return v && typeof v === 'object' ? v : { raw: v };
+              };
+              const call = (body) => target.executeJavaScript(
+                `(function () { try { ${body} } catch (e) { return JSON.stringify({ __error: String((e && e.message) || e) }); } })()`,
+                true,
+              );
+              if (op === 'install' || op === 'dump' || op === 'clear' || op === 'mark' || op === 'stats') {
+                let missing = false;
+                try {
+                  missing = await target.executeJavaScript('typeof window.__dshKitConsole === "undefined" || typeof window.__dshKitConsole.dump !== "function"', true);
+                } catch { missing = true; }
+                if (missing) {
+                  if (!src) return { ok: false, error: '观察器未注入且未提供 source（host 侧应随命令下发 console-observer 源码）' };
+                  await target.executeJavaScript(src, true);
+                }
+              }
+              if (op === 'install') {
+                const r = parse(await call('var o = window.__dshKitConsole; return JSON.stringify({ installed: !!o, version: o ? o.version : null, stats: o ? o.stats() : null });'));
+                return { ok: true, op, ...r };
+              }
+              if (op === 'uninstall') {
+                const r = parse(await call('var o = window.__dshKitConsole; return JSON.stringify(o && o.uninstall ? o.uninstall() : { ok: false, error: "观察器未安装" });'));
+                return { ok: true, op, ...r };
+              }
+              if (op === 'clear') {
+                const r = parse(await call('var o = window.__dshKitConsole; return JSON.stringify({ cleared: o && o.clear ? o.clear() : 0 });'));
+                return { ok: true, op, ...r };
+              }
+              if (op === 'mark') {
+                const label = String((c && c.label) || 'mark').slice(0, 60);
+                const r = parse(await call(`var o = window.__dshKitConsole; return JSON.stringify(o && o.mark ? o.mark(${JSON.stringify(label)}) : null);`));
+                return { ok: true, op, label, mark: r };
+              }
+              if (op === 'stats') {
+                const r = parse(await call('var o = window.__dshKitConsole; return JSON.stringify(o && o.stats ? o.stats() : null);'));
+                return { ok: true, op, stats: r };
+              }
+              // dump（默认）：默认只回最近 50 条（省 token）；可 level/filter/net/since/limit 过滤
+              const opts = { limit: Number(c.limit) || 50, level: String(c.level || 'all') };
+              if (c.since) opts.since = Number(c.since);
+              if (c.filter) opts.filter = String(c.filter);
+              if (c.net === true) opts.net = true;
+              const dumpRaw = parse(await call(`var o = window.__dshKitConsole; return JSON.stringify({ entries: o.dump(${JSON.stringify(opts)}), stats: o.stats() });`));
+              return { ok: true, op, options: opts, count: Array.isArray(dumpRaw.entries) ? dumpRaw.entries.length : null, entries: dumpRaw.entries || null, stats: dumpRaw.stats || null };
+            },
             'agent-glow': async function (svc, c) {
               // R-GLOW：用户/agent 手动控制「Agent 操作光效」——on=常亮标记（直到 off）、off=关闭并清除、
               // pulse=打一次脉冲、status=查状态。enabled 持久在 localStorage（默认开）。

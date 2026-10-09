@@ -99,6 +99,22 @@
 | **分发器自动打点** | 执行 `reload` 后 `kit-status.agentGlow = {enabled:true, visible:true, sticky:false, label:'reload', count:1}` |
 | 无 webview 时 | 不创建浮层（`agentGlowTarget()` 为空则早退），不会在空面板上乱画 |
 
+## 3.3 页内控制台/网络通道（R-CONSOLE，2026-10-09 已落地并实测）
+
+DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook**。落地形态：
+- `src/console-observer.js`：纯 ES5 IIFE、零依赖、可重复注入（幂等）；hook `console.log/info/warn/error/debug`（**保留原行为**，不吞日志）、`error` / `unhandledrejection` 事件、`fetch`、`XMLHttpRequest`（记 method/url/status/durationMs，**不读 body**）；环形缓冲 500 条；防御性序列化（循环引用/BigInt/抛错 getter 都不冒泡）；`uninstall()` 全还原。
+- 契约：`window.__dshKitConsole = { version, entries(), dump({level,since,limit,filter,net}), clear(), stats(), mark(label), uninstall() }`；条目字段 `{seq,t,kind,level,text,args,url?,method?,status?,durationMs?,source?,line?,col?}`。
+- 传输：host 工具 `browser_console` **每次都把源码随命令下发**（`params.source`）→ client 侧 `console-observer` 命令先探测 `__dshKitConsole`，缺失即补注入 → **页面刷新/新开标签自愈**（hook 随页面销毁，这是页内方案最大的坑）。
+- agent 工具：`browser_console {op: dump|install|clear|mark|stats|uninstall, level, limit, filter, net, since, label, tab}`。
+
+实测（2026-10-10 00:5x，真机 GUI）：
+| 检查 | 结果 |
+|---|---|
+| `op:install` | `{installed:true, version:'1.0.0', stats:{total:0}}` |
+| 页面里 `console.warn('dbk-probe',{n:42})` + `console.error('dbk-err')` | dump 出两条：`kind:'console'`、`level:'warn'/'error'`、`text:"'dbk-probe' {n: 42}"` |
+| 页面里 `fetch('https://example.com/__dbk_probe__')` → 404 | dump 出 `kind:'fetch'`、`method:'GET'`、`status:404`、`durationMs:13002` |
+| 新开一个**没有 hook** 的标签后直接 `op:stats` | 自动重装：`stats{total:0, installedAt:刷新}`（自愈） |
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

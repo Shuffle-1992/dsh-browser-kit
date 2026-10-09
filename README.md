@@ -16,6 +16,7 @@
 5. **Agent 浏览器操作 + 页面管理（2026-10-09 起）**：命令通道新增 `browser-tabs`（跨会话枚举全部已开页面：sessionId/tabId/类型 + DOM 实时 url/title/wcId）、`browser-open`（自己打开指定网页，策略与地址栏一致：只 http/https、拒凭据、拒 DSH 自身 origin）、`browser-close`（关标签，省略 tabId = 关当前活动标签）、`browser-panel`（开/关右侧栏浏览器面板）；既有 `navigate / click / type / snapshot / screenshot / reload` 继续可用。
    - **已升级为 agent 一等工具（R-TOOL）**：`browser_tabs / browser_open / browser_close / browser_panel / browser_navigate / browser_reload / browser_snapshot / browser_click / browser_type / browser_eval / browser_screenshot`——host 侧 `ctx.tools.register(defineTool(...))` 注册，execute 经命令通道驱动 client 执行；工具名、参数 schema、超时与错误都由框架呈现（不必再手写 `command.json`）。
 6. **Agent 操作可视化（R-GLOW）**：Agent 执行浏览器自动化时，浏览器窗口**四边亮起呼吸光效** + 左上角胶囊「🤖 Agent 操作中 · <动作>」，让用户随时看得见「Agent 正在操作」；末次操作后自动淡出，`agent-glow {op:on|enable|off|pulse|status}` 可常亮/关闭/手动脉冲（localStorage 持久，默认开）。
+7. **页内控制台/网络通道（R-CONSOLE，2026-10-09）**：DSH 没有 DevTools/CDP（实测 `openDevTools()` 无效、宿主全库零 DevTools 引用、host 插件是纯 Node 进程够不到 Electron），故用**页内观察器**补齐：`src/console-observer.js`（纯 ES5 IIFE、零依赖、可重复注入）hook `console.* / window.onerror / unhandledrejection / fetch / XMLHttpRequest`，环形缓冲 500 条；agent 工具 `browser_console` 可 `dump({level,limit,filter,net,since})`、`mark` 打锚点、`clear`、`stats`、`uninstall`。**源码随命令下发 → 页面刷新/新开标签自动重装（自愈）**。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

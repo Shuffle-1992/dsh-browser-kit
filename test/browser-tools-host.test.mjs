@@ -51,6 +51,18 @@ test('R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具�
       assert.ok(!keys.includes('id'), `${s.name} 用了保留名 id`);
     }
   });
+  await t.test('dynamicSource（页内观察器）文件真实存在且导出 __dshKitConsole 契约', () => {
+    const specs = BROWSER_TOOL_SPECS.filter((s) => s.dynamicSource);
+    assert.ok(specs.length >= 1, '至少 browser_console 需要 dynamicSource');
+    for (const s of specs) {
+      const p = new URL(`../${s.dynamicSource}`, import.meta.url);
+      const src = readFileSync(p, 'utf8');
+      assert.ok(src.includes('window.__dshKitConsole'), `${s.dynamicSource} 未定义 __dshKitConsole`);
+      for (const api of ['dump', 'clear', 'stats', 'mark', 'uninstall']) {
+        assert.ok(src.includes(`${api}:`) || src.includes(`${api} =`), `${s.dynamicSource} 缺 API ${api}`);
+      }
+    }
+  });
 });
 
 test('R-TOOL 命令通道传输层', async (t) => {

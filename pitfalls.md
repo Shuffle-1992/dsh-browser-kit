@@ -244,3 +244,9 @@
   - **对策**：①读服务一律包 try/catch（否则异常会吃掉整段注册逻辑，症状是「什么都没发生」）；②**不要**把 `tools` 写进顶层 `inject`（服务缺失 ⇒ apply 不被调用 ⇒ 整个插件阵亡），改用**惰性** `ctx.inject(['tools'], (scoped) => …)`，在回调作用域里访问 `.tools`。
 - **现象 C（单测里解析不到）**：plain Node 里 `import('…/app.asar/dsh/node_modules/@deepseek-ai/dsh-tools/lib/index.js')` 必然失败——**asar 的 fs 补丁只存在于 DSH 的 Electron/Node 运行时**。故 defineTool 解析单测要跳过或注入桩；实机证据 = 工具真的出现在 agent 工具表里并可调用（本轮 11 个 `browser_*` 全部注册成功）。
 - **判据**：工具「写了没生效」先查三处——**激活时间戳**（`implLoadedAt`）、**inject 语义**（顶层还是惰性）、**解析来源**（`tools.defineToolSource`）。
+### P49 页内 hook 的宿命：随页面销毁 + 跨 realm 判定
+- **现象 A（hook 静默失效）**：页内观察器（console/error/fetch/XHR）注入后，**页面一刷新/新开标签就没了**——`window` 上什么都没有，agent 拿到空数组还以为「页面没日志」。
+  - **对策**：**源码随命令下发**（host 侧读文件塞进命令参数）＋执行前探测 `__dshKitConsole` 缺失即补注入 ⇒ 每次调用自愈。别把「注入」做成一次性初始化动作。
+- **现象 B（跨 realm 判定失效）**：观察器用 `x instanceof RegExp` 判 agent 侧传来的真 RegExp——页面 main world 与 agent 不在同一 realm，`instanceof` 判 **false**，退化成 `new RegExp('/pattern/')` → 过滤永远不命中（实测，已改为按 `source`/`flags` 鸭子类型）。
+  - **判据**：任何 `instanceof` / 构造函数身份比较跨 realm 都不可信（`Array.isArray` 是少数例外）。
+- **现象 C（耗时字段被怀疑）**：网络条目 `durationMs` 来自页面内计时（requestStart→loadend），**与命令通道往返无关**；实测一条 404 真耗时 13s，别误判成通道开销。
