@@ -129,6 +129,19 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 
 工具面：`browser_click / browser_dblclick / browser_hover / browser_type / browser_press / browser_scroll`（共 16 个 `browser_*` 工具）。`click`/`type` 保留 DOM 合成回退路径（`mode` 缺省不变），只有显式 `mode:'trusted'`（工具默认）才走真事件。
 
+## 3.5 等待/状态/表单补全 + 快照省 token（2026-10-10）
+
+| 能力 | 工具 | 实测 |
+|---|---|---|
+| 等待原语 | `browser_wait` | 页面内轮询（不放大通道往返）：不存在选择器 + 1200ms → `{matched:false, waitedMs:1205}`（**超时不报错**，以 matched 表达） |
+| 状态一屏 | `browser_state` | `{url,title,loading:false,canGoBack:false,canGoForward:false,zoom:1,page:{readyState:'complete',viewport:1280×1284,scroll:{y:0,maxY:321},active:'BODY'}}` |
+| 历史前进后退 | `browser_history` | `navigate ?dbk=hist2` → `back` → url 回到 `?dbk=hist1`（操作前后 url/title 都回报） |
+| 下拉选择 | `browser_select` | 按选项**文本**匹配 → `{value:'c', text:'选项C', index:2}`（原生 setter + input/change） |
+| 勾选 | `browser_check` | 勾选 `{before:false,after:true}` → 取消 `{before:true,after:false}` |
+| 快照省 token | `browser_snapshot` | 默认 `compact`：只回 `ref/tag/text`（截断 40、上限 60 项）；需要 id/placeholder/type/value 时 `compact:false` |
+
+工具总数达到 **21 个 `browser_*`**（含 §3.1-§3.4 的全部能力）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

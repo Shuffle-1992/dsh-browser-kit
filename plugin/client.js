@@ -2224,31 +2224,140 @@ window.__ModuleLoader__.load({
               // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
               // R-INPUT：目标选择与输入层统一（**可见面板优先** + 支持 tab 指定）——原来用 pickGuestEl()
               // 取「DOM 里第一个」，多标签时可能在快照 A 页、点击落在 B 页，ref 对不上。
+              // R-TOKEN：支持 compact（只留 ref/tag/text，截断更短）与 limit（默认 60 / 上限 120）——
+              //   大页面全量快照很吃 token，工具侧默认 compact。
               const target = inputTargetOf(c) || pickGuestEl();
+              const compact = c && c.compact === true;
+              const limit = Math.min(120, Math.max(1, Number((c && c.limit) || (compact ? 60 : 120))));
+              const maxText = Math.min(120, Math.max(8, Number((c && c.maxText) || (compact ? 40 : 60))));
               const value = await target.executeJavaScript(
                 '(function () {\n' +
                 `  ${TARGET_DOC_SNIPPET}\n` +
+                `  var COMPACT = ${compact ? 'true' : 'false'};\n` +
+                `  var LIMIT = ${limit};\n` +
+                `  var MAXTEXT = ${maxText};\n` +
                 "  var SELS = 'a[href],button,input,textarea,select,[role=\"button\"],[role=\"link\"],[role=\"checkbox\"],[role=\"tab\"],h1,h2,h3,h4';\n" +
                 '  var els = Array.prototype.slice.call(DOC.querySelectorAll(SELS));\n' +
                 '  var out = [];\n' +
-                '  for (var i = 0; i < els.length && out.length < 120; i++) {\n' +
+                '  for (var i = 0; i < els.length && out.length < LIMIT; i++) {\n' +
                 '    var el = els[i];\n' +
                 '    var r = el.getBoundingClientRect();\n' +
                 '    if (r.width === 0 && r.height === 0) continue;\n' +
                 '    if (el.closest && el.closest("[data-dsh-kit-ui]")) continue;\n' +
                 '    var ref = out.length + 1;\n' +
                 '    el.setAttribute("data-dsh-kit-ref", String(ref));\n' +
-                "    out.push({ ref: ref, tag: el.tagName.toLowerCase(), id: el.id || null,\n" +
-                "      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 60),\n" +
-                "      placeholder: el.getAttribute('placeholder') || null,\n" +
-                "      type: el.getAttribute('type') || null,\n" +
-                "      value: (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? String(el.value || '').slice(0, 60) : null });\n" +
+                "    var item = { ref: ref, tag: el.tagName.toLowerCase(),\n" +
+                "      text: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, MAXTEXT) };\n" +
+                '    if (!COMPACT) {\n' +
+                "      item.id = el.id || null;\n" +
+                "      item.placeholder = el.getAttribute('placeholder') || null;\n" +
+                "      item.type = el.getAttribute('type') || null;\n" +
+                "      item.value = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? String(el.value || '').slice(0, 60) : null;\n" +
+                '    } else if (el.id) item.id = el.id;\n' +
+                '    out.push(item);\n' +
                 '  }\n' +
-                '  return { url: location.href, title: document.title, count: out.length, items: out };\n' +
+                '  return { url: location.href, title: document.title, count: out.length, total: els.length, items: out };\n' +
                 '})()',
                 true,
               );
-              return { ok: true, ...(value || {}) };
+              return { ok: true, compact, limit, ...(value || {}) };
+            },
+            'state': async function (svc, c) {
+              // R-STATE：页面状态一屏（agent 用它做「之前/之后」判断，或决定 back/forward）。
+              const target = inputTargetOf(c) || pickGuestEl();
+              const meta = inputPageMeta(target);
+              const live = {
+                loading: null, canGoBack: null, canGoForward: null, zoom: null,
+              };
+              try { live.loading = typeof target.isLoading === 'function' ? target.isLoading() : null; } catch { /* 忽略 */ }
+              try { live.canGoBack = typeof target.canGoBack === 'function' ? target.canGoBack() : null; } catch { /* 忽略 */ }
+              try { live.canGoForward = typeof target.canGoForward === 'function' ? target.canGoForward() : null; } catch { /* 忽略 */ }
+              try { live.zoom = inputZoom(target); } catch { /* 忽略 */ }
+              let page = null;
+              try {
+                page = JSON.parse(await target.executeJavaScript(
+                  'JSON.stringify({ readyState: document.readyState, viewport: { w: window.innerWidth, h: window.innerHeight }, scroll: { x: window.scrollX, y: window.scrollY, maxY: Math.max(0, (document.body ? document.body.scrollHeight : 0) - window.innerHeight) }, active: (function () { var a = document.activeElement; return a ? { tag: a.tagName, id: a.id || null } : null; })(), console: (window.__dshKitConsole && window.__dshKitConsole.stats) ? window.__dshKitConsole.stats() : null })',
+                  true,
+                ));
+              } catch { page = null; }
+              return { ok: true, tab: Number.isFinite(Number(c && c.tab)) ? Number(c.tab) : null, ...meta, ...live, page };
+            },
+            'history': async function (svc, c) {
+              // R-STATE：会话历史前进/后退（webview 原生历史；reload 用既有 reload 命令）
+              const op = String((c && c.op) || 'back').toLowerCase();
+              const target = inputTargetOf(c) || pickGuestEl();
+              const before = inputPageMeta(target);
+              try {
+                if (op === 'back') { if (typeof target.canGoBack === 'function' && !target.canGoBack()) return { ok: false, op, error: '已在历史最早处（canGoBack=false）', ...before }; target.goBack(); }
+                else if (op === 'forward') { if (typeof target.canGoForward === 'function' && !target.canGoForward()) return { ok: false, op, error: '已在历史最新处（canGoForward=false）', ...before }; target.goForward(); }
+                else return { ok: false, op, error: `未知 op=${op}（back|forward）` };
+              } catch (e) { return { ok: false, op, error: msgOf(e) }; }
+              await new Promise((r) => setTimeout(r, 900));
+              return { ok: true, op, before, after: inputPageMeta(target) };
+            },
+            'wait': async function (svc, c) {
+              // R-WAIT：等待原语（agent 自动化必需）——selector / text / url / load / fn，带超时。
+              // 实现：**页面内轮询**（一次 executeJavaScript 返回 Promise），避免命令通道往返放大延迟。
+              const kind = String((c && c.waitFor) || (c && c.kind) || 'selector').toLowerCase();
+              const value = String((c && (c.value != null ? c.value : c.selector)) || '');
+              const timeoutMs = Math.min(60000, Math.max(200, Number((c && c.timeoutMs) || 8000)));
+              const target = inputTargetOf(c) || pickGuestEl();
+              if (kind !== 'load' && kind !== 'url' && !value) return { ok: false, error: `wait 类型 ${kind} 需要 value` };
+              const expr = `(function () {\n`
+                + `  var kind = ${JSON.stringify(kind)};\n`
+                + `  var value = ${JSON.stringify(value)};\n`
+                + `  var deadline = Date.now() + ${timeoutMs};\n`
+                + `  function check() {\n`
+                + `    try {\n`
+                + `      if (kind === 'selector') return !!document.querySelector(value);\n`
+                + `      if (kind === 'text') return ((document.body && document.body.innerText) || '').indexOf(value) >= 0;\n`
+                + `      if (kind === 'url') return location.href.indexOf(value) >= 0;\n`
+                + `      if (kind === 'load') return document.readyState === 'complete';\n`
+                + `      if (kind === 'fn') return !!new Function('return (' + value + ')')();\n`
+                + `      return false;\n`
+                + `    } catch (e) { return false; }\n`
+                + `  }\n`
+                + `  return new Promise(function (resolve) {\n`
+                + `    var t0 = Date.now();\n`
+                + `    if (check()) { resolve({ ok: true, matched: true, waitedMs: 0, kind: kind, value: value, url: location.href }); return; }\n`
+                + `    var iv = setInterval(function () {\n`
+                + `      if (check()) { clearInterval(iv); resolve({ ok: true, matched: true, waitedMs: Date.now() - t0, kind: kind, value: value, url: location.href }); return; }\n`
+                + `      if (Date.now() > deadline) { clearInterval(iv); resolve({ ok: true, matched: false, waitedMs: Date.now() - t0, kind: kind, value: value, url: location.href }); }\n`
+                + `    }, 120);\n`
+                + `  });\n`
+                + `})()`;
+              try {
+                const r = await target.executeJavaScript(expr, true);
+                // 页面被导航时 executeJavaScript 可能抛（旧文档销毁）：按「未匹配」回报，别当致命错误
+                if (!r || typeof r !== 'object') return { ok: true, matched: false, kind, value, note: '页面执行未返回（可能正在导航）' };
+                return { ...r, tab: Number.isFinite(Number(c && c.tab)) ? Number(c.tab) : null };
+              } catch (e) {
+                return { ok: true, matched: false, kind, value, error: msgOf(e) };
+              }
+            },
+            'select': async function (svc, c) {
+              // R-FORM：下拉选择（原生 setter + input/change，兼容受控组件）。
+              const target = inputTargetOf(c) || pickGuestEl();
+              const sel = c && c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String((c && c.selector) || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const want = String((c && c.value) != null ? c.value : '');
+              const raw = await target.executeJavaScript(
+                `(function () { var el = document.querySelector(${JSON.stringify(sel)}); if (!el) return JSON.stringify({ ok: false, error: 'no element' }); if (el.tagName !== 'SELECT') return JSON.stringify({ ok: false, error: 'not a SELECT: ' + el.tagName }); var opt = null; for (var i = 0; i < el.options.length; i++) { var o = el.options[i]; if (o.value === ${JSON.stringify(want)} || o.text === ${JSON.stringify(want)}) { opt = o; break; } } if (!opt) return JSON.stringify({ ok: false, error: 'option not found: ' + ${JSON.stringify(want)} }); Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, opt.value); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return JSON.stringify({ ok: true, value: el.value, text: opt.text, index: opt.index }); })()`,
+                true,
+              );
+              try { return { ...(typeof raw === 'string' ? JSON.parse(raw) : raw) }; } catch { return { ok: false, error: '结果解析失败' }; }
+            },
+            'check': async function (svc, c) {
+              // R-FORM：勾选/取消勾选（含 radio：按组处理）。DOM 事件 + 可选可信点击。
+              const target = inputTargetOf(c) || pickGuestEl();
+              const sel = c && c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String((c && c.selector) || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const want = c && typeof c.checked === 'boolean' ? c.checked : true;
+              const raw = await target.executeJavaScript(
+                `(function () { var el = document.querySelector(${JSON.stringify(sel)}); if (!el) return JSON.stringify({ ok: false, error: 'no element' }); if (!(el instanceof HTMLInputElement) || (el.type !== 'checkbox' && el.type !== 'radio')) return JSON.stringify({ ok: false, error: 'not checkbox/radio: ' + (el.tagName + '/' + (el.type || '')) }); var before = !!el.checked; if (before !== ${want ? 'true' : 'false'}) { el.click(); } return JSON.stringify({ ok: true, before: before, after: !!el.checked, value: el.value || null }); })()`,
+                true,
+              );
+              try { return { ...(typeof raw === 'string' ? JSON.parse(raw) : raw) }; } catch { return { ok: false, error: '结果解析失败' }; }
             },
             'input': async function (svc, c) {
               // R-INPUT：可信输入统一入口（sendInputEvent）。op: click|dblclick|rightclick|hover|type|press|scroll
@@ -2447,7 +2556,7 @@ window.__ModuleLoader__.load({
           /* Agent 操作光效打点集合（R-GLOW）：**在分发器统一打点**，新增浏览器命令无需逐个改 handler。
            * 只收「会动页面 / Agent 在操作浏览器」的动作；纯盘点类（browser-tabs/panes-probe/dom-scan/
            * kit-status/toolbar-probe/hid-*）不打点，免得用户屏幕上一直闪。 */
-          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input']);
+          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check']);
 
           /** 命令分发：查表执行；未知 action 显式报错（不静默）。 */
           const executeCommand = async (svc, command) => {
