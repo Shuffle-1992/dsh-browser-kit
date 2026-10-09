@@ -270,6 +270,17 @@ export const BROWSER_TOOL_SPECS = [
     },
   },
   {
+    name: 'browser_element_info',
+    action: 'element',
+    timeoutMs: 20000,
+    description: '按 ref（来自 browser_snapshot）或 CSS selector 读「元素档案」：tag/id/class/文本/值/是否禁用/是否勾选/属性 + 几何与**遮挡情况**。点击或输入前想核对「ref 到底指向哪个元素」时用它；ref 失效会明确报错并提示重取快照。',
+    parameters: {
+      ref: { type: 'number', description: 'browser_snapshot 返回的元素编号' },
+      selector: { type: 'string', description: 'CSS 选择器（没有 ref 时使用）' },
+      tab: { type: 'number', description: '目标面板序号（0 起）' },
+    },
+  },
+  {
     name: 'browser_check',
     action: 'check',
     timeoutMs: 20000,

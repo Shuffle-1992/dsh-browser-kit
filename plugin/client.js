@@ -1731,7 +1731,7 @@ window.__ModuleLoader__.load({
           const trustedClick = async (target, c, op) => {
             focusGuest(target);
             const box = await resolveInputBox(target, c);
-            if (!box.ok) return { ok: false, op, error: box.error };
+            if (!box.ok) return { ok: false, op, error: box.error, hint: 'DOM 可能已变化：请重新 browser_snapshot 取新 ref' };
             if (box.occluded && c.force !== true) {
               return { ok: false, op, occluded: true, occluder: box.occluder, box, error: `目标中心被遮挡（${box.occluder && box.occluder.tag === 'html' ? '文档根' : (box.occluder && (box.occluder.id || box.occluder.cls || box.occluder.tag)) || '未知'}）——如确认无误可 force:true` };
             }
@@ -1757,7 +1757,7 @@ window.__ModuleLoader__.load({
             let focused = false;
             if (c && (c.ref != null || c.selector)) {
               const box = await resolveInputBox(target, c);
-              if (!box.ok) return { ok: false, op: 'type', error: box.error };
+              if (!box.ok) return { ok: false, op: 'type', error: box.error, hint: 'DOM 可能已变化：请重新 browser_snapshot 取新 ref' };
               if (box.occluded && c.force !== true) return { ok: false, op: 'type', occluded: true, occluder: box.occluder, error: '输入框被遮挡（可 force:true 强制）' };
               const zoom = inputZoom(target);
               const x = Math.round(box.x * zoom);
@@ -2346,6 +2346,31 @@ window.__ModuleLoader__.load({
                 true,
               );
               try { return { ...(typeof raw === 'string' ? JSON.parse(raw) : raw) }; } catch { return { ok: false, error: '结果解析失败' }; }
+            },
+            'element': async function (svc, c) {
+              // R-REF：按 ref/selector 读「元素档案」（点击/输入前的核对手段；对齐 ZCode BrowserCommand 的
+              // elementInfo）。返回 tag/id/class/文本/值/禁用/勾选/属性 + 几何与**遮挡情况**。
+              // 失效 ref 的语义：解析不到就明确报错并提示重取快照——**绝不猜、不点错东西**。
+              const target = inputTargetOf(c) || pickGuestEl();
+              const sel = c && c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String((c && c.selector) || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const box = await resolveInputBox(target, c);
+              const raw = await target.executeJavaScript(
+                `(function () { var el = document.querySelector(${JSON.stringify(sel)}); if (!el) return JSON.stringify({ ok: false, error: 'no element: ' + ${JSON.stringify(sel)} }); var attrs = {}; for (var i = 0; i < el.attributes.length && i < 24; i++) { attrs[el.attributes[i].name] = String(el.attributes[i].value).slice(0, 80); } return JSON.stringify({ ok: true, tag: el.tagName.toLowerCase(), id: el.id || null, cls: String(el.className || '').slice(0, 120), text: String(el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 120), value: ('value' in el) ? String(el.value).slice(0, 80) : null, disabled: !!el.disabled, checked: ('checked' in el) ? !!el.checked : null, snapRef: el.getAttribute('data-dsh-kit-ref') || null, attrs: attrs }); })()`,
+                true,
+              );
+              let info = raw;
+              try { if (typeof raw === 'string') info = JSON.parse(raw); } catch { info = { ok: false, error: '档案解析失败' }; }
+              if (!info || info.ok === false) {
+                return { ok: false, error: (info && info.error) || 'no element', hint: 'DOM 可能已变化：请重新 browser_snapshot 取新 ref（ref 只对最近一次快照有效）' };
+              }
+              return {
+                ok: true,
+                selector: sel,
+                ...info,
+                box: box && box.ok ? { x: box.x, y: box.y, w: box.w, h: box.h, inViewport: box.inViewport, occluded: box.occluded, occluder: box.occluder } : null,
+                url: inputPageMeta(target).url,
+              };
             },
             'check': async function (svc, c) {
               // R-FORM：勾选/取消勾选（含 radio：按组处理）。DOM 事件 + 可选可信点击。

@@ -185,8 +185,25 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 - 本地已有对标（`browser-annotation-and-screenshot-research.md` §2、§5.5）：ZCode BrowserCommand 全清单（`navigate/getState/back/forward/reload/screenshot/snapshot/click/type/press/scroll/hover/select/check/drag/elementInfo/evaluate`）、chrome-devtools-mcp、playwright-mcp；
 - 外部横向调查（chrome-devtools-mcp / playwright-mcp / browser-use / Stagehand / Browser MCP / Nanobrowser / Claude-in-Chrome 等）见 `.local/browser-agent-landscape.md`（子代理产出，持续推进中）。
 
-## 7. 待你拍板的实施顺序
+## 7. 落地进度（2026-10-10 00:2x 收尾）
 
-1. 先做 **P0-D（开页 + 枚举）** —— 投入最小、立刻回答「能否自己开网页/看所有页面」，且是纯增量。
-2. 再做 **P0-A + P0-B**（工具化 + 控制台通道）—— 这才是「DSH 内置浏览器缺胳膊少腿」的正面回答。
-3. **P0-C/D 之后**再补 P1 交互族；`capturePage` 止血（P0 风险项）随时可插队。
+| 路线项 | 状态 | 产物 |
+|---|---|---|
+| P0-D 开页/枚举页面/关标签/面板 | ✅ 已实测 | `browser-tabs / browser-open / browser-close / browser-panel`（§3.1） |
+| P0-A 工具化（一等 agent 工具） | ✅ 已实测 | `plugin/browser-tools.host.mjs`（21 个 `browser_*` 工具，§3.3 链路） |
+| P0-B 控制台/网络通道 | ✅ 已实测 | `src/console-observer.js` + `browser_console`（§3.3） |
+| P0-C 可信输入 | ✅ 已实测 | `input` 命令 + 交互族工具 + 遮挡检测（§3.4） |
+| P0 风险止血（capturePage） | ✅ 已实测 | 四件套护栏 + 崩溃回环断路器（§4） |
+| P1 等待/状态/历史/表单 | ✅ 已实测 | `browser_wait / browser_state / browser_history / browser_select / browser_check`（§3.5） |
+| P1 ref 健壮性 | ✅ 已实测 | `browser_element_info`（元素档案 + 遮挡 + 失效 ref 明确提示）；快照默认 compact 省 token |
+| P1 网络观测 | ✅ 已实测 | console-observer 的 fetch/XHR 捕获（`browser_console {net:true}`） |
+| P2 cookie/storage、文件上传下载、多页面租约并发 | ⏳ 未做 | 需 CDP 或 `dshDesktop.browser.acquire` 租约（见 §5.0 路线②） |
+| 宿主侧 DevTools/CDP（完整能力） | ⛔ 需 DSH 官方开放 | §5.0 路线①/②——建议并入 WebHID 那条 Discussion 一起提 |
+
+**注**：`capturePage` 实测在**可见且 ≥80px** 的面板上连续调用两次未崩（3.1s / 54KB），隐藏 surface 一律拒绝；但 ZCode 的 V8 FATAL 记录仍在，故护栏保留、探针禁用裸调。
+
+## 8. 后续可选项（按价值排序）
+
+1. **P2 交互/状态深化**：cookie/storage 读写（需 CDP 或 `webview` session 代理）、文件上传（`DOM.setFileInputFiles` 等价：Electron 无直接 API，可试 `input.files` 注入 + `DataTransfer`）、下载观测（session `will-download`）、多页面并发与租约隔离（`dshDesktop.browser.acquire/release`）。
+2. **省 token 再进一步**（横向调研 #9/#10）：`browser_find`（在快照里按文本/正则只回匹配节点+路径）、快照增量（`--delta`）、大输出落盘。
+3. **对 DSH 官方的诉求**：开放宿主主进程桥（`console-message` / `sendInputEvent` 之外还需 session 级 API）或允许 `--remote-debugging-port` + 插件作纯 CDP 客户端（§5.0 路线①/②）——那将一次性补齐控制台/网络/整页截图/文件上传。可与 WebHID 的 Discussion 合并提出。
