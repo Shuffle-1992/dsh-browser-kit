@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- @local/dsh-browser-kit 插件图标（家族风格：与 dsh-connect-zcode 同规范）
+       语义：浏览器窗口 = 内置浏览器增强；黄色标注点 = 元素批注/截图回传；
+             底部三点 = ZCode 生态家族视觉记忆（connect-zcode / zcode-dispatch 同构）。
+       约定：64x64 / rx14 / 深底 #1e293b / 扁平无渐变，16px 下主形状仍可辨认。 -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#1e293b"/>
+  <!-- 浏览器窗口（实心，顶栏用底色分隔出 chrome 区） -->
+  <rect x="12" y="10" width="40" height="30" rx="5" fill="#7cc4ff"/>
+  <path d="M12 19 H52" stroke="#1e293b" stroke-width="2.5"/>
+  <circle cx="17" cy="14.5" r="1.6" fill="#1e293b"/>
+  <circle cx="22" cy="14.5" r="1.6" fill="#1e293b"/>
+  <circle cx="27" cy="14.5" r="1.6" fill="#1e293b"/>
+  <!-- 内容行（暗色，弱化） -->
+  <path d="M17 25 H40" stroke="#1e293b" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+  <path d="M17 32 H33" stroke="#1e293b" stroke-width="3" stroke-linecap="round" opacity="0.35"/>
+  <!-- 黄色批注点（元素批注语义，压在窗口右下） -->
+  <circle cx="46" cy="36" r="5" fill="#e8b64c" stroke="#1e293b" stroke-width="2"/>
+  <!-- 底部家族三点 -->
+  <circle cx="20" cy="50" r="3" fill="#7cc4ff"/>
+  <circle cx="31" cy="50" r="3" fill="#58c98f"/>
+  <circle cx="42" cy="50" r="3" fill="#e8b64c"/>
+</svg>

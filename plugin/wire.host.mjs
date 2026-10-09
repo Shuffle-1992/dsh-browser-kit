@@ -41,6 +41,12 @@ const FACE_METHOD_TABLE = [
   ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
   ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:true, command:null}|{ok:false, error}>（命令通道：取走即删）', []],
   ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
+  // ── HID 桥（R-HID：系统层直连绕开 Chromium select-hid-device 宿主缺口——插件侧折中方案）──
+  ['hidList', [], 'hidList(): Promise<{ok:true, devices:[{path,vendorId,productId,serialNumber,product,manufacturer,usagePage,usage}]}|{ok:false, error}>（枚举系统全部 HID 设备）', []],
+  ['hidOpen', ['path'], 'hidOpen(path): Promise<{ok:true, handleId}|{ok:false, error}>（独占打开设备，返回句柄 id 供 read/write/close 引用）', []],
+  ['hidRead', ['handleId', 'timeoutMs'], 'hidRead(handleId, timeoutMs?): Promise<{ok:true, data:number[]}|{ok:false, error:"timeout"}|{ok:false, error}>（阻塞读一次上报，timeoutMs 缺省 500）', ['timeoutMs']],
+  ['hidWrite', ['handleId', 'data'], 'hidWrite(handleId, data): Promise<{ok:true, written}|{ok:false, error}>（写入字节数组）', []],
+  ['hidClose', ['handleId'], 'hidClose(handleId): Promise<{ok:true}|{ok:false, error}>（关闭句柄）', []],
 ];
 
 /**
@@ -58,7 +64,7 @@ const FACE_METHOD_TABLE = [
  *   onCommandResult: (id: string, result: unknown) => {ok: boolean, error?: string},
  * }} hooks
  */
-export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSaveMerged, onDeleteAnnotations, onGetStats, onClearArtifacts, onGetInjectScript, onTakeCommand, onCommandResult }) {
+export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSaveMerged, onDeleteAnnotations, onGetStats, onClearArtifacts, onGetInjectScript, onTakeCommand, onCommandResult, onHidList, onHidOpen, onHidRead, onHidWrite, onHidClose }) {
   /**
    * face 类：原型供方法标记与签名解析，实例带 typertRemote 绑定
    * （协议 bindTypertRemote 的落盘形状：冻结的 {service, serviceKey, namespace}）。
@@ -94,6 +100,16 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSa
     takeCommand() { return this.#guard(() => onTakeCommand()); }
     /** commandResult(id, result) → {ok:true} | {ok:false, error}（命令执行结果回传）。 */
     commandResult(id, result) { return this.#guard(() => onCommandResult(id, result)); }
+    /** hidList() → {ok:true, devices[]} | {ok:false, error}（HID 桥：系统枚举）。 */
+    hidList() { return this.#guard(() => onHidList()); }
+    /** hidOpen(path) → {ok:true, handleId} | {ok:false, error}（HID 桥：独占打开）。 */
+    hidOpen(path) { return this.#guard(() => onHidOpen(path)); }
+    /** hidRead(handleId[, timeoutMs]) → {ok:true, data} | {ok:false, error:"timeout"}（HID 桥：读一次上报）。 */
+    hidRead(handleId, timeoutMs) { return this.#guard(() => onHidRead(handleId, timeoutMs)); }
+    /** hidWrite(handleId, data) → {ok:true, written} | {ok:false, error}（HID 桥：写）。 */
+    hidWrite(handleId, data) { return this.#guard(() => onHidWrite(handleId, data)); }
+    /** hidClose(handleId) → {ok:true}（HID 桥：关闭句柄）。 */
+    hidClose(handleId) { return this.#guard(() => onHidClose(handleId)); }
   }
 
   // 方法标记写原型（协议 mark() 的落盘形状：版本化冻结描述符）。

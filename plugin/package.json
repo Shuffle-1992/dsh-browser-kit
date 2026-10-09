@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "icon": "./icon.svg",
   "exports": {
     ".": "./entry.mjs",
     "./client": "./client.js",
@@ -11,7 +12,9 @@
     "./package.json": "./package.json"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
@@ -25,5 +28,8 @@
   "meta": {
     "title": "DSH 浏览器增强套件",
     "description": "给 DSH 内置浏览器加编码助手协作能力：元素批注（多窗口共享会话、编号跨窗口延续、提交合并落盘）、截图回传（agent 可直接读图）、设备通讯观测（HID/Serial/USB）与一条由实施会话驱动的命令通道。"
+  },
+  "dependencies": {
+    "node-hid": "^3.4.0"
   }
 }

@@ -68,6 +68,12 @@ window.__ModuleLoader__.load({
         ['getInjectScript', [], 'getInjectScript(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>', []],
         ['takeCommand', [], 'takeCommand(): Promise<{ok:true, command}|{ok:false, error}>（command=null 表示无命令）', []],
         ['commandResult', ['id', 'result'], 'commandResult(id, result): Promise<{ok:true}|{ok:false, error}>', []],
+        // ── HID 桥（R-HID：与 wire.host.mjs FACE_METHOD_TABLE 逐字对账）──
+        ['hidList', [], 'hidList(): Promise<{ok:true, devices:[{path,vendorId,productId,serialNumber,product,manufacturer,usagePage,usage}]}|{ok:false, error}>（枚举系统全部 HID 设备）', []],
+        ['hidOpen', ['path'], 'hidOpen(path): Promise<{ok:true, handleId}|{ok:false, error}>（独占打开设备）', []],
+        ['hidRead', ['handleId', 'timeoutMs'], 'hidRead(handleId, timeoutMs?): Promise<{ok:true, data:number[]}|{ok:false, error}>（读一次上报，超时返回 timeout）', ['timeoutMs']],
+        ['hidWrite', ['handleId', 'data'], 'hidWrite(handleId, data): Promise<{ok:true, written}|{ok:false, error}>（写入字节数组）', []],
+        ['hidClose', ['handleId'], 'hidClose(handleId): Promise<{ok:true}|{ok:false, error}>（关闭句柄）', []],
       ].map(([method, parameters, , optionals]) => ({
         id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
@@ -1863,6 +1869,29 @@ window.__ModuleLoader__.load({
               const sr = unwrap(await svc.saveAnnotations(r.markdown, meta));
               if (sr && sr.ok) announceSubmission({ ok: true, path: sr.path, count: (r.annotations || []).length });
               return sr && sr.ok ? { ok: true, path: sr.path, bytes: sr.bytes, count: (r.annotations || []).length } : { ok: false, error: (sr && sr.error) || '保存失败' };
+            },
+            'hid-enumerate': async function (svc, c) {
+              // R-HID：HID 桥诊断——host 侧 node-hid 枚举（绕开 select-hid-device 宿主缺口的系统层直连）。
+              // 信封防御拆包：typert 信封 {ok,value} 可能双层（face 自己的 {ok,devices} 外再包一层），
+              // 一路下钻到 devices 字段为止（P29 家族：形状假设错 = 静默失败）。
+              const peel = (x) => (x && typeof x === 'object' && !Array.isArray(x) && x.devices ? x : x && typeof x === 'object' && x.value ? peel(x.value) : null);
+              const r = peel(await svc.hidList());
+              if (!r || r.ok !== true) return { ok: false, error: (r && r.error) || 'hidList 失败（信封形状见 kit-status hidPeek）' };
+              return { ok: true, count: r.devices.length, devices: r.devices.slice(0, 40) };
+            },
+            'hid-open': async function (svc, c) {
+              // R-HID：按 vendorId/productId 打开第一个匹配设备（诊断/调试用；正式流程走 polyfill）。
+              // peelTo 谓词按目标形状分流：hidList（devices 数组）/hidOpen（handleId）/hidRead（ok 字段）各自终止。
+              const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
+              const list = peelTo(await svc.hidList(), (x) => Array.isArray(x.devices));
+              if (!list || list.ok !== true) return { ok: false, error: 'hidList 失败' };
+              const vid = Number(c && c.vendorId), pid = Number(c && c.productId);
+              const dev = list.devices.find((d) => d.vendorId === vid && d.productId === pid);
+              if (!dev) return { ok: false, error: 'no matching device (vid=' + c.vendorId + ' pid=' + c.productId + ')' };
+              const opened = peelTo(await svc.hidOpen(dev.path), (x) => x.handleId || x.ok === false);
+              if (!opened || opened.ok !== true) return opened || { ok: false, error: 'hidOpen 失败' };
+              const read = peelTo(await svc.hidRead(opened.handleId, Number(c && c.readMs) || 300), (x) => x.ok !== undefined);
+              return { ok: true, handleId: opened.handleId, device: dev.product, firstRead: read && read.data ? read.data : read };
             }
 
           };

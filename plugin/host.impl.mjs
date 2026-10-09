@@ -17,6 +17,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { dirname, join, resolve as pathResolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
+import * as hidBridge from '../src/hid-bridge.mjs'; // R-HID：HID 系统层直连桥（node-hid 懒加载）
 
 /** 同款 ?ts= 击穿 wire.host.mjs 缓存（由 apply 传入 mtime）。 */
 let wireCacheBust = 'init';
@@ -673,6 +674,12 @@ export async function apply(ctx, _config = {}, paths = {}) {
     onGetInjectScript: () => getInjectScriptImpl(paths),
     onTakeCommand: () => takeCommandImpl(paths),
     onCommandResult: (id, result) => commandResultImpl(paths, id, result),
+    // ── HID 桥（R-HID：系统层直连，绕开 Chromium select-hid-device 宿主缺口）──
+    onHidList: () => hidBridge.hidListImpl(),
+    onHidOpen: (path) => hidBridge.hidOpenImpl(path),
+    onHidRead: (handleId, timeoutMs) => hidBridge.hidReadImpl(handleId, timeoutMs),
+    onHidWrite: (handleId, data) => hidBridge.hidWriteImpl(handleId, data),
+    onHidClose: (handleId) => hidBridge.hidCloseImpl(handleId),
     onDeleteAnnotations: (p) => {
       const r = deleteAnnotationsImpl(paths, p);
       log(r.ok ? 'info' : 'warn', `deleteAnnotations → ${r.ok ? `${r.removedFile}（索引行 -${r.removedIndexEntries}）` : r.error}`);
