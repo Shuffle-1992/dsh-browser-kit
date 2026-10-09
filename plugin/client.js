@@ -801,7 +801,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.5';
+          const EXPECTED_ANNOT_VERSION = '1.6.6';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1515,7 +1515,28 @@ window.__ModuleLoader__.load({
               return Math.max(0, Math.round(bar.height) + 24);
             } catch { return 0; }
           };
-          /** 一次性把"可见带(宽/高) + 放大倍数 + 让位抬升"推给批注器（少一次往返）。 */
+          /** R-OWN v17：把"面板应有的**屏幕位置**"换算成 guest 坐标（右缘 + 下缘）。
+           *  目的：批注面板**固定在自持小窗上方**，且改分辨率/缩放都**不漂移**（先前按"可见带"锚定
+           *  会随分辨率变化——用户实测反馈）。仅在自持窗口**小窗**状态启用；展开态回退可见带定位。 */
+          const annotAnchors = (pane) => {
+            try {
+              if (paneOwnerLabel(pane).kind !== 'session') return null;
+              if ((agentView.ui && agentView.ui.state) !== 'collapsed') return null;
+              const bar = (agentView.panel && document.contains(agentView.panel)) ? agentView.panel.getBoundingClientRect() : null;
+              if (!bar || bar.height <= 0) return null;
+              const host = pane.parentElement || pane;
+              const hr = host.getBoundingClientRect();
+              const k = paneUiScale(pane) || 1;
+              const screenRight = hr.right - 12;
+              const screenBottom = bar.top - 12; // 紧贴小窗上沿
+              if (screenRight <= hr.left || screenBottom <= hr.top) return null;
+              return {
+                right: Math.max(8, Math.round((screenRight - hr.left) / k)),
+                bottom: Math.max(8, Math.round((screenBottom - hr.top) / k)),
+              };
+            } catch { return null; }
+          };
+          /** 一次性把"可见带(宽/高) + 放大倍数 + 让位抬升 + 屏幕锚点"推给批注器（少一次往返）。 */
           const syncAnnotMetrics = (pane) => {
             try {
               if (!pane) return;
@@ -1523,7 +1544,10 @@ window.__ModuleLoader__.load({
               const bandH = paneVisibleHeight(pane);
               const s = Number(paneUiScale(pane).toFixed(4));
               const lift = annotBottomExtra(pane);
-              pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setPaneMetrics) ? window.__dshKitAnnotator.setPaneMetrics({ visibleWidth: ${band}, visibleHeight: ${bandH}, uiScale: ${s}, bottomExtra: ${lift} }) : 0`, true).catch(() => {});
+              const anch = annotAnchors(pane);
+              const aR = anch ? anch.right : 0;
+              const aB = anch ? anch.bottom : 0;
+              pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setPaneMetrics) ? window.__dshKitAnnotator.setPaneMetrics({ visibleWidth: ${band}, visibleHeight: ${bandH}, uiScale: ${s}, bottomExtra: ${lift}, anchorRight: ${aR}, anchorBottom: ${aB} }) : 0`, true).catch(() => {});
             } catch { /* 忽略 */ }
           };
 
@@ -2450,12 +2474,22 @@ window.__ModuleLoader__.load({
             frame.style.transform = `scale(${expanded ? k : 0.0001})`;
             panel.style.width = expanded ? `${panelW}px` : '260px';
             panel.style.height = expanded ? `${panelH}px` : `${barH + 12}px`;
-            // 展开：贴到标题栏下方（右上角窗口按钮不被遮挡）；收起：右下角小窗
-            // R-OWN v15：小窗**始终停右下角**；批注激活时不挪小窗，改由批注面板**抬升**让位
-            //   （用户指定布局：批注面板在上、自持小窗在下，两者都可见）。
+            // R-OWN v17：小窗停靠在**侧栏浏览器板块的右下角**（不是整个窗口右下角）——
+            //   guest 内的批注面板只能在板块范围内，这样它正好落在小窗**正上方**（用户指定布局）。
             const annotOn = !!(stateRef.annot && stateRef.annot.active);
             panel.style.top = expanded ? `${topOffset}px` : 'auto';
-            panel.style.bottom = expanded ? 'auto' : '16px';
+            let dockBottom = 16;
+            try {
+              if (!expanded) {
+                const paneEl = ((stateRef.annot && stateRef.annot.panes) || []).find((p) => paneOwnerLabel(p).kind === 'session')
+                  || scopedWebviews(currentSurfaceSession()).find(captureVisible) || null;
+                if (paneEl) {
+                  const pr = paneEl.getBoundingClientRect();
+                  if (pr.height > 80 && pr.bottom > 40) dockBottom = Math.max(12, Math.round(window.innerHeight - pr.bottom + 12));
+                }
+              }
+            } catch { dockBottom = 16; }
+            panel.style.bottom = expanded ? 'auto' : `${dockBottom}px`;
             panel.style.right = expanded ? '12px' : '16px';
             panel.style.left = 'auto';
             void annotOn;
@@ -4952,11 +4986,18 @@ window.__ModuleLoader__.load({
                 for (const form of toolbarForms()) {
                   const src = sysBrowserBtnOf(form);
                   if (!src) continue;
-                  const c = getComputedStyle(src).color;
+                  // ★取**图标元素**（svg）的 computed 风格，而不是按钮的：DSH 图标常把颜色写在自己的
+                  //   svg/主题令牌上，按钮的 color 未必等于字形颜色（实测：抄按钮颜色仍然明显偏亮）
+                  const icon = src.querySelector('svg') || src;
+                  const cs = getComputedStyle(icon);
+                  const c = cs.color;
                   if (!c) continue;
+                  const op = cs.opacity;
                   for (const id of ['dsh-kit-toolbar-size-btn', 'dsh-kit-toolbar-shot-btn', 'dsh-kit-toolbar-btn', 'dsh-kit-toolbar-own-btn']) {
                     const b = form.querySelector('#' + id);
-                    if (b && b.style.color !== c) b.style.color = c;
+                    if (!b) continue;
+                    if (b.style.color !== c) b.style.color = c;
+                    if (op && b.style.opacity !== op) b.style.opacity = op;
                   }
                 }
               } catch { /* 忽略 */ }
