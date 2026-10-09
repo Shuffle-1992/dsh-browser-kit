@@ -462,7 +462,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.7.1"; // 1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.7.2"; // 1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -753,10 +753,30 @@
   var resizeRaf = 0; // R-06（1.6.2）：resize 合帧——拖拽窗口时每帧最多重定位一次
   var popoverSize = null; // R-07（1.6.2）：popover 尺寸缓存（内容不变则宽高恒定）
 
+  /** R-OWN v21：**页面根元素 / 整页背景层**——批注不应选中它们。
+   *  用户反馈：「鼠标移出浏览范围会默认选中最大的背景页（html）」——即 hover/点击落到
+   *  `<html>`/`<body>` 或"铺满整个视口的容器"时，应当**什么都不选**（隐藏高亮与提示、点击不采集）。 */
+  function isRootTarget(el) {
+    try {
+      if (!el) return true;
+      var d = el.ownerDocument || document;
+      if (el === d.documentElement || el === d.body) return true;
+      var vw = (d.documentElement && d.documentElement.clientWidth) || 0;
+      var vh = (d.documentElement && d.documentElement.clientHeight) || 0;
+      if (vw <= 0 || vh <= 0) return false;
+      var r = el.getBoundingClientRect();
+      var full = r.width >= vw - 1 && r.height >= vh - 1;
+      if (!full) return false;
+      // 铺满视口且只有极少数子节点 ⇒ 视为"背景层"（站点常见 #app/#root 包裹）；其子节点照常可批注
+      return (el.children ? el.children.length : 0) <= 2;
+    } catch (e) { return false; }
+  }
+
   function updateOverlay(target) {
     if (
       !target ||
       isUiTarget(target) ||
+      isRootTarget(target) || // R-OWN v21：背景层不选中（整页高亮 + "html 1920×864" 提示即此因）
       target === overlay ||
       target === popover ||
       (popover && popover.contains(target))
@@ -1465,6 +1485,10 @@
     if (event.button !== 0) {
       return; // 非左键只拦截不采集
     }
+    if (isRootTarget(target)) {
+      updateOverlay(null); // R-OWN v21：点页面背景/根元素**不采集**（避免误记"整页"批注）
+      return;
+    }
     if (inputState) {
       commitNoteInput(); // 点新元素前自动落定上一条意见
     }
@@ -1507,6 +1531,22 @@
       }
       updateOverlay(t);
     });
+  }
+
+  /** R-OWN v21：指针**离开文档**（移出网页区域）时清掉高亮/提示——
+   *  否则最后命中的元素会一直"挂着"，看起来像被选中（用户反馈）。 */
+  function handlePointerLeave() {
+    if (!session) {
+      return;
+    }
+    try {
+      if (hoverRaf) {
+        cancelAnimationFrame(hoverRaf);
+        hoverRaf = 0;
+      }
+      hoverPending = null;
+      updateOverlay(null);
+    } catch (e) { /* 忽略 */ }
   }
 
   function handleKeyDown(event) {
@@ -1600,6 +1640,14 @@
       addSessionListener(document, "mousemove", handleMouseMove, true);
       addSessionListener(document, "click", handlePickClick, true);
       addSessionListener(document, "keydown", handleKeyDown, true);
+      // R-OWN v21：指针移出网页区域（离开文档 / 离开窗口）→ 清高亮与提示，避免"残留选中"
+      addSessionListener(document, "mouseleave", handlePointerLeave, false);
+      addSessionListener(window, "mouseout", function (event) {
+        if (!event || !event.relatedTarget) {
+          handlePointerLeave(); // relatedTarget 为空 = 指针离开了本帧
+        }
+      }, true);
+      addSessionListener(window, "blur", handlePointerLeave, false);
       addSessionListener(window, "resize", handleResize, false);
     });
   }
