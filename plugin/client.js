@@ -1542,6 +1542,16 @@ window.__ModuleLoader__.load({
           /** guest 内取「自动化目标文档」：优先 kit 沙箱 iframe（page-open 建立），否则顶层。 */
           const TARGET_DOC_SNIPPET =
             'var DOC = (function () { var f = document.querySelector("iframe[data-dsh-kit-frame]"); try { return f && f.contentDocument ? f.contentDocument : document; } catch (e) { return document; } })();';
+          /* P43：face 外层信封 {ok, value} 剥离（**只看信封形状，不用业务键**）——
+           * 曾有谓词以「ok 字段存在」为终止条件，而外层信封自己就带 ok → 内层业务结果被吞。 */
+          const faceUnwrap = (x) => {
+            let cur = x;
+            for (let i = 0; i < 4; i++) {
+              if (cur && typeof cur === 'object' && !Array.isArray(cur) && cur.value !== undefined && cur.ok !== undefined) cur = cur.value;
+              else break;
+            }
+            return cur;
+          };
           /* 命令处理器分域清单（C2 拆表）：action → async (svc, c) => result。
            * 动作全量清单与唯一性由静态契约钉死（plugin-impl §3.9）；case 体与拆表前逐字一致。 */
           const commandHandlers = {
@@ -1883,24 +1893,23 @@ window.__ModuleLoader__.load({
             },
             'hid-open': async function (svc, c) {
               // R-HID：按 vendorId/productId 打开第一个匹配设备（诊断/调试用；正式流程走 polyfill）。
-              // peelTo 谓词按目标形状分流：hidList（devices 数组）/hidOpen（handleId）/hidRead（ok 字段）各自终止。
-              const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
-              const list = peelTo(await svc.hidList(), (x) => Array.isArray(x.devices));
+              // P43：统一走 faceUnwrap（信封剥离只看 {ok,value} 形状）——此前 hidRead 以「ok 字段存在」
+              // 当拆包谓词，命中外层信封导致 firstRead 永远「无 data」，诊断结论被带偏。
+              const list = faceUnwrap(await svc.hidList());
               if (!list || list.ok !== true) return { ok: false, error: 'hidList 失败' };
               const vid = Number(c && c.vendorId), pid = Number(c && c.productId);
               const dev = list.devices.find((d) => d.vendorId === vid && d.productId === pid);
               if (!dev) return { ok: false, error: 'no matching device (vid=' + c.vendorId + ' pid=' + c.productId + ')' };
-              const opened = peelTo(await svc.hidOpen(dev.path), (x) => x.handleId || x.ok === false);
+              const opened = faceUnwrap(await svc.hidOpen(dev.path));
               if (!opened || opened.ok !== true) return opened || { ok: false, error: 'hidOpen 失败' };
-              const read = peelTo(await svc.hidRead(opened.handleId, Number(c && c.readMs) || 300), (x) => x.ok !== undefined);
+              const read = faceUnwrap(await svc.hidRead(opened.handleId, Number(c && c.readMs) || 300));
               return { ok: true, handleId: opened.handleId, device: dev.product, firstRead: read && read.data ? read.data : read };
             },
             'hid-trace': async function (svc, c) {
               // R-COMM：桥收发十六进制 trace（通讯调试——写/读字节流按序回放）
-              const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
-              const r = peelTo(await svc.hidTrace(), (x) => Array.isArray(x.trace));
+              const r = faceUnwrap(await svc.hidTrace());
               if (!r || r.ok !== true) return { ok: false, error: 'hidTrace 失败' };
-              return { ok: true, count: r.trace.length, trace: r.trace.slice(-60) };
+              return { ok: true, count: r.trace.length, trace: r.trace.slice(-60), handles: r.handles || [] };
             }
 
           };
@@ -2364,6 +2373,20 @@ window.__ModuleLoader__.load({
             // R-HID：typert 信封可能双层（face 自身 {ok,devices} 外再包 {ok,value}）——
             // peelTo 按目标形状防御下钻（P41 家族：单层 unwrap 假设错 = 静默失败）。
             const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
+            /* P43（2026-10-09 实机定论）：**信封剥离必须只看信封形状，不能用业务键当谓词**。
+             *  hidRead 曾以「ok 字段存在」为终止谓词——而**外层信封自身就带 ok**
+             *  （face #guard 返回 {ok:true, value:<业务结果>}），谓词在外层即刻命中，返回的
+             *  是 `{ok:true, value:{ok:true,data:[...]}}`；shim 判 `Array.isArray(r.data)` 失败
+             *  → 静默 return → 页面永远收不到 inputreport（现场：设备响应全到桥，页面全 timeout）。
+             *  faceUnwrap 逐层剥 {ok,value}（含 value 才算信封），剥到非信封为止。 */
+            const faceUnwrap = (x) => {
+              let cur = x;
+              for (let i = 0; i < 4; i++) {
+                if (cur && typeof cur === 'object' && !Array.isArray(cur) && cur.value !== undefined && cur.ok !== undefined) cur = cur.value;
+                else break;
+              }
+              return cur;
+            };
             const HID_SHIM_PROBE = '(function(){ return { has: typeof window.__dshKitHidShimVersion, mtime: window.__dshKitHidShimMtime || null, q: (window.__dshKitHidQueue ? window.__dshKitHidQueue.length : -1) }; })()';
             const tickHidBridge = async (svc, webviews) => {
               if (!svc || typeof svc.getHidShim !== 'function') return;
@@ -2411,11 +2434,11 @@ window.__ModuleLoader__.load({
                     for (const req of batch) {
                       try {
                         let r = null;
-                        if (req.method === 'hidList') r = peelTo(await svc.hidList(), (x) => Array.isArray(x.devices));
-                        else if (req.method === 'hidOpen') r = peelTo(await svc.hidOpen(req.params.path), (x) => x.handleId || x.ok === false);
-                        else if (req.method === 'hidRead') r = peelTo(await svc.hidRead(req.params.handleId, req.params.timeoutMs), (x) => x.ok !== undefined);
-                        else if (req.method === 'hidWrite') r = peelTo(await svc.hidWrite(req.params.handleId, req.params.data), (x) => x.ok !== undefined);
-                        else if (req.method === 'hidClose') r = peelTo(await svc.hidClose(req.params.handleId), (x) => x.ok !== undefined);
+                        if (req.method === 'hidList') r = faceUnwrap(await svc.hidList());
+                        else if (req.method === 'hidOpen') r = faceUnwrap(await svc.hidOpen(req.params.path));
+                        else if (req.method === 'hidRead') r = faceUnwrap(await svc.hidRead(req.params.handleId, req.params.timeoutMs));
+                        else if (req.method === 'hidWrite') r = faceUnwrap(await svc.hidWrite(req.params.handleId, req.params.data));
+                        else if (req.method === 'hidClose') r = faceUnwrap(await svc.hidClose(req.params.handleId));
                         else r = { ok: false, error: '未知桥方法：' + req.method };
                         await withTimeout(
                           el.executeJavaScript(`window.__dshKitHidResolve(${JSON.stringify(req.id)}, ${JSON.stringify(r)})`, true),
@@ -2433,6 +2456,53 @@ window.__ModuleLoader__.load({
                   }
                 } catch { /* 单面板失败不影响其他面板/主流程 */ }
               }
+            };
+            /* R-PUMP（1.2.0 实测定论）：**HID 专用快泵**——2s 主 tick 的往返延迟远超站点协议预算
+             *  （EQ TagId 只等 1.5s、麦克风/offset 5s）：实测一次读往返 1.7–4.2s ⇒ 页面全 timeout。
+             *  自适应循环：有活就快（下一轮 40ms），连续空闲退避到 600ms（闲时不打扰宿主）。
+             *  一轮 = 2 次 guest 调用（取队列 + 批量回推）；face 调用并发（阻塞中的 hidRead 不拖住写）。 */
+            const hidBridgeCall = async (svc, req) => {
+              if (req.method === 'hidList') return faceUnwrap(await svc.hidList());
+              if (req.method === 'hidOpen') return faceUnwrap(await svc.hidOpen(req.params.path));
+              if (req.method === 'hidRead') return faceUnwrap(await svc.hidRead(req.params.handleId, req.params.timeoutMs));
+              if (req.method === 'hidWrite') return faceUnwrap(await svc.hidWrite(req.params.handleId, req.params.data));
+              if (req.method === 'hidClose') return faceUnwrap(await svc.hidClose(req.params.handleId));
+              return { ok: false, error: '未知桥方法：' + req.method };
+            };
+            const HID_PUMP_MAX_BATCH = 24; // 单轮上限（远超实际并发：shim 侧单飞 = 同时最多 1 读 + 少量写）
+            const pumpHidOnce = async () => {
+              const svc = stateRef.getRemote ? stateRef.getRemote() : null;
+              if (!svc || typeof svc.hidRead !== 'function') return false;
+              let did = false;
+              for (const el of Array.from(document.querySelectorAll('webview'))) {
+                try {
+                  const n = await withTimeout(el.executeJavaScript('(window.__dshKitHidQueue ? window.__dshKitHidQueue.length : 0)', true), 2000, 'hid-pump-q');
+                  if (!n) continue;
+                  const reqs = await withTimeout(el.executeJavaScript('JSON.stringify(window.__dshKitHidQueue.splice(0, window.__dshKitHidQueue.length))', true), 3000, 'hid-pump-take');
+                  const list = JSON.parse(reqs || '[]');
+                  if (!list.length) continue;
+                  did = true;
+                  const out = Object.create(null);
+                  await Promise.all(list.slice(0, HID_PUMP_MAX_BATCH).map(async (req) => {
+                    try { out[req.id] = await hidBridgeCall(svc, req); }
+                    catch (e) { out[req.id] = { ok: false, error: msgOf(e) }; }
+                  }));
+                  const deferred = list.slice(HID_PUMP_MAX_BATCH);
+                  const back = deferred.length
+                    ? `window.__dshKitHidQueue = ${JSON.stringify(deferred)}.concat(window.__dshKitHidQueue || []);`
+                    : '';
+                  await withTimeout(el.executeJavaScript(`window.__dshKitHidResolveBatch(${JSON.stringify(out)});${back}`, true), 3000, 'hid-pump-resolve');
+                } catch { /* 单面板失败（导航中/未就绪）：下轮再试 */ }
+              }
+              return did;
+            };
+            const startHidPump = () => {
+              const loop = async () => {
+                let did = false;
+                try { did = await pumpHidOnce(); } catch { /* 下轮再试 */ }
+                setTimeout(loop, did ? 40 : 400);
+              };
+              setTimeout(loop, 400);
             };
             const tickChipLifecycle = (webviews) => {
               refreshPanes(webviews);
@@ -2500,6 +2570,8 @@ window.__ModuleLoader__.load({
               } catch { /* 桥 tick 失败：下轮再试 */ }
               await tickSelfHealAndAutoJoin(st, activeIds, webviews);
             }, 2000));
+            // R-PUMP：HID 快泵（自适应 40ms/400ms）——2s 主 tick 只负责注入/主题等低频职责。
+            try { startHidPump(); } catch { /* 泵启动失败不拦主流程 */ }
           } catch (e) {
             say('warn', `工具条按钮注入失败（不影响其他功能）：${msgOf(e)}`);
           }

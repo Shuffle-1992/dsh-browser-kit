@@ -204,3 +204,19 @@
 - **现象**（2026-10-09 WebHID shim 实测）：shim 源更新后，guest 里跑的仍是旧版——三重死锁：①shim 自身幂等守卫（`if (version) return`）挡住重跑；②guest 里没有记录 mtime（旧版注入时未写）；③client 缓存空（重启后）→「mtime 比对」两侧都未知 → 永不重注入。
 - **对策**：三件套——①注入判定用 **「未知即重注」**（client 缓存或 guest mtime 任一未知 → 无条件重注一次建立基线；幂等成本低：一个 IIFE + 一次 face 调用）；②重注前 **`delete window.__dshKit<Name>Version`** 破掉幂等守卫 + **备份并 delete 被覆盖的 navigator 属性**；③注入时把源 mtime 写进 guest（`window.__dshKit<Name>Mtime`），下次 probe 带回比对。
 - **判据**：改了注入源但 guest 行为没变 + guest 里版本号没变 → 先查「重注入是否真的发生」（probe mtime），不要先怀疑新代码。
+### P43 「业务键当信封谓词」= 结果恒被判空（页面全 timeout 的真根因）
+- **现象**（2026-10-09 真机实测，keysion.cn 控制台）：HID 桥 trace 显示设备响应全部到达（W/R 成对）、设备信息弹窗却「固件版本 错误:timeout / EQ TagID 未读取 / 麦克风 未读取」，只有 devices.json 静态字段正常——**看起来像通讯坏了，其实是客户端把结果吞了**。
+- **根因**：face 方法经 `#guard` 返回的是**外层信封** `{ok:true, value:<业务结果>}`（P41 同族）。client 侧拆包谓词写成 `(x) => x.ok !== undefined`——**外层信封自身就带 ok**，谓词在外层即刻命中并返回整个信封；shim 判 `Array.isArray(r.data)` 失败 → 静默 `return` → 页面永远收不到 `inputreport`。`hidWrite`/`hidClose` 同款谓词更阴：桥的错误也会被外层 `ok:true` 伪装成成功。
+- **证据链（缺一不可）**：①guest 侧包装 `__dshKitHidQueue.push` / `__dshKitHidResolve` → `{hidRead|ok|n=0}` ×9（**回推成功但零 data**）；②宿主 side `hid-open` 的 firstRead 回显 `{ok:true, value:{ok:false,error:"timeout"}}`（信封形状现行）；③真机 node-hid 判别实验（写包首字节必须 0x4b，`0x00` 直接 WriteFile 0x57）排除线格式嫌疑。
+- **对策**：拆包**只看信封形状、不用业务键**——`faceUnwrap`（含 `value` 且含 `ok` 才算信封，逐层剥到非信封）；src/bridge-envelope.mjs 正典 + client 内嵌副本 parity + 静态契约钉死「禁止 ok 字段谓词」；guest 侧再叠一层 `bridgeResult` 防御（信封泄漏也能投递）。
+- **判据**：**「桥收到了、页面没反应」+ 回推结果 ok 但业务字段空** → 先查信封层数/谓词，不要先查设备、驱动、独占。
+### P44 观测层自己失真：Buffer.map 把 hex 字符串强转回数值，写包 trace 全 0x00
+- **现象**（2026-10-09 排查被带偏一次）：桥 trace 里所有**写包**都显示首字节 `0x00`，而真机判别实验证明该字节必须是 `0x4b`（否则 WriteFile 报 0x57）——两者矛盾，导致「是谁改了写包」的错误怀疑方向。
+- **根因**：`tracePush` 写 `buf.map(b => (b<16?'0':'')+b.toString(16))`——`Buffer` 走 TypedArray 的 `map`，回调返回的**字符串被按元素类型强转回数值**（`'4b'`→NaN→0）；读包用 `Array.from(data)` 是普通数组所以显示正常，**同一函数两种形态两种结果**，极具迷惑性。
+- **对策**：hex 统一 `Array.from(bytes)` 后再 `map`（`src/hid-bridge.mjs`）。教训：**观测/诊断代码的正确性要和业务代码同级对待**——它会以「事实」的身份污染整个排查方向。
+- **判据**：trace/日志与独立实验矛盾时，**先怀疑观测层**（打印一次已知值自证），再怀疑业务。
+### P45 HID 读通道：定时空转轮询 + tick 级往返 = 超时旧请求抢走响应
+- **现象**（2026-10-09 实测，P43 修好之后暴露）：页面能收到事件了，但一次读往返 **1.7–4.2s**；站点协议里 EQ TagId 只等 1.5s、麦克风/offset 5s ⇒ 仍会大面积 timeout；且 guest 队列持续堆积（入 4 req/s，出 2 req/s）。
+- **根因**：①shim 每 250ms 无脑发一次读、**不等上一次回来**（多请求在飞）；②client 每 2s 才消费一批（上限 4）。**已超时的旧请求仍会被执行并抢走设备响应**，而页面侧 Promise 早已丢弃 → 数据静默蒸发。
+- **对策**：shim 改**单飞 + 立即续读**（一次只挂一个读，读结束即刻排下一次，`timeoutMs` 拉到 800ms 长读）；client 起 **HID 快泵**（有活 40ms / 空闲 400ms 自适应，一轮 = 取队列 + 批量回推两次 guest 调用，face 调用并发）——实测往返降到 **77–140ms**（约 20 倍），队列归零。
+- **判据**：功能通了但字段仍零星 timeout + 队列长度长期 >0 ⇒ 查「每秒请求数 vs 消费能力」，别急着加超时时间。

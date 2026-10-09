@@ -56,10 +56,14 @@ const HID_GLOBAL = (function () {
 const handles = HID_GLOBAL.handles; // 单例 Map（跨 impl 重载存活）
 function nextHandleSeq() { HID_GLOBAL.seq += 1; return HID_GLOBAL.seq; }
 
-/** 通讯 trace（环形 200 条，hidTraceImpl 读）。 */
+/** 通讯 trace（环形 200 条，hidTraceImpl 读）。
+ *  R-FMT：hex 必须走 Array.from 再 map——**Buffer.map 会把回调返回的字符串强转回数值**
+ *  （TypedArray.map 语义）：'4b'→NaN→0，于是写包 trace 全部显示 0x00，与真机线格式
+ *  完全不符（本轮排查被这层假象带偏一次：真机写包其实是 4b 80 0c…）。 */
 const TRACE = (function(){ try { if (!globalThis.__dshKitHidTrace) globalThis.__dshKitHidTrace = []; return globalThis.__dshKitHidTrace; } catch (_) { return []; } })();
 function tracePush(dir, handleId, bytes) {
-  TRACE.push({ at: new Date().toISOString(), dir, handleId, hex: (bytes || []).map((b) => (b < 16 ? '0' : '') + b.toString(16)).join(' ') });
+  const arr = Array.isArray(bytes) ? bytes : Array.from(bytes || []);
+  TRACE.push({ at: new Date().toISOString(), dir, handleId, hex: arr.map((b) => (b < 16 ? '0' : '') + Number(b).toString(16)).join(' ') });
   if (TRACE.length > 200) TRACE.splice(0, TRACE.length - 200);
 }
 

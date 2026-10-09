@@ -20,12 +20,15 @@
   if (window.__dshKitHidShimVersion) {
     return; // 幂等：重复注入直接返回
   }
-  window.__dshKitHidShimVersion = "1.1.2";
+  window.__dshKitHidShimVersion = "1.2.0";
 
   var REQ_SEQ = 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
   var PENDING = {}; // reqId -> { resolve, reject, timer }
   var OPEN_DEVICES = {}; // handleId -> HIDDevice shim 实例
+  /* R-DIAG：现场可视诊断（挂 window，跨重注入保留）——「桥读了 N 次 / 真正投递给页面 M 次」
+   *  一眼区分「没读到」与「读到了没投递」两类故障（本轮 P43 排查就是缺这一层计数）。 */
+  var DIAG = window.__dshKitHidDiag = window.__dshKitHidDiag || { reads: 0, delivered: 0, samples: [], lastErr: null };
 
   function callBridge(method, params, timeoutMs) {
     return new Promise(function (resolve, reject) {
@@ -38,6 +41,17 @@
     });
   }
 
+  /** 桥结果防御拆包（P43 家族）：typert face 外层信封 `{ok, value}` 若泄漏到 guest 侧
+   *  （client 拆包回归/多一层封装），`r.ok` 为真但**没有 data** → 事件被静默丢弃。
+   *  这里按信封形状逐层剥（含 value 且缺业务字段才算信封），不假设层数。 */
+  function bridgeResult(r) {
+    for (var i = 0; i < 3; i++) {
+      if (r && typeof r === "object" && r.value !== undefined && r.ok !== undefined && r.data === undefined && r.handleId === undefined) r = r.value;
+      else break;
+    }
+    return r;
+  }
+
   /** client 拿到结果后回推入口（client 经 executeJavaScript 调用）。 */
   window.__dshKitHidResolve = function (reqId, result) {
     var p = PENDING[reqId];
@@ -45,6 +59,15 @@
     delete PENDING[reqId];
     clearTimeout(p.timer);
     p.resolve(result);
+  };
+
+  /** 批量回推入口（R-PUMP）：client 一次 executeJavaScript 回推整批结果——
+   *  快泵每轮只需 2 次 guest 调用（取队列 + 批量回推），把往返延迟压到一个泵周期。 */
+  window.__dshKitHidResolveBatch = function (map) {
+    if (!map || typeof map !== "object") return;
+    for (var id in map) {
+      if (Object.prototype.hasOwnProperty.call(map, id)) window.__dshKitHidResolve(id, map[id]);
+    }
   };
 
   // ---------- 主题（R-STYLE）：client 从 GUI 文档采集令牌实值传入，挂 guest CSS 变量 ----------
@@ -181,7 +204,23 @@
   var GRANTS = []; // 已授权设备信息（{vendorId, productId, serialNumber, product, path}）
   var DEVICE_INSTANCES = {}; // path -> ShimHIDDevice（实例复用；handleId 惰性分配）
   var DEVICE_OPEN_STATE = {}; // path -> boolean（桥侧句柄是否已开）
-  var listeners = {}; // path -> { inputreport: [fn] }（addEventListener 形态的事件表，R-COMM）
+  // 事件表迁到 window 级 SHARED.listeners（见下 R-SHARE）；旧 `var listeners` 已废，避免双源。
+
+  /* R-SHARE（1.2.0）：跨重注入共享「监听器表 + 轮询所有权」。
+   *  client 会因 shim 源 mtime 变化重注入（旧 IIFE 作用域销毁，但**页面闭包里仍持旧 HIDDevice
+   *  实例**）：旧实现下旧实例的轮询握着**已失效的桥句柄**空转、新实例却因为没有监听器不轮询
+   *  ⇒ 数据流彻底断（现场：句柄 hid-2/hid-3 漂移、事件 0、页面全 timeout）。
+   *  共享表让重注入后旧实例的 addEventListener 仍登记到同一张表，新 shim 的轮询直接把事件
+   *  投递给它们；轮询所有权（token）保证同一设备**只有一个活循环**（多循环会分散响应）。 */
+  var SHARED = (function () {
+    try {
+      if (!window.__dshKitHidShared) window.__dshKitHidShared = { listeners: {}, polls: {} };
+      var s = window.__dshKitHidShared;
+      if (!s.listeners) s.listeners = {};
+      if (!s.polls) s.polls = {};
+      return s;
+    } catch (_) { return { listeners: {}, polls: {} }; }
+  })();
 
   // R-MIG（1.1.2，评审问题 3 收尾）：**跨重注入状态迁移**——client 检测 shim 源更新会
   // 重注入（旧 IIFE 作用域销毁、页面闭包里的旧设备实例失效），若不迁移：
@@ -206,6 +245,7 @@
             DEVICE_INSTANCES[g.path] = new ShimHIDDevice(g);
           }
           callBridge("hidOpen", { path: g.path }, 20000).then(function (opened) {
+            opened = bridgeResult(opened); // P43：信封泄漏防御
             if (opened && opened.ok) {
               DEVICE_INSTANCES[g.path].__dshKitHandleId = opened.handleId;
               DEVICE_OPEN_STATE[g.path] = true;
@@ -255,32 +295,82 @@
       collections: { get: function () { return []; } },
     });
     this.oninputreport = null;
-    var listenersLocal = { inputreport: [] }; // R-STOPGAP：无人监听就不轮询（空转 hidRead 洪峰曾打爆宿主）
-    function hasListener() { return !!self.oninputreport || listenersLocal.inputreport.length > 0; }
+    /* R-SHARE：监听器登记到 **window 级共享表**（跨重注入存活）——旧实例的方法在重注入后
+     *  依旧有效，新 shim 的轮询把事件投递给同一张表里的全部监听器。 */
+    function sharedListeners() {
+      var p = info.path;
+      if (!SHARED.listeners[p]) SHARED.listeners[p] = [];
+      return SHARED.listeners[p];
+    }
+    function hasListener() { return !!self.oninputreport || sharedListeners().length > 0; }
+
+    /* R-POLL（1.2.0 实测定论）——**单飞 + 立即续读**取代固定 250ms 轮询：
+     *  ① 旧实现每 250ms 无脑发一次读（4 req/s），而 client tick 消费上限 4/2s（2 req/s）：
+     *     入大于出 ⇒ guest 队列无界增长；更致命的是**已超时的旧请求仍会被执行并抢走设备响应**，
+     *     而页面侧 Promise 早已丢弃 ⇒ 页面永远收不到 inputreport（现场：读 42 次、投递 0 次）。
+     *  ② 单飞：同一设备**永远只有一个未决读**，响应不会被分散到多个等待者。
+     *  ③ 立即续读：一次读结束后立刻排下一次（setTimeout 0），延迟只由「客户端泵周期」决定，
+     *     不再叠加 250ms 固定空转。
+     *  ④ 所有权 token：重注入后新实例 startPoll 抢占，旧循环下一轮即停（不双循环）。 */
     var pollTimer = 0;
+    var pollToken = { path: info.path };
+    function ownsPoll() { return SHARED.polls[info.path] === pollToken; }
+    function dispatchReport(data) {
+      // Chrome 语义：ev.data 不含 report id（单列在 ev.reportId）；桥读到的首字节即 report id。
+      var reportId = data[0];
+      var bytes = new Uint8Array(data.slice(1));
+      // Chrome 的 InputReportEvent.data 是 **DataView**（同一 buffer 精确尺寸）——
+      // 站点既有 `new Uint8Array(ev.data.buffer)` 用法，也可能用 getUint8/byteLength；
+      // 给 DataView 才两边都成立（旧实现给 Uint8Array：DataView 方法调用会抛）。
+      var ev = { data: new DataView(bytes.buffer), device: self, reportId: reportId };
+      DIAG.delivered++;
+      if (DIAG.samples.length < 5) {
+        DIAG.samples.push(data.slice(0, 6).map(function (b) { return ("0" + b.toString(16)).slice(-2); }).join(" "));
+      }
+      if (self.oninputreport) { try { self.oninputreport(ev); } catch (_) {} }
+      sharedListeners().slice().forEach(function (fn) {
+        try { fn(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
+      });
+    }
+    function pollOnce() {
+      pollTimer = 0;
+      if (!ownsPoll()) return; // 已被更新的实例接管：静默退场
+      if (!DEVICE_OPEN_STATE[info.path] || !hasListener()) return; // 已关闭/无监听：停泵
+      var handleId = DEVICE_INSTANCES[info.path] && DEVICE_INSTANCES[info.path].__dshKitHandleId;
+      if (!handleId) return;
+      DIAG.reads++;
+      callBridge("hidRead", { handleId: handleId, timeoutMs: 800 }, 8000).then(function (r) {
+        r = bridgeResult(r); // P43：信封泄漏防御（外层 {ok,value} 会让 data 判定落空）
+        if (r && r.ok && Array.isArray(r.data) && r.data.length) dispatchReport(r.data);
+        schedulePoll();
+      }, function (e) {
+        DIAG.lastErr = (e && e.message) || String(e);
+        schedulePoll();
+      });
+    }
+    function schedulePoll() {
+      if (pollTimer || !ownsPoll()) return;
+      if (!DEVICE_OPEN_STATE[info.path] || !hasListener()) return;
+      pollTimer = setTimeout(pollOnce, 0);
+    }
     function startPoll() {
-      if (pollTimer) return;
-      pollTimer = setInterval(function () {
-        var handleId = DEVICE_INSTANCES[info.path] && DEVICE_INSTANCES[info.path].__dshKitHandleId;
-        if (!DEVICE_OPEN_STATE[info.path] || !handleId || !hasListener()) return;
-        callBridge("hidRead", { handleId: handleId, timeoutMs: 200 }, 5000).then(function (r) {
-          if (!(r && r.ok && Array.isArray(r.data) && r.data.length)) return;
-          // Chrome 语义：ev.data 不含 report id；reportId 单列。桥读到的首字节即 report id。
-          var reportId = r.data[0];
-          var data = new Uint8Array(r.data.slice(1));
-          var ev = { data: data, device: self, reportId: reportId };
-          if (self.oninputreport) { try { self.oninputreport(ev); } catch (_) {} }
-          listenersLocal.inputreport.slice().forEach(function (fn) {
-            try { fn(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
-          });
-        }).catch(function () { /* 桥超时：下轮再试 */ });
-      }, 250);
+      SHARED.polls[info.path] = pollToken; // 抢占所有权：旧 shim 的循环下一轮自停
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = 0; }
+      schedulePoll();
     }
     this.__dshKitStartPoll = startPoll;
-    this.__dshKitStopPoll = function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
-    this.__dshKitAddListener = function (type, fn) { if (type === "inputreport" && typeof fn === "function") listenersLocal.inputreport.push(fn); };
+    this.__dshKitStopPoll = function () {
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = 0; }
+      if (ownsPoll()) delete SHARED.polls[info.path];
+    };
+    this.__dshKitAddListener = function (type, fn) {
+      if (type === "inputreport" && typeof fn === "function") { sharedListeners().push(fn); startPoll(); }
+    };
     this.__dshKitRemoveListener = function (type, fn) {
-      if (type === "inputreport") listenersLocal.inputreport = listenersLocal.inputreport.filter(function (f) { return f !== fn; });
+      if (type === "inputreport") {
+        var l = sharedListeners().filter(function (f) { return f !== fn; });
+        SHARED.listeners[info.path] = l;
+      }
     };
   }
   ShimHIDDevice.prototype.addEventListener = function (type, fn) {
@@ -292,8 +382,9 @@
   ShimHIDDevice.prototype.open = function () {
     var self = this;
     var path = this.__dshKitPath;
-    if (DEVICE_OPEN_STATE[path]) return Promise.resolve(); // 已开：幂等（Chrome 同语义）
+    if (DEVICE_OPEN_STATE[path]) { self.__dshKitStartPoll(); return Promise.resolve(); } // 已开：幂等（Chrome 同语义）+ 确保读泵在跑
     return callBridge("hidOpen", { path: path }).then(function (opened) {
+      opened = bridgeResult(opened); // P43：信封泄漏防御
       if (!opened || !opened.ok) throw new Error((opened && opened.error) || "设备打开失败");
       DEVICE_INSTANCES[path].__dshKitHandleId = opened.handleId;
       DEVICE_OPEN_STATE[path] = true;
@@ -319,6 +410,7 @@
     bytes.unshift(reportId || 0);
     while (bytes.length < 64) bytes.push(0);
     return callBridge("hidWrite", { handleId: DEVICE_INSTANCES[this.__dshKitPath].__dshKitHandleId, data: bytes }).then(function (r) {
+      r = bridgeResult(r); // P43：信封泄漏防御（外层 {ok,value} 会把桥错误伪装成成功）
       if (!r || !r.ok) throw new Error((r && r.error) || "hidWrite 失败");
       return;
     });
