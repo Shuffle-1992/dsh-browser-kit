@@ -226,21 +226,77 @@ export const BROWSER_TOOL_SPECS = [
     name: 'browser_click',
     action: 'click',
     timeoutMs: 30000,
-    description: '点击页面元素：ref（来自 browser_snapshot）或 CSS selector，二选一。',
+    staticParams: { mode: 'trusted' },
+    description: '点击页面元素：ref（来自 browser_snapshot）或 CSS selector，二选一。走 **Chromium 级可信事件**（isTrusted=true，React 受控组件/反自动化检测都认）；点击前做**遮挡检测**——中心被别的元素盖住时提前失败并回报遮挡者（确认无误可用 force:true 强点）。',
     parameters: {
       ref: { type: 'number', description: 'browser_snapshot 返回的元素编号' },
       selector: { type: 'string', description: 'CSS 选择器（没有 ref 时使用）' },
+      force: { type: 'boolean', description: 'true = 即使检测到遮挡也照点' },
+      tab: { type: 'number', description: '目标面板序号（0 起；默认当前可见面板）' },
+    },
+  },
+  {
+    name: 'browser_dblclick',
+    action: 'input',
+    timeoutMs: 30000,
+    staticParams: { op: 'dblclick' },
+    description: '双击页面元素（可信事件 + 遮挡检测）。参数同 browser_click。',
+    parameters: {
+      ref: { type: 'number', description: 'browser_snapshot 返回的元素编号' },
+      selector: { type: 'string', description: 'CSS 选择器' },
+      force: { type: 'boolean', description: 'true = 即使遮挡也照点' },
+    },
+  },
+  {
+    name: 'browser_hover',
+    action: 'input',
+    timeoutMs: 30000,
+    staticParams: { op: 'hover' },
+    description: '把鼠标移到页面元素上（触发 hover 态/悬停菜单）。参数同 browser_click。',
+    parameters: {
+      ref: { type: 'number', description: 'browser_snapshot 返回的元素编号' },
+      selector: { type: 'string', description: 'CSS 选择器' },
+      force: { type: 'boolean', description: 'true = 即使遮挡也移动' },
     },
   },
   {
     name: 'browser_type',
     action: 'type',
     timeoutMs: 30000,
-    description: '向输入框/文本域/可编辑元素写入文本：ref 或 selector 定位，text 必填。',
+    staticParams: { mode: 'trusted' },
+    description: '向输入框/文本域/可编辑元素逐字符发送**真键盘事件**（isTrusted=true）：ref 或 selector 定位（会先可信点击聚焦），text 必填；clear 先清空，submit 末尾回车提交。',
     parameters: {
       ref: { type: 'number', description: 'browser_snapshot 返回的元素编号' },
       selector: { type: 'string', description: 'CSS 选择器（没有 ref 时使用）' },
-      text: { type: 'string', required: true, description: '要写入的文本' },
+      text: { type: 'string', required: true, description: '要输入的文本' },
+      clear: { type: 'boolean', description: 'true = 输入前先清空（原生 setter + input 事件）' },
+      submit: { type: 'boolean', description: 'true = 输入完按回车提交' },
+      force: { type: 'boolean', description: 'true = 即使遮挡也点' },
+      tab: { type: 'number', description: '目标面板序号（0 起）' },
+    },
+  },
+  {
+    name: 'browser_press',
+    action: 'input',
+    timeoutMs: 20000,
+    staticParams: { op: 'press' },
+    description: '向当前页面焦点发送一次按键：key 支持 Enter/Tab/Escape/Backspace/Delete/ArrowUp/ArrowDown/ArrowLeft/ArrowRight/Home/End/PageUp/PageDown/Space 或单字符（如 "a"）。可配 modifiers:["control"] 等做组合键。',
+    parameters: {
+      key: { type: 'string', required: true, description: '键名（见描述）' },
+      modifiers: { type: 'array', description: '修饰键数组，如 ["control","shift"]' },
+      tab: { type: 'number', description: '目标面板序号（0 起）' },
+    },
+  },
+  {
+    name: 'browser_scroll',
+    action: 'input',
+    timeoutMs: 20000,
+    staticParams: { op: 'scroll' },
+    description: '滚动当前页面（可信 wheel 事件）：dy 正数向下、负数向上；可给 dx 横向。返回滚动后的 scrollX/scrollY。',
+    parameters: {
+      dy: { type: 'number', description: '纵向滚动量（正=向下）' },
+      dx: { type: 'number', description: '横向滚动量' },
+      tab: { type: 'number', description: '目标面板序号（0 起）' },
     },
   },
   {
@@ -321,7 +377,8 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
           parameters: spec.parameters || {},
           output: OUT,
           execute: async (args) => {
-            const params = args && typeof args === 'object' ? { ...args } : {};
+            // staticParams：规格层固定参数（如 mode:'trusted' / op:'hover'），调用方可覆盖
+            const params = { ...(spec.staticParams || {}), ...(args && typeof args === 'object' ? args : {}) };
             // dynamicSource：源码随命令下发（页内观察器需要；hook 随页面销毁，下发即自愈）
             if (spec.dynamicSource) {
               try {

@@ -209,7 +209,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // A6a（C2 拆表后）：commandHandlers 的每个 action 键只能出现一次，且全量清单钉死
     const keyRe = /'([a-z-]+)': async function \(svc, c\) \{/g;
     const keys = [...clientSource.matchAll(keyRe)].map((m) => m[1]);
-    const expected = ['inject-annotator', 'start-annotator', 'toggle-pane', 'stop-annotator', 'annotator-status', 'guest-eval', 'page-open', 'kit-status', 'report-now', 'gui-eval', 'panel-toggle', 'toolbar-probe', 'panes-probe', 'browser-tabs', 'browser-open', 'browser-close', 'browser-panel', 'console-observer', 'agent-glow', 'page-close', 'dom-scan', 'snapshot', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'submit-annotations', 'hid-enumerate', 'hid-open', 'hid-trace'];
+    const expected = ['inject-annotator', 'start-annotator', 'toggle-pane', 'stop-annotator', 'annotator-status', 'guest-eval', 'page-open', 'kit-status', 'report-now', 'gui-eval', 'panel-toggle', 'toolbar-probe', 'panes-probe', 'browser-tabs', 'browser-open', 'browser-close', 'browser-panel', 'console-observer', 'agent-glow', 'page-close', 'dom-scan', 'snapshot', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'submit-annotations', 'hid-enumerate', 'hid-open', 'hid-trace'];
     const dup = keys.filter((v, i) => keys.indexOf(v) !== i);
     assert.deepEqual(dup, [], `commandHandlers 重复键：${dup.join(",")}`);
     assert.deepEqual(keys, expected, "commandHandlers 动作全量清单必须逐字一致");
@@ -219,9 +219,28 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /docExpr/);
   });
 
+  await t.test("R-INPUT：可信输入层（sendInputEvent）四要素不被回退（2026-10-10 实测解锁）", () => {
+    // ①走 Chromium 级真事件（而非 DOM 合成）
+    assert.match(clientSource, /const sendMouse = \(el, type, x, y, extra\) => el\.sendInputEvent\(\{ type, x, y, \.\.\.\(extra \|\| \{\}\) \}\)/);
+    assert.match(clientSource, /sendMouse\(target, 'mouseDown'/);
+    assert.match(clientSource, /target\.sendInputEvent\(\{ type: 'char', keyCode: ch \}\)/);
+    // ②键盘路径必须先把焦点交给 guest（否则 Tab 等纯键盘事件无效）
+    assert.match(clientSource, /const focusGuest = \(el\) => \{ try \{ if \(el && typeof el\.focus === 'function'\) el\.focus\(\); \} catch/);
+    assert.match(clientSource, /const trustedClick = async \(target, c, op\) => \{\s*focusGuest\(target\);/);
+    assert.match(clientSource, /const trustedType = async \(target, c\) => \{\s*focusGuest\(target\);/);
+    // ③滚轮 delta 符号翻正（Windows 上 Electron 与网页相反）
+    assert.match(clientSource, /deltaX: -dx, deltaY: -dy, canScroll: true/);
+    // ④点击前遮挡检测 + force 逃逸口
+    assert.match(clientSource, /document\.elementFromPoint\(cx, cy\)/);
+    assert.match(clientSource, /if \(box\.occluded && c\.force !== true\)/);
+    assert.match(clientSource, /目标中心被遮挡/);
+    // ⑤click/type 保留 DOM 回退语义（mode 缺省不变），trusted 才走新路径
+    assert.match(clientSource, /if \(String\(\(c && c\.mode\) \|\| ''\) === 'trusted'\) \{/);
+  });
+
   await t.test("R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）", () => {
     // 打点集合必须覆盖会动页面的浏览器命令；纯盘点类不得入集（免得屏幕常闪）
-    assert.match(clientSource, /const AGENT_GLOW_ACTIONS = new Set\(\['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel'\]\)/);
+    assert.match(clientSource, /const AGENT_GLOW_ACTIONS = new Set\(\['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input'\]\)/);
     assert.doesNotMatch(clientSource, /AGENT_GLOW_ACTIONS = new Set\(\[[^\]]*'browser-tabs'/);
     // 分发器统一打点（新增命令无需逐个改 handler）
     assert.match(clientSource, /if \(AGENT_GLOW_ACTIONS\.has\(action\)\) pulseAgentActivity\(action\)/);

@@ -63,6 +63,26 @@ test('R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具�
       }
     }
   });
+  await t.test('R-INPUT 工具面：点击/输入默认走可信事件，交互族齐备', () => {
+    const byName = new Map(BROWSER_TOOL_SPECS.map((s) => [s.name, s]));
+    // 点击/输入必须默认 trusted（否则退回 DOM 合成 = 失去本轮解锁的能力）
+    assert.equal(byName.get('browser_click')?.staticParams?.mode, 'trusted', 'browser_click 应默认 mode:trusted');
+    assert.equal(byName.get('browser_type')?.staticParams?.mode, 'trusted', 'browser_type 应默认 mode:trusted');
+    assert.equal(byName.get('browser_click')?.action, 'click');
+    assert.equal(byName.get('browser_type')?.action, 'type');
+    // 交互族：dblclick / hover / press / scroll 都走 input 命令，各自固定 op
+    for (const [name, op] of [['browser_dblclick', 'dblclick'], ['browser_hover', 'hover'], ['browser_press', 'press'], ['browser_scroll', 'scroll']]) {
+      const s = byName.get(name);
+      assert.ok(s, `缺工具 ${name}`);
+      assert.equal(s.action, 'input', `${name} 应走 input 命令`);
+      assert.equal(s.staticParams?.op, op, `${name} 的固定 op 应为 ${op}`);
+    }
+    // 遮挡检测的逃逸口必须在点击族参数里可见（模型要能发现）
+    for (const name of ['browser_click', 'browser_dblclick', 'browser_hover']) {
+      assert.ok(Object.keys(byName.get(name).parameters).includes('force'), `${name} 缺 force 参数`);
+    }
+    assert.equal(BROWSER_TOOL_SPECS.length >= 16, true, `工具数应 ≥16（当前 ${BROWSER_TOOL_SPECS.length}）`);
+  });
 });
 
 test('R-TOOL 命令通道传输层', async (t) => {

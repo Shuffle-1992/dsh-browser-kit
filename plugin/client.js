@@ -1679,6 +1679,119 @@ window.__ModuleLoader__.load({
               scope.effect(() => () => { layoutSvc = null; });
             });
           } catch { /* 服务缺失：browser-panel 命令降级报错 */ }
+          /* ── R-INPUT（2026-10-09 实测解锁）：**可信输入** —— `<webview>.sendInputEvent` 发 Chromium 级事件 ──
+           * 事实（本轮页面内探针实测）：mousemove / mousedown / mouseup / keydown / char / keyup 全部投递，
+           * 且页面侧 `isTrusted === true`（DOM 合成 `el.dispatchEvent` 永远是 false），且**没有** capturePage
+           * 那种崩溃。可信事件对 React 受控组件、反自动化检测、拖拽/文件/快捷键等 native 行为都成立。
+           * 坐标换算：页面 CSS px × zoomFactor = webview 局部 px（sendInputEvent 用后者，且要整数）。
+           * 遮挡检测：点击前 `document.elementFromPoint(中心)`，命中不是目标（且非其祖先/后代）即判遮挡，
+           * 默认拒绝并回报遮挡者（抄 agent-browser 的稳定性设计：宁可提前失败也不点错东西）。 */
+          const inputTargetOf = (c) => {
+            const els = Array.from(document.querySelectorAll('webview'));
+            const idx = Number(c && c.tab);
+            return (Number.isFinite(idx) && els[idx]) || els.find(captureVisible) || els[0] || null;
+          };
+          const inputZoom = (el) => {
+            try { const z = typeof el.getZoomFactor === 'function' ? Number(el.getZoomFactor()) : 1; return Number.isFinite(z) && z > 0 ? z : 1; } catch { return 1; }
+          };
+          /** 在页面内解析目标几何 + 遮挡情况（ref / selector / 无参=文档根）。 */
+          const resolveInputBox = async (target, c) => {
+            const sel = c && c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String((c && c.selector) || '');
+            const raw = await target.executeJavaScript(
+              `(function () {\n`
+              + `  var sel = ${JSON.stringify(sel)};\n`
+              + `  var el = sel ? document.querySelector(sel) : null;\n`
+              + `  if (sel && !el) return JSON.stringify({ ok: false, error: 'no element: ' + sel });\n`
+              + `  var node = el || document.documentElement;\n`
+              + `  var r = node.getBoundingClientRect();\n`
+              + `  if (r.width === 0 && r.height === 0) return JSON.stringify({ ok: false, error: 'element zero size' });\n`
+              + `  var cx = r.left + r.width / 2, cy = r.top + r.height / 2;\n`
+              + `  var hit = null; try { hit = document.elementFromPoint(cx, cy); } catch (e) { hit = null; }\n`
+              + `  var occluded = false, occluder = null;\n`
+              + `  if (hit === null) { occluded = true; occluder = { reason: 'elementFromPoint=null（中心在视口外）' }; }\n`
+              + `  else if (el && hit !== el && !el.contains(hit) && !hit.contains(el)) { occluded = true; occluder = { tag: hit.tagName, id: hit.id || null, cls: String(hit.className || '').slice(0, 60) }; }\n`
+              + `  return JSON.stringify({ ok: true, x: cx, y: cy, w: r.width, h: r.height, top: r.top, left: r.left, inViewport: r.top < innerHeight && r.left < innerWidth && r.bottom > 0 && r.right > 0, tag: el ? el.tagName.toLowerCase() : null, text: el ? String(el.textContent || '').trim().slice(0, 60) : null, occluded: occluded, occluder: occluder });\n`
+              + `})()`,
+              true,
+            );
+            try { return typeof raw === 'string' ? JSON.parse(raw) : (raw || { ok: false, error: 'box 无返回' }); } catch { return { ok: false, error: 'box 解析失败' }; }
+          };
+          const sendMouse = (el, type, x, y, extra) => el.sendInputEvent({ type, x, y, ...(extra || {}) });
+          /** 让 guest 视图拿到焦点：**纯键盘事件（press）必须先把焦点交给 webview**，否则
+           *  keyDown 到了页面但焦点不动（实测 Tab 无效、activeElement 仍 BODY）。鼠标事件会顺带聚焦。 */
+          const focusGuest = (el) => { try { if (el && typeof el.focus === 'function') el.focus(); } catch { /* 聚焦失败不影响鼠标路径 */ } };
+          /** 操作页面元信息（多标签时「我到底点了哪个页面」的判据）。 */
+          const inputPageMeta = (el) => {
+            const out = { url: null, title: null };
+            try { out.url = typeof el.getURL === 'function' ? el.getURL() : null; } catch { /* 忽略 */ }
+            try { out.title = typeof el.getTitle === 'function' ? el.getTitle() : null; } catch { /* 忽略 */ }
+            return out;
+          };
+          /** 可信点击（含可选遮挡检查）；返回统一结果对象。 */
+          const trustedClick = async (target, c, op) => {
+            focusGuest(target);
+            const box = await resolveInputBox(target, c);
+            if (!box.ok) return { ok: false, op, error: box.error };
+            if (box.occluded && c.force !== true) {
+              return { ok: false, op, occluded: true, occluder: box.occluder, box, error: `目标中心被遮挡（${box.occluder && box.occluder.tag === 'html' ? '文档根' : (box.occluder && (box.occluder.id || box.occluder.cls || box.occluder.tag)) || '未知'}）——如确认无误可 force:true` };
+            }
+            const zoom = inputZoom(target);
+            const x = Math.round(box.x * zoom);
+            const y = Math.round(box.y * zoom);
+            try {
+              sendMouse(target, 'mouseMove', x, y);
+              if (op === 'hover') return { ok: true, op, mode: 'trusted', x, y, box, ...inputPageMeta(target) };
+              const button = op === 'rightclick' ? 'right' : 'left';
+              const times = op === 'dblclick' ? 2 : 1;
+              for (let i = 1; i <= times; i += 1) {
+                sendMouse(target, 'mouseDown', x, y, { button, clickCount: i });
+                sendMouse(target, 'mouseUp', x, y, { button, clickCount: i });
+              }
+              return { ok: true, op, mode: 'trusted', x, y, zoom, box, occluded: !!box.occluded, ...inputPageMeta(target) };
+            } catch (e) { return { ok: false, op, error: msgOf(e) }; }
+          };
+          /** 可信打字：可选中/清空元素 → 逐字符 keyDown/char/keyUp → 可选回车提交。 */
+          const trustedType = async (target, c) => {
+            focusGuest(target);
+            const text = String((c && c.text) ?? '');
+            let focused = false;
+            if (c && (c.ref != null || c.selector)) {
+              const box = await resolveInputBox(target, c);
+              if (!box.ok) return { ok: false, op: 'type', error: box.error };
+              if (box.occluded && c.force !== true) return { ok: false, op: 'type', occluded: true, occluder: box.occluder, error: '输入框被遮挡（可 force:true 强制）' };
+              const zoom = inputZoom(target);
+              const x = Math.round(box.x * zoom);
+              const y = Math.round(box.y * zoom);
+              sendMouse(target, 'mouseMove', x, y);
+              sendMouse(target, 'mouseDown', x, y, { button: 'left', clickCount: 1 });
+              sendMouse(target, 'mouseUp', x, y, { button: 'left', clickCount: 1 });
+              focused = true;
+            }
+            if (c && c.clear === true) {
+              // 清空用 DOM（原生 setter + input 事件），比选全删更可靠
+              await target.executeJavaScript(
+                `(function () { var el = document.activeElement; if (!el) return 'no-active'; if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { var p = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(p, 'value').set.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); return 'cleared'; } if (el.isContentEditable) { el.textContent = ''; el.dispatchEvent(new Event('input', { bubbles: true })); return 'cleared'; } return 'not-editable'; })()`,
+                true,
+              );
+            }
+            const chars = Array.from(text);
+            for (const ch of chars) {
+              try {
+                target.sendInputEvent({ type: 'keyDown', keyCode: ch });
+                target.sendInputEvent({ type: 'char', keyCode: ch });
+                target.sendInputEvent({ type: 'keyUp', keyCode: ch });
+              } catch (e) { return { ok: false, op: 'type', typed: chars.indexOf(ch), error: msgOf(e) }; }
+            }
+            let submitted = false;
+            if (c && c.submit === true) {
+              target.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+              target.sendInputEvent({ type: 'char', keyCode: '\r' });
+              target.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+              submitted = true;
+            }
+            return { ok: true, op: 'type', mode: 'trusted', len: chars.length, focused, clear: !!(c && c.clear), submitted, ...inputPageMeta(target) };
+          };
+
           /* 命令处理器分域清单（C2 拆表）：action → async (svc, c) => result。
            * 动作全量清单与唯一性由静态契约钉死（plugin-impl §3.9）；case 体与拆表前逐字一致。 */
           const commandHandlers = {
@@ -2109,7 +2222,9 @@ window.__ModuleLoader__.load({
             },
             'snapshot': async function (svc, c) {
               // MVP-4：可交互元素快照（ref 手柄落在 data-dsh-kit-ref，供 click/type 引用）
-              const target = pickGuestEl();
+              // R-INPUT：目标选择与输入层统一（**可见面板优先** + 支持 tab 指定）——原来用 pickGuestEl()
+              // 取「DOM 里第一个」，多标签时可能在快照 A 页、点击落在 B 页，ref 对不上。
+              const target = inputTargetOf(c) || pickGuestEl();
               const value = await target.executeJavaScript(
                 '(function () {\n' +
                 `  ${TARGET_DOC_SNIPPET}\n` +
@@ -2135,7 +2250,58 @@ window.__ModuleLoader__.load({
               );
               return { ok: true, ...(value || {}) };
             },
+            'input': async function (svc, c) {
+              // R-INPUT：可信输入统一入口（sendInputEvent）。op: click|dblclick|rightclick|hover|type|press|scroll
+              const op = String((c && c.op) || 'click').toLowerCase();
+              const target = inputTargetOf(c);
+              if (!target) return { ok: false, op, error: '无 webview（先打开内置浏览器）' };
+              if (typeof target.sendInputEvent !== 'function') return { ok: false, op, error: 'webview 不支持 sendInputEvent（Electron 版本？）' };
+              focusGuest(target);
+              if (op === 'click' || op === 'dblclick' || op === 'rightclick' || op === 'hover') return await trustedClick(target, c, op);
+              if (op === 'type') return await trustedType(target, c);
+              if (op === 'press') {
+                // 键名映射到 Electron keyCode；未知名原样下发（字母/数字直接用 'a'/'1'）
+                const map = { Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', Backspace: 'Backspace', Delete: 'Delete', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Space: 'Space' };
+                const key = String((c && c.key) || 'Enter');
+                const keyCode = map[key] || key;
+                const modifiers = Array.isArray(c && c.modifiers) ? c.modifiers : null;
+                try {
+                  target.sendInputEvent({ type: 'keyDown', keyCode, ...(modifiers ? { modifiers } : {}) });
+                  target.sendInputEvent({ type: 'keyUp', keyCode, ...(modifiers ? { modifiers } : {}) });
+                  return { ok: true, op, mode: 'trusted', key, keyCode, modifiers };
+                } catch (e) { return { ok: false, op, error: msgOf(e) }; }
+              }
+              if (op === 'scroll') {
+                const dx = Number((c && c.dx) || 0);
+                const dy = Number((c && c.dy) || 0);
+                const zoom = inputZoom(target);
+                let x = Number(c && c.x);
+                let y = Number(c && c.y);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                  let v = { w: 800, h: 600 };
+                  try { v = JSON.parse(await target.executeJavaScript('JSON.stringify({ w: window.innerWidth, h: window.innerHeight })', true)); } catch { /* 用默认 */ }
+                  x = v.w / 2; y = v.h / 2;
+                }
+                try {
+                  /* 实测（Windows）：Electron `mouseWheel` 的 deltaY 与网页 `WheelEvent.deltaY` **符号相反**——
+                   * 发 dy:+220 页面收到 -220（不往下滚）；发 -220 页面收到 +220 并下滚。这里统一翻正，
+                   * 让对外语义保持「dy 正数 = 向下」（与浏览器/工具描述一致）。 */
+                  target.sendInputEvent({ type: 'mouseWheel', x: Math.round(x * zoom), y: Math.round(y * zoom), deltaX: -dx, deltaY: -dy, canScroll: true });
+                  let pos = null;
+                  try { pos = JSON.parse(await target.executeJavaScript('JSON.stringify({ sx: window.scrollX, sy: window.scrollY })', true)); } catch { /* 忽略 */ }
+                  return { ok: true, op, mode: 'trusted', dx, dy, scroll: pos };
+                } catch (e) { return { ok: false, op, error: msgOf(e) }; }
+              }
+              return { ok: false, op, error: `未知 op=${op}（click|dblclick|rightclick|hover|type|press|scroll）` };
+            },
             'click': async function (svc, c) {
+              // R-INPUT：mode='trusted' 走 Chromium 级真事件（框架/反爬都认）；否则保持既有 DOM 合成语义
+              if (String((c && c.mode) || '') === 'trusted') {
+                const t = inputTargetOf(c);
+                if (!t) return { ok: false, error: '无 webview（先打开内置浏览器）' };
+                if (typeof t.sendInputEvent !== 'function') return { ok: false, error: 'webview 不支持 sendInputEvent' };
+                return await trustedClick(t, c, 'click');
+              }
               const target = pickGuestEl();
               const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
               if (!sel) return { ok: false, error: '需要 ref 或 selector' };
@@ -2146,6 +2312,13 @@ window.__ModuleLoader__.load({
               return { ok: true, ...(value || {}) };
             },
             'type': async function (svc, c) {
+              // R-INPUT：mode='trusted' 走真键盘事件（含 clear/submit）；否则保持既有 DOM 写入语义
+              if (String((c && c.mode) || '') === 'trusted') {
+                const t = inputTargetOf(c);
+                if (!t) return { ok: false, error: '无 webview（先打开内置浏览器）' };
+                if (typeof t.sendInputEvent !== 'function') return { ok: false, error: 'webview 不支持 sendInputEvent' };
+                return await trustedType(t, c);
+              }
               const target = pickGuestEl();
               const sel = c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String(c.selector || '');
               if (!sel) return { ok: false, error: '需要 ref 或 selector' };
@@ -2274,7 +2447,7 @@ window.__ModuleLoader__.load({
           /* Agent 操作光效打点集合（R-GLOW）：**在分发器统一打点**，新增浏览器命令无需逐个改 handler。
            * 只收「会动页面 / Agent 在操作浏览器」的动作；纯盘点类（browser-tabs/panes-probe/dom-scan/
            * kit-status/toolbar-probe/hid-*）不打点，免得用户屏幕上一直闪。 */
-          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel']);
+          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input']);
 
           /** 命令分发：查表执行；未知 action 显式报错（不静默）。 */
           const executeCommand = async (svc, command) => {

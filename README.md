@@ -17,6 +17,7 @@
    - **已升级为 agent 一等工具（R-TOOL）**：`browser_tabs / browser_open / browser_close / browser_panel / browser_navigate / browser_reload / browser_snapshot / browser_click / browser_type / browser_eval / browser_screenshot`——host 侧 `ctx.tools.register(defineTool(...))` 注册，execute 经命令通道驱动 client 执行；工具名、参数 schema、超时与错误都由框架呈现（不必再手写 `command.json`）。
 6. **Agent 操作可视化（R-GLOW）**：Agent 执行浏览器自动化时，浏览器窗口**四边亮起呼吸光效** + 左上角胶囊「🤖 Agent 操作中 · <动作>」，让用户随时看得见「Agent 正在操作」；末次操作后自动淡出，`agent-glow {op:on|enable|off|pulse|status}` 可常亮/关闭/手动脉冲（localStorage 持久，默认开）。
 7. **页内控制台/网络通道（R-CONSOLE，2026-10-09）**：DSH 没有 DevTools/CDP（实测 `openDevTools()` 无效、宿主全库零 DevTools 引用、host 插件是纯 Node 进程够不到 Electron），故用**页内观察器**补齐：`src/console-observer.js`（纯 ES5 IIFE、零依赖、可重复注入）hook `console.* / window.onerror / unhandledrejection / fetch / XMLHttpRequest`，环形缓冲 500 条；agent 工具 `browser_console` 可 `dump({level,limit,filter,net,since})`、`mark` 打锚点、`clear`、`stats`、`uninstall`。**源码随命令下发 → 页面刷新/新开标签自动重装（自愈）**。
+8. **可信输入（R-INPUT，2026-10-10 实测解锁）**：`<webview>.sendInputEvent` 能发 **Chromium 级真事件**（页面侧 `isTrusted === true`，React 受控组件/反自动化检测都认），且不像 `capturePage` 那样崩。工具族：`browser_click / browser_dblclick / browser_hover / browser_type / browser_press / browser_scroll`；**点击前做遮挡检测**（中心被盖住则提前失败并回报遮挡者，`force:true` 可强点）；`type` 支持 `clear` 与 `submit`，中文可用（value 为准）。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

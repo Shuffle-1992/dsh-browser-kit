@@ -250,3 +250,15 @@
 - **现象 B（跨 realm 判定失效）**：观察器用 `x instanceof RegExp` 判 agent 侧传来的真 RegExp——页面 main world 与 agent 不在同一 realm，`instanceof` 判 **false**，退化成 `new RegExp('/pattern/')` → 过滤永远不命中（实测，已改为按 `source`/`flags` 鸭子类型）。
   - **判据**：任何 `instanceof` / 构造函数身份比较跨 realm 都不可信（`Array.isArray` 是少数例外）。
 - **现象 C（耗时字段被怀疑）**：网络条目 `durationMs` 来自页面内计时（requestStart→loadend），**与命令通道往返无关**；实测一条 404 真耗时 13s，别误判成通道开销。
+### P50 可信输入五连坑（`<webview>.sendInputEvent`，2026-10-10 实测解锁）
+- **背景**：DOM 合成（`el.dispatchEvent(new MouseEvent(...))`）的 `isTrusted` 永远是 `false`，React 受控组件/反自动化检测不认；`sendInputEvent` 是 Chromium 级真事件（实测页面探针收到 `isTrusted:true`），且**不会**像 `capturePage` 那样崩。
+- **现象 A（滚轮反向）**：`sendInputEvent({type:'mouseWheel', deltaY: +220})` → 页面收到 `WheelEvent.deltaY = **-220**`（Windows 上符号相反），表现为「发了滚动但不往下走」。
+  - **对策**：下发前取反（`deltaX: -dx, deltaY: -dy`），对外保持「dy 正数 = 向下」的浏览器语义。
+- **现象 B（纯键盘无效）**：`press Tab` 返回 ok，但 `document.activeElement` 纹丝不动。
+  - **根因**：键盘事件要求 **guest 视图先获得焦点**；鼠标事件会顺带聚焦，纯键盘不会。
+  - **对策**：任何输入路径前先 `webview.focus()`（`focusGuest()`）。
+- **现象 C（坐标不在同一空间）**：页面 body 上若有 CSS `zoom`（实测 0.8），`getBoundingClientRect()` 给的是**视口坐标**，而你在 body 内新建的浮层用「视口坐标」当 `left/top` 会再被缩放一次 → 浮层错位（本轮据此差点误判「遮挡检测失效」）。
+  - **对策**：调试浮层/遮罩挂到 `document.documentElement`（zoom 子树之外）；坐标换算把 CSS zoom 与 webview zoomFactor 分开看（后者才乘进 `sendInputEvent`）。
+- **现象 D（遮挡检测要先于点击）**：点击前用 `document.elementFromPoint(中心)` 判遮挡并**回报遮挡者**，默认拒绝（`force:true` 才照点）——这是最有价值的稳定性设计（抄 agent-browser），能把「点错东西」变成「提前失败」。
+- **现象 E（CJK 的 keydown 是空的）**：中文/emoji 的 keydown `key`/`code` 都是空串，文本由 `char` 事件插入 → **断言以 input.value 为准**，不要用 keydown 的 key 判中文。
+- **判据**：输入「看起来成功但页面没反应」时，按序查：guest 是否 focus → 坐标是否落在目标（elementFromPoint）→ 滚轮符号 → 事件是否 trusted（页面内探针）。

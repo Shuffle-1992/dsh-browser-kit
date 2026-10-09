@@ -115,6 +115,20 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 | 页面里 `fetch('https://example.com/__dbk_probe__')` → 404 | dump 出 `kind:'fetch'`、`method:'GET'`、`status:404`、`durationMs:13002` |
 | 新开一个**没有 hook** 的标签后直接 `op:stats` | 自动重装：`stats{total:0, installedAt:刷新}`（自愈） |
 
+## 3.4 可信输入（R-INPUT，2026-10-10 实测解锁）
+
+`<webview>.sendInputEvent` 发的是 **Chromium 级真事件**——页面内探针确认 `isTrusted === true`（DOM 合成的 `el.dispatchEvent` 永远是 false），React 受控组件、反自动化检测、native 交互（拖拽/文件/快捷键）都认；**且不像 `capturePage` 那样崩**（连发鼠标+键盘+滚轮后 webview 数量不变）。
+
+| 能力 | 实测证据 |
+|---|---|
+| 可信点击 | `browser_click {ref:11}`（夜黑）→ 站点 `body.className` 由 `light-theme` 变 `dark-theme`；页面探针 `{trusted:true, x:125, y:1256, id:'styleDark'}` |
+| 可信打字（含中文） | 页面注入测试输入框 → `browser_type {ref:999, text:'Hello 可信 123'}` → `input.value === 'Hello 可信 123'`，12 个 `trusted:true` keydown |
+| 可信滚动 | 可滚动容器探针：发 `dy:+220` → 容器收到 `deltaY:+220` 并下滚 198px（**修掉了 Electron 与网页 deltaY 符号相反**的坑） |
+| 按键 | 补 `webview.focus()` 后 `browser_press {key:'Tab'}` 使焦点从 BODY → `BUTTON#connectDeviceBtn` |
+| **遮挡检测** | 造遮罩盖住按钮：不带 `force` 的点击被**拒绝**（`occluded:true` + 回报遮挡者 `DIV#__dbk_overlay`）；`force:true` 才送达（遮罩命中 1 次） |
+
+工具面：`browser_click / browser_dblclick / browser_hover / browser_type / browser_press / browser_scroll`（共 16 个 `browser_*` 工具）。`click`/`type` 保留 DOM 合成回退路径（`mode` 缺省不变），只有显式 `mode:'trusted'`（工具默认）才走真事件。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
