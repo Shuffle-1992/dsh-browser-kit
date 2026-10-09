@@ -308,7 +308,13 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const navReload = mkNav\('↻', '刷新'/);
     assert.match(clientSource, /addr\.style\.cssText = 'flex:1 1 auto;min-width:120px;/); // 地址栏加宽（唯一弹性项）
     assert.doesNotMatch(clientSource, /addrGo|'前往'/); // 删除「前往」
-    assert.match(clientSource, /addrRow\.appendChild\(presetSel\);\s*addrRow\.appendChild\(zoomSel\);\s*addrRow\.appendChild\(zoomInput\);\s*addrRow\.appendChild\(shootBtn\);\s*addrRow\.appendChild\(annotBtn\);/);
+    assert.match(clientSource, /addrRow\.appendChild\(presetSel\);\s*addrRow\.appendChild\(zoomSel\);\s*addrRow\.appendChild\(zoomInput\);/);
+    // v16：截图/批注图标放进**常显的标题行**（小窗状态下也可见可点）
+    assert.match(clientSource, /head\.insertBefore\(annotBtn, minBtn\);/);
+    assert.match(clientSource, /head\.insertBefore\(shootBtn, annotBtn\);/);
+    // v16：小窗状态下也能截图（先临时展开→截图→收回小窗）
+    assert.match(clientSource, /let restoreCollapsed = false;/);
+    assert.match(clientSource, /out\.restoredCollapsed = true;/);
     assert.match(clientSource, /annotBtn\.innerHTML = ANNOT_ICON_SVG; \/\/ 与 DSH 批注图标同款/);
     assert.match(clientSource, /minBtn\.style\.marginLeft = 'auto';/);
     assert.match(clientSource, /const barH = expanded \? 60 : 32;/);

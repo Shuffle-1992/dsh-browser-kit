@@ -2310,12 +2310,23 @@ window.__ModuleLoader__.load({
             const closeBtn = mkBtn('✕', '关闭面板（释放全部窗口租约）', () => releaseAgentView());
             // ── 行 1：标题 + 标签条（多窗口）+ 最小化/关闭（**布局参考 DSH 浏览器**）──
             const railIcons = [presetSel, zoomSel, zoomInput, shootBtn, annotBtn];
+            // R-OWN v16：**小窗状态也要能看到/点到图标**（用户要求"图标保持可见"）——
+            //  所以截图/批注两个图标改为**两种形态都显示**；分辨率/缩放这类占宽控件仍只在展开态。
             for (const el of railIcons) markExpandedOnly(el);
+            for (const el of [shootBtn, annotBtn]) {
+              el.removeAttribute('data-dsh-kit-agent-view-expanded-only'); // 小窗里也保留
+              el.setAttribute('data-dsh-kit-agent-view-always', '');
+            }
             head.appendChild(title);
+            markExpandedOnly(urlText); // 小窗（260px）里让位给图标：状态文本只在展开态显示
             head.appendChild(urlText);
             const tabStrip = head; // 标签 chip 直接落在这行里（DSH 同款：标签在上，地址栏在下）
             head.appendChild(minBtn);
             head.appendChild(closeBtn);
+            // R-OWN v16：截图/批注图标放进**常显的标题行**（小窗状态下也能看到并点击；
+            //  放在 addrRow 里会随整行一起被隐藏——实测踩过）
+            head.insertBefore(annotBtn, minBtn);
+            head.insertBefore(shootBtn, annotBtn);
             // ── 行 2：← → ↻ + **加宽地址栏** + 尺寸/缩放/截图/批注图标（DSH 同款排布）──
             const addrRow = document.createElement('div');
             addrRow.style.cssText = `flex:none;display:flex;align-items:center;gap:6px;padding:3px 8px;font:${T.font};`
@@ -2362,8 +2373,6 @@ window.__ModuleLoader__.load({
             addrRow.appendChild(presetSel);
             addrRow.appendChild(zoomSel);
             addrRow.appendChild(zoomInput);
-            addrRow.appendChild(shootBtn);
-            addrRow.appendChild(annotBtn);
             // 舞台：裁切容器；webview 自身保持目标分辨率尺寸，靠 transform 缩放显示
             const stage = document.createElement('div');
             stage.setAttribute('data-dsh-kit-agent-view-stage', '');
@@ -2488,8 +2497,15 @@ window.__ModuleLoader__.load({
             // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
             let theme = null;
             try { theme = agentViewApplyTheme(); } catch { theme = null; }
-            // R-OWN v12/v13：把"舞台可见带 + 放大倍数"告知批注器（面板固定尺寸且不被裁）
-            try { syncAnnotMetrics(agentViewWebview()); } catch { /* 忽略 */ }
+            // R-OWN v12/v13/v16：把"舞台可见带 + 放大倍数"告知批注器（面板固定尺寸且不被裁）；
+            //  同时**给侧栏成员面板也重推一次**（调整分辨率/展开收起后，抬升量要跟着小窗走，
+            //  否则批注面板会"跑掉"——用户实测反馈）
+            try {
+              syncAnnotMetrics(agentViewWebview());
+              for (const p of (stateRef.annot && stateRef.annot.panes) || []) {
+                if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
+              }
+            } catch { /* 忽略 */ }
             return {
               state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
               scale: Number(k.toFixed(3)), stageW, stageH, topOffset, theme: theme ? theme.dark : null,
@@ -2522,6 +2538,14 @@ window.__ModuleLoader__.load({
             try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
             try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
+            // R-OWN v16：批注进行中**周期性重推抬升量**——小窗可见性/尺寸变化后批注面板始终贴在小窗上方
+            try {
+              if (stateRef.annot && stateRef.annot.active) {
+                for (const p of (stateRef.annot.panes || [])) {
+                  if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
+                }
+              }
+            } catch { /* 忽略 */ }
             // R-OWN v15：批注开关状态变化 → 重排停靠位置，并**重新推送所有面板指标**
             //（bottomExtra 依赖"批注是否激活"，会话开启后必须再推一次，否则不会抬升）
             try {
@@ -4450,10 +4474,24 @@ window.__ModuleLoader__.load({
 
           const captureShot = async (ctxCmd) => {
             const out = { ok: false, error: null, path: null, bytes: null };
+            let restoreCollapsed = false;
             try {
               if (captureInFlight) { out.error = '已有截图在进行（单飞护栏）'; return out; }
               const nowAt = Date.now();
               if (nowAt < captureCooldownUntil) { out.error = `截图冷却中（剩 ${captureCooldownUntil - nowAt}ms）`; return out; }
+              /* R-OWN v16：**小窗状态下也能截图**（用户要求：保持小窗即可完成打开网址/调分辨率/自动化/截图）。
+               * capturePage 对隐藏/零尺寸面高危（P47-B），且"可见性检查"在**选目标时就执行**——
+               * 所以必须**先临时展开**再选目标，截完再收回小窗。 */
+              try {
+                const wantAgent = (ctxCmd && ctxCmd.target === 'agent')
+                  || (ctxCmd && ctxCmd.el && ctxCmd.el === agentViewWebview());
+                if (wantAgent && agentView.panel && agentView.ui && agentView.ui.state === 'collapsed') {
+                  agentView.ui = { ...agentView.ui, state: 'expanded' };
+                  applyAgentViewLayout();
+                  restoreCollapsed = true;
+                  await new Promise((r) => setTimeout(r, 320)); // 等一帧渲染，避免截到空白
+                }
+              } catch { restoreCollapsed = false; }
               // R-SCOPE/R-OWN：候选=自持窗口（默认优先）+ 本会话面板；target 可强制其一
               const wantShot = ctxCmd && ctxCmd.target ? String(ctxCmd.target) : null;
               const sessionEls = scopedWebviews(ctxCmd && ctxCmd.sessionId);
@@ -4520,6 +4558,14 @@ window.__ModuleLoader__.load({
               }
             } catch (e) {
               out.error = msgOf(e);
+            }
+            // R-OWN v16：截图完成 → 收回小窗（保持用户原来的"小窗状态"）
+            if (restoreCollapsed) {
+              try {
+                agentView.ui = { ...(agentView.ui || {}), state: 'collapsed' };
+                applyAgentViewLayout();
+                out.restoredCollapsed = true;
+              } catch { /* 忽略 */ }
             }
             return out;
           };
