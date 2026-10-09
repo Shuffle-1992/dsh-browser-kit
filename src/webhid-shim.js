@@ -20,7 +20,7 @@
   if (window.__dshKitHidShimVersion) {
     return; // 幂等：重复注入直接返回
   }
-  window.__dshKitHidShimVersion = "1.0.1";
+  window.__dshKitHidShimVersion = "1.1.0";
 
   var REQ_SEQ = 0;
   var REQ_QUEUE = window.__dshKitHidQueue = window.__dshKitHidQueue || [];
@@ -170,41 +170,98 @@
   }
 
   // ---------- HIDDevice shim 形状（页面上手的就是它） ----------
+  // R-SEM（1.1.0，对齐 Chrome 行为的三项语义修复）：
+  //  ① 惰性 open：requestDevice 只选择不打开（opened=false）——页面调 open() 才真正连桥，
+  //    「已连接」状态与 Chrome 一致；桥句柄在 open 时才分配。
+  //  ② 实例复用：同设备的重复 requestDevice/getDevices 返回**同一 ShimHIDDevice 实例**
+  //    （Chrome 语义：同设备=同对象）；避免双句柄竞争导致通讯不通（P-R3）。
+  //  ③ 持久授权：选过的设备（vid/pid/serial 匹配）记入 GRANTS，getDevices() 自动恢复
+  //    （sessionStorage 持久化——页面刷新不丢，跨标签同源共享），下次无需再授权。
 
-  function ShimHIDDevice(info, handleId) {
+  var GRANTS = []; // 已授权设备信息（{vendorId, productId, serialNumber, product, path}）
+  var DEVICE_INSTANCES = {}; // path -> ShimHIDDevice（实例复用；handleId 惰性分配）
+  var DEVICE_OPEN_STATE = {}; // path -> boolean（桥侧句柄是否已开）
+
+  function loadGrants() {
+    try {
+      var raw = sessionStorage.getItem("__dshKitHidGrants");
+      if (raw) GRANTS = JSON.parse(raw) || [];
+    } catch (_) { /* sessionStorage 不可用（file:// 隐私态）：退会话内记忆 */ }
+  }
+  function saveGrants() {
+    try { sessionStorage.setItem("__dshKitHidGrants", JSON.stringify(GRANTS)); } catch (_) { /* 尽力而为 */ }
+  }
+  loadGrants();
+
+  function grantKey(info) {
+    // 持久身份：vid/pid/serial（serial 缺失退 vid/pid——与 Chrome CanStorePersistentEntry 同思路）
+    return info.serialNumber ? (info.vendorId + ":" + info.productId + ":" + info.serialNumber) : (info.vendorId + ":" + info.productId);
+  }
+  function findGranted(pathOrInfo) {
+    var key = typeof pathOrInfo === "string" ? null : grantKey(pathOrInfo);
+    for (var i = 0; i < GRANTS.length; i++) {
+      if (key && grantKey(GRANTS[i]) === key) return GRANTS[i];
+      if (!key && GRANTS[i].path === pathOrInfo) return GRANTS[i];
+    }
+    return null;
+  }
+
+  function ShimHIDDevice(info) {
     var self = this;
-    this.__dshKitHandleId = handleId;
+    this.__dshKitPath = info.path;
     Object.defineProperties(this, {
-      opened: { get: function () { return true; } },
+      opened: { get: function () { return !!DEVICE_OPEN_STATE[info.path]; } },
       vendorId: { get: function () { return info.vendorId; } },
       productId: { get: function () { return info.productId; } },
       productName: { get: function () { return info.product || ""; } },
+      serialNumber: { get: function () { return info.serialNumber || ""; } },
       collections: { get: function () { return []; } },
     });
     this.oninputreport = null;
-    // 输入轮询：桥是拉模型（hidRead 阻塞读），这里 250ms 轮询转发为 oninputreport 事件
-    var pollTimer = setInterval(function () {
-      if (!self.oninputreport) return;
-      callBridge("hidRead", { handleId: handleId, timeoutMs: 200 }, 5000).then(function (r) {
-        if (r && r.ok && Array.isArray(r.data) && r.data.length) {
-          var ev = { data: new Uint8Array(r.data), device: self, reportId: r.data[0] };
-          try { self.oninputreport(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
-        }
-      }).catch(function () { /* 桥超时：下轮再试 */ });
-    }, 300);
-    this.__dshKitStopPoll = function () { clearInterval(pollTimer); };
+    var pollTimer = 0;
+    var inputQueue = []; // open 前到达的上报先排队（桥 read 只在句柄存在时可用）
+    function startPoll() {
+      if (pollTimer) return;
+      pollTimer = setInterval(function () {
+        if (!self.oninputreport || !DEVICE_OPEN_STATE[info.path]) return;
+        callBridge("hidRead", { handleId: DEVICE_INSTANCES[info.path].__dshKitHandleId, timeoutMs: 200 }, 5000).then(function (r) {
+          if (r && r.ok && Array.isArray(r.data) && r.data.length && self.oninputreport) {
+            var ev = { data: new Uint8Array(r.data), device: self, reportId: r.data[0] };
+            try { self.oninputreport(ev); } catch (_) { /* 页面回调异常不拦桥 */ }
+          }
+        }).catch(function () { /* 桥超时：下轮再试 */ });
+      }, 300);
+    }
+    this.__dshKitStartPoll = startPoll;
+    this.__dshKitStopPoll = function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
+    this.__dshKitInputQueue = inputQueue;
   }
-  ShimHIDDevice.prototype.open = function () { return Promise.resolve(); }; // 桥在 requestDevice 后已 open
+  ShimHIDDevice.prototype.open = function () {
+    var self = this;
+    var path = this.__dshKitPath;
+    if (DEVICE_OPEN_STATE[path]) return Promise.resolve(); // 已开：幂等（Chrome 同语义）
+    return callBridge("hidOpen", { path: path }).then(function (opened) {
+      if (!opened || !opened.ok) throw new Error((opened && opened.error) || "设备打开失败");
+      DEVICE_INSTANCES[path].__dshKitHandleId = opened.handleId;
+      DEVICE_OPEN_STATE[path] = true;
+      self.__dshKitStartPoll();
+      return;
+    });
+  };
   ShimHIDDevice.prototype.close = function () {
-    var handleId = this.__dshKitHandleId;
+    var path = this.__dshKitPath;
     this.__dshKitStopPoll();
-    delete OPEN_DEVICES[handleId];
+    var handleId = DEVICE_INSTANCES[path] && DEVICE_INSTANCES[path].__dshKitHandleId;
+    DEVICE_OPEN_STATE[path] = false;
+    if (!handleId) return Promise.resolve();
+    DEVICE_INSTANCES[path].__dshKitHandleId = null;
     return callBridge("hidClose", { handleId: handleId }).then(function () {});
   };
   ShimHIDDevice.prototype.sendReport = function (reportId, data) {
+    if (!DEVICE_OPEN_STATE[this.__dshKitPath]) return Promise.reject(new Error("InvalidStateError: 设备未打开（先调 open()）"));
     var bytes = Array.prototype.slice.call(data instanceof Uint8Array ? data : new Uint8Array(data));
     if (reportId) bytes.unshift(0); // reportId 填充与 WebHID 语义一致（无 report id 设备传 0）
-    return callBridge("hidWrite", { handleId: this.__dshKitHandleId, data: bytes }).then(function (r) {
+    return callBridge("hidWrite", { handleId: DEVICE_INSTANCES[this.__dshKitPath].__dshKitHandleId, data: bytes }).then(function (r) {
       if (!r || !r.ok) throw new Error((r && r.error) || "hidWrite 失败");
       return;
     });
@@ -212,7 +269,14 @@
   ShimHIDDevice.prototype.sendFeatureReport = function (reportId, data) {
     return this.sendReport(reportId, data); // node-hid 无 feature 读写分离，退化为主通道
   };
-  ShimHIDDevice.prototype.forget = function () { return this.close(); };
+  ShimHIDDevice.prototype.forget = function () {
+    // Chrome 语义：forget = 撤销该设备授权 + 断开
+    var info = this;
+    var key = grantKey(info);
+    GRANTS = GRANTS.filter(function (g) { return grantKey(g) !== key; });
+    saveGrants();
+    return this.close();
+  };
 
   // ---------- navigator.hid 覆盖 ----------
 
@@ -229,8 +293,16 @@
 
   var shimHid = {
     getDevices: function () {
-      // 已打开的 shim 设备（桥侧句柄仍活着）
-      return Promise.resolve(Object.keys(OPEN_DEVICES).map(function (k) { return OPEN_DEVICES[k]; }));
+      // Chrome 语义：返回**已授权**设备（实例复用——同设备同对象；未 open 的 opened=false，
+      // 页面自行 open 后才有句柄）——持久授权来自 GRANTS（sessionStorage 跨刷新）。
+      return Promise.resolve(GRANTS.map(function (g) {
+        var inst = DEVICE_INSTANCES[g.path];
+        if (!inst) {
+          inst = new ShimHIDDevice(g);
+          DEVICE_INSTANCES[g.path] = inst;
+        }
+        return inst;
+      }));
     },
     requestDevice: function (options) {
       return callBridge("hidList", {}).then(function (r) {
@@ -249,12 +321,18 @@
             cancelled.name = "NotFoundError";
             throw cancelled;
           }
-          return callBridge("hidOpen", { path: chosen.path }).then(function (opened) {
-            if (!opened || !opened.ok) throw new Error((opened && opened.error) || "设备打开失败");
-            var dev = new ShimHIDDevice(chosen, opened.handleId);
-            OPEN_DEVICES[opened.handleId] = dev;
-            return [dev]; // WebHID 规范：requestDevice resolve 数组（页面代码 d[0]）
-          });
+          // R-SEM：登记持久授权（下次 getDevices/免授权恢复）；**不 open**（Chrome 语义：
+          // requestDevice 只选择——「已连接」由页面调 open() 后呈现）。
+          if (!findGranted(chosen)) {
+            GRANTS.push(chosen);
+            saveGrants();
+          }
+          var inst = DEVICE_INSTANCES[chosen.path];
+          if (!inst) {
+            inst = new ShimHIDDevice(chosen);
+            DEVICE_INSTANCES[chosen.path] = inst;
+          }
+          return [inst]; // WebHID 规范：requestDevice resolve 数组
         });
       });
     },
@@ -289,11 +367,11 @@
   /** 重注入收尾（client 推送新版 shim 前调用）：关全部桥句柄 + 停轮询——
    *  旧 shim 实例的轮询 interval 无人清理会一直空转打桥。 */
   window.__dshKitHidShim.closeAllForReinject = function () {
-    Object.keys(OPEN_DEVICES).forEach(function (k) {
+    Object.keys(DEVICE_INSTANCES).forEach(function (p) {
       try {
-        if (OPEN_DEVICES[k] && OPEN_DEVICES[k].__dshKitStopPoll) OPEN_DEVICES[k].__dshKitStopPoll();
+        if (DEVICE_INSTANCES[p] && DEVICE_INSTANCES[p].__dshKitStopPoll) DEVICE_INSTANCES[p].__dshKitStopPoll();
       } catch (_) { /* 尽力而为 */ }
-      delete OPEN_DEVICES[k];
+      DEVICE_OPEN_STATE[p] = false;
     });
     closeChooser();
   };
