@@ -47,6 +47,7 @@ const FACE_METHOD_TABLE = [
   ['hidRead', ['handleId', 'timeoutMs'], 'hidRead(handleId, timeoutMs?): Promise<{ok:true, data:number[]}|{ok:false, error:"timeout"}|{ok:false, error}>（阻塞读一次上报，timeoutMs 缺省 500）', ['timeoutMs']],
   ['hidWrite', ['handleId', 'data'], 'hidWrite(handleId, data): Promise<{ok:true, written}|{ok:false, error}>（写入字节数组）', []],
   ['hidClose', ['handleId'], 'hidClose(handleId): Promise<{ok:true}|{ok:false, error}>（关闭句柄）', []],
+  ['getHidShim', [], 'getHidShim(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>（WebHID shim 注入源，client 按 mtime 决定重注入）', []],
 ];
 
 /**
@@ -64,7 +65,7 @@ const FACE_METHOD_TABLE = [
  *   onCommandResult: (id: string, result: unknown) => {ok: boolean, error?: string},
  * }} hooks
  */
-export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSaveMerged, onDeleteAnnotations, onGetStats, onClearArtifacts, onGetInjectScript, onTakeCommand, onCommandResult, onHidList, onHidOpen, onHidRead, onHidWrite, onHidClose }) {
+export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSaveMerged, onDeleteAnnotations, onGetStats, onClearArtifacts, onGetInjectScript, onGetHidShim, onTakeCommand, onCommandResult, onHidList, onHidOpen, onHidRead, onHidWrite, onHidClose }) {
   /**
    * face 类：原型供方法标记与签名解析，实例带 typertRemote 绑定
    * （协议 bindTypertRemote 的落盘形状：冻结的 {service, serviceKey, namespace}）。
@@ -110,6 +111,8 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSa
     hidWrite(handleId, data) { return this.#guard(() => onHidWrite(handleId, data)); }
     /** hidClose(handleId) → {ok:true}（HID 桥：关闭句柄）。 */
     hidClose(handleId) { return this.#guard(() => onHidClose(handleId)); }
+    /** getHidShim() → {ok:true, source, mtime, bytes}（WebHID shim 注入源）。 */
+    getHidShim() { return this.#guard(() => onGetHidShim()); }
   }
 
   // 方法标记写原型（协议 mark() 的落盘形状：版本化冻结描述符）。

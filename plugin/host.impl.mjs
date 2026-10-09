@@ -450,6 +450,14 @@ function getInjectScriptImpl(paths) {
   return { ok: true, source, mtime: String(st.mtimeMs), bytes: source.length };
 }
 
+/** R-HID：WebHID shim 源供给（同 getInjectScriptImpl 形态；client 按 mtime 决定是否重注入 guest）。 */
+function getHidShimImpl(paths) {
+  const file = join(projectDirOf(paths), 'src', 'webhid-shim.js');
+  const st = statSync(file);
+  const source = readFileSync(file, 'utf8');
+  return { ok: true, source, mtime: String(st.mtimeMs), bytes: source.length };
+}
+
 /** takeCommand 实现：取走即删（.data/command.json；实施会话用本地工具直接落此文件驱动 client）。 */
 function takeCommandImpl(paths) {
   const file = join(paths.pluginDir, '.data', 'command.json');
@@ -672,6 +680,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
       return Promise.resolve(r);
     },
     onGetInjectScript: () => getInjectScriptImpl(paths),
+    onGetHidShim: () => getHidShimImpl(paths),
     onTakeCommand: () => takeCommandImpl(paths),
     onCommandResult: (id, result) => commandResultImpl(paths, id, result),
     // ── HID 桥（R-HID：系统层直连，绕开 Chromium select-hid-device 宿主缺口）──

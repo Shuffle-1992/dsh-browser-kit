@@ -74,6 +74,7 @@ window.__ModuleLoader__.load({
         ['hidRead', ['handleId', 'timeoutMs'], 'hidRead(handleId, timeoutMs?): Promise<{ok:true, data:number[]}|{ok:false, error}>（读一次上报，超时返回 timeout）', ['timeoutMs']],
         ['hidWrite', ['handleId', 'data'], 'hidWrite(handleId, data): Promise<{ok:true, written}|{ok:false, error}>（写入字节数组）', []],
         ['hidClose', ['handleId'], 'hidClose(handleId): Promise<{ok:true}|{ok:false, error}>（关闭句柄）', []],
+        ['getHidShim', [], 'getHidShim(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>（WebHID shim 注入源）', []],
       ].map(([method, parameters, , optionals]) => ({
         id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
@@ -2328,6 +2329,64 @@ window.__ModuleLoader__.load({
             ]);
             /* tick 职责拆分（R1-02）：周期 2000ms 与执行顺序逐字不变；前半同步段无失败域
              *  交叉；后半自愈/自动加入段保留 autoJoinBusy 守卫与 withTimeout 语义原样。 */
+            /* R-HID：WebHID shim 服务——每 webview 注入 shim（幂等，按 mtime）+ 消费 guest
+             *  的桥请求队列（__dshKitHidQueue → face hidXxx → __dshKitHidResolve 回推）。
+             *  face 未就绪时静默跳过（shim 队列积压到 face 就绪再消费，guest 侧 15s 超时自兜）。 */
+            const hidShimCache = { mtime: null, source: null };
+            // R-HID：typert 信封可能双层（face 自身 {ok,devices} 外再包 {ok,value}）——
+            // peelTo 按目标形状防御下钻（P41 家族：单层 unwrap 假设错 = 静默失败）。
+            const peelTo = (x, done) => (x && typeof x === 'object' && !Array.isArray(x) && done(x) ? x : x && typeof x === 'object' && x.value !== undefined ? peelTo(x.value, done) : null);
+            const HID_SHIM_PROBE = '(function(){ return { has: typeof window.__dshKitHidShimVersion, mtime: window.__dshKitHidShimMtime || null, q: (window.__dshKitHidQueue ? window.__dshKitHidQueue.length : -1) }; })()';
+            const tickHidBridge = async (svc, webviews) => {
+              if (!svc || typeof svc.getHidShim !== 'function') return;
+              for (const el of webviews) {
+                try {
+                  const state = await withTimeout(el.executeJavaScript(HID_SHIM_PROBE, true), 3000, 'hid-shim-probe');
+                  if (!state || typeof state !== 'object') continue;
+                  // ① shim 注入判定：未注入（has!=='string'）必注；guest 有 shim 时比对
+                  //   guest 记录的 mtime vs 当前源 mtime——两者有一方未知（client 刚重启缓存空）
+                  //   也重注入一次以建立基线（幂等成本低：一个 IIFE + 一次 face 调用）。
+                  const needInject = state.has !== 'string' || (function () {
+                    if (!state.mtime || !hidShimCache.mtime) return true; // 基线未建立 → 重注建立基线
+                    return state.mtime !== hidShimCache.mtime;
+                  })();
+                  if (needInject) {
+                    if (!hidShimCache.source || hidShimCache.mtime !== null) {
+                      // 每次重注都重新拉源（mtime 可能已变；face 调用便宜，不做双缓存假设）
+                      const g = peelTo(await svc.getHidShim(), (x) => typeof x.source === 'string');
+                      if (!g || g.ok !== true) continue;
+                      hidShimCache.source = g.source;
+                      hidShimCache.mtime = g.mtime;
+                      say('info', `WebHID shim 源已获取（${g.bytes} 字节，mtime ${g.mtime}）`);
+                    }
+                    await withTimeout(el.executeJavaScript('try { delete window.__dshKitHidShimVersion; } catch (_) {} try { delete window.__dshKitHidShimMtime; } catch (_) {} if (window.__dshKitHidShim && window.__dshKitHidShim.closeAllForReinject) { window.__dshKitHidShim.closeAllForReinject(); } window.__dshKitHidOldShim = navigator.hid; delete navigator.hid; window.__dshKitHidShimMtime = ' + JSON.stringify(hidShimCache.mtime) + ';\n' + hidShimCache.source, true), 5000, 'hid-shim-inject');
+                  }
+                  // ② 桥请求消费（guest 队列 → face → 回推）
+                  if (state.q > 0) {
+                    const reqs = await withTimeout(
+                      el.executeJavaScript('JSON.stringify(window.__dshKitHidQueue.splice(0, window.__dshKitHidQueue.length))', true),
+                      3000, 'hid-queue-take');
+                    const list = JSON.parse(reqs || '[]');
+                    for (const req of list) {
+                      try {
+                        let r = null;
+                        if (req.method === 'hidList') r = peelTo(await svc.hidList(), (x) => Array.isArray(x.devices));
+                        else if (req.method === 'hidOpen') r = peelTo(await svc.hidOpen(req.params.path), (x) => x.handleId || x.ok === false);
+                        else if (req.method === 'hidRead') r = peelTo(await svc.hidRead(req.params.handleId, req.params.timeoutMs), (x) => x.ok !== undefined);
+                        else if (req.method === 'hidWrite') r = peelTo(await svc.hidWrite(req.params.handleId, req.params.data), (x) => x.ok !== undefined);
+                        else if (req.method === 'hidClose') r = peelTo(await svc.hidClose(req.params.handleId), (x) => x.ok !== undefined);
+                        else r = { ok: false, error: '未知桥方法：' + req.method };
+                        await withTimeout(
+                          el.executeJavaScript(`window.__dshKitHidResolve(${JSON.stringify(req.id)}, ${JSON.stringify(r)})`, true),
+                          3000, 'hid-resolve');
+                      } catch (e) {
+                        await el.executeJavaScript(`window.__dshKitHidResolve(${JSON.stringify(req.id)}, { ok:false, error:${JSON.stringify(msgOf(e))} })`, true).catch(() => {});
+                      }
+                    }
+                  }
+                } catch { /* 单面板失败不影响其他面板/主流程 */ }
+              }
+            };
             const tickChipLifecycle = (webviews) => {
               refreshPanes(webviews);
               ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
@@ -2387,6 +2446,11 @@ window.__ModuleLoader__.load({
                 ? new Set(st.panes.map(paneIdOf))
                 : new Set();
               tickToolbarStyles(activeIds);
+              // R-HID：WebHID shim 服务（独立失败域——face 未就绪/单面板失败不拖累 tick 主流程）
+              try {
+                const hidSvc = stateRef.getRemote ? stateRef.getRemote() : null;
+                if (hidSvc) await withTimeout(tickHidBridge(hidSvc, webviews), 8000, 'hid-bridge-tick');
+              } catch { /* 桥 tick 失败：下轮再试 */ }
               await tickSelfHealAndAutoJoin(st, activeIds, webviews);
             }, 2000));
           } catch (e) {
