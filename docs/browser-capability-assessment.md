@@ -257,6 +257,20 @@ URL + 刷新/关闭按钮，`resize:both`）→ 全部页面级工具都能drive
 **注意**：判定「分区是否共享」必须**写唯一键双向互读**——同一站点在两个分区里各写一份默认键，键名会
 看起来一样（本项目实测踩过，见 P53）。
 
+### 3.9.2 R-OWN v2：登录态复用 / 多分辨率 / 右下角小窗 / 截图（2026-10-10 用户需求）
+
+| 需求 | 实现 | 实测 |
+|---|---|---|
+| **登录态复用** | storage identity 默认按官方公式 `cwd:<workspace.path>` **自动探测**：工具层从 `exec.agent.session.header.cwd` 带路径下来，client 用 `acquire(候选).partition` 与侧栏 webview 的 partition **逐字比对**验证命中并缓存；身份变化时自动重建视图 | identity=`cwd:F:\My Code\dsh-browser-kit`、`sharedWithSidebar:true`、partition 与侧栏一致；**会话窗口写 `__dbk_login_probe=logged-in-token-42` → 自持窗口 `found:true` 读到**（同分区 ⇒ 同 cookie jar，含 HttpOnly） |
+| **多分辨率（默认 2K）** | 预设同 Chrome DevTools 设备模式（2K/4K/1080p/1440×900/1280×720/iPad Pro/iPad mini/iPhone 15 Pro/iPhone 15 Pro Max/Pixel 7/Galaxy S20）+ 自定义 `WxH` + `dpr`（走 setZoomFactor）；**guest 视口=目标分辨率**，显示用 `transform:scale(k)` 只缩放显示 | 2K → `2560×1440`、展开 scale 0.62（stage 1587×893）；`iPhone 15 Pro` → `393×852 @3x`；自定义 `1440x900` ✓ |
+| **右下角小窗 + 展开** | 默认 **collapsed 260×44**（只留顶部条，点条或按钮展开）；展开按 `min(62% 宽, 72% 高)` 自适应，避免遮挡 DSH | `rect {left:2284, top:1340, w:260, h:44}` → expand `{left:941, top:449, w:1603, h:935}` → collapse 回小窗 ✓ |
+| **截图供视觉分析** | `browser_agent_window {op:'screenshot'}` / `browser_screenshot {target:'agent'}`；复用截图护栏（单飞/冷却/可见性/超时） | 2K 下 `shots/20261010-010315-KEYSION.png`：**2560×1440 / 1.37MB**，`read_image` 可直接看（已用于确认渲染与布局） |
+| **默认作用目标** | 由「本会话面板优先」翻转为 **自持窗口优先**（没有自持窗口才退回本会话面板） | `inputTargetOf` 缺省 `return agentViewWebview() \|\| fromSession;` |
+
+**边界（诚实说明）**：分区共享覆盖 **cookie（含 HttpOnly）+ localStorage**；**sessionStorage 天生按标签页
+隔离、不可能跨窗口共享**——若某站点把登录令牌只放在 sessionStorage，就需要额外做「会话交接」（读源窗口的
+sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，可按需补。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

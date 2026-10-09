@@ -21,7 +21,12 @@
 9. **等待/状态/表单补全（R-STATE/R-WAIT/R-FORM，2026-10-10）**：`browser_wait`（页面内轮询等 selector/text/url/load/fn，超时以 `matched:false` 返回，不报错）、`browser_state`（url/title/loading/前进后退可用性/视口/滚动/焦点/控制台计数）、`browser_history`（back/forward）、`browser_select`（按 value 或文本选项）、`browser_check`（checkbox/radio 勾选）、`browser_element_info`（元素档案：属性/值/勾选/几何/**遮挡情况**；ref 失效明确提示重取快照）；`browser_snapshot` 默认 **compact** 省 token。合计 **22 个 `browser_*` 工具**。
 10. **会话隔离（R-SCOPE，2026-10-10 用户需求）**：**自动化只作用于本会话的浏览器窗口**——工具层把「调用方会话 id」随命令下发，client 只在 `[data-sidebar-right-session="<调用会话>"]` 子树里找 webview；本会话没有已挂载面板、或面板操作的目标不是前台会话时**一律明确拒绝**（绝不去动别的会话）。另有**「用户正在输入」守卫**（焦点在输入框且不在本会话面板内 ⇒ 拒绝，`force:true` 才继续）与**焦点归还**（操作完把焦点还给原元素），避免打断用户打字。
 11. **P2 深化（2026-10-10）**：`browser_storage`（localStorage/sessionStorage/cookie 的 get/set/remove/clear；HttpOnly cookie 需 CDP 故不可见）、`browser_upload`（DOM+DataTransfer 注入 `File` 到 `<input type=file>`，等价 CDP 的 `DOM.setFileInputFiles`，上限 4MB）、`browser_find`（**省 token**：按关键词在 elements/text/links 三种模式下只回匹配项，命中元素带 ref 可直接点击）。合计 **25 个 `browser_*` 工具**。仍需 DSH 宿主能力的项（下载观测 `will-download`、整页截图 `Page.captureScreenshot`、独立浏览器视图租约）已在评估文档 §8 列明。
-12. **Agent 自持浏览器窗口（R-OWN，2026-10-10 实测打通）**：用 `dshDesktop.browser.acquire(storageIdentity)` 拿**自己的租约**、自建 `<webview>`（`name=<lease>` + `partition`）挂在右下角浮层面板里——**不占任何会话、不碰用户侧栏**，因此后台会话也能持续自动化（会话隔离的根治方案）。工具 `browser_agent_window {op:open|navigate|close|status|cleanup, url, width, height}`；页面级工具统一带 `target: agent|session`（缺省=本会话面板优先 → 自持窗口兜底）。已验证：跨站导航、find 三模式、快照 compact、元素档案、state/history、storage 往返、upload 注入、关闭后租约释放与 DOM 清理。
+12. **Agent 自持浏览器窗口（R-OWN，2026-10-10 实测打通）**：用 `dshDesktop.browser.acquire(storageIdentity)` 拿**自己的租约**、自建 `<webview>`（`name=<lease>` + `partition`）挂在右下角小窗里——**不占任何会话、不碰用户侧栏**，后台会话也能持续自动化。
+    - **登录态复用（默认）**：storage identity 按官方公式 `cwd:<workspace.path>` 自动探测（工具层从 `exec.agent.session.header.cwd` 取路径，用 `acquire(候选).partition` 与侧栏 webview 的 partition **逐字比对**验证），命中即**与侧栏窗口同分区 ⇒ 共享 cookie（含 HttpOnly）/localStorage，免登录直接测**；传 `storageIdentity:'dsh-browser-kit:agent-view'` 可改用独立干净分区。
+    - **多分辨率**：预设同 Chrome DevTools 设备模式（默认 **2K 2560×1440**，另有 4K/1080p/1440×900/1280×720/iPad Pro/iPad mini/iPhone 15 Pro/iPhone 15 Pro Max/Pixel 7/Galaxy S20）与自定义 `WxH`，可带 `dpr`；guest 视口=目标分辨率，**显示靠 transform 缩放**（200% 缩放也不改布局视口），展开时自动缩放到可用空间的 62%×72% 以内避免遮挡 DSH。
+    - **小窗形态**：默认右下角 **260×44** 小窗（不遮挡 DSH），点顶部条或 `op:expand` 展开、再点收起；`op:resolution` 换分辨率。
+    - **截图供视觉分析**：`browser_agent_window {op:'screenshot'}`（或 `browser_screenshot {target:'agent'}`）把当前窗口画面落盘（实测 2K 下 2560×1440 / 1.37MB），再用 `read_image` 做视觉鉴定或布局复刻。
+    - 页面级工具统一带 `target: agent|session`，**缺省自持窗口优先**（用户要求：默认不碰他的窗口），没有自持窗口才退回本会话面板。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

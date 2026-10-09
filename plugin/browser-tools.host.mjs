@@ -190,6 +190,23 @@ export function sessionIdOf(exec) {
 }
 
 /**
+ * 取「调用会话的 workspace 路径」——这正是侧栏窗口 storage identity 的输入
+ * （官方公式 `cwd:<workspace.path>`，见 dsh-client-ui-sidebar-browser L1425）。
+ * 有它才能让自持窗口拿到**同一分区** ⇒ 复用用户已登录的 cookie/localStorage。
+ */
+export function workspacePathOf(exec) {
+  try {
+    const session = exec && exec.agent && exec.agent.session;
+    const h = (session && session.header) || {};
+    const cands = [h.cwd, h.workspacePath, session && session.cwd, exec && exec.cwd];
+    for (const c of cands) if (typeof c === 'string' && c) return c;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 规格表：`action` 必须与 client.js 的 commandHandlers 键逐字一致（漂移 = 工具静默失败）。
  * 参数名**不得使用 `action` / `id`**（命令信封已占用，P47-D）。
  */
@@ -343,14 +360,17 @@ export const BROWSER_TOOL_SPECS = [
   {
     name: 'browser_agent_window',
     action: 'agent-view',
-    timeoutMs: 40000,
-    description: '**Agent 自己的浏览器窗口**（不占会话、不碰用户侧栏，租约由插件自己持有）：op=open 建/复用（可带 url/width/height）、navigate 导航、close 关闭并释放租约、status 查状态。比 browser_open（往用户侧栏开会话标签）更隔离——**后台会话也能用它持续自动化**。此窗口里页面级操作（snapshot/click/type/console…）默认就作用于它。',
+    timeoutMs: 60000,
+    description: '**Agent 自己的浏览器窗口**（不占会话、不碰用户侧栏，租约由插件自己持有；右下角小窗，点顶部条或 op=expand 展开）：op=open 建/复用、navigate 导航、expand/collapse/toggle 展开收起、resolution 改分辨率、screenshot **截图当前窗口**（供视觉分析/布局复刻）、close 关闭并释放租约、status 查状态、cleanup 清残留。支持分辨率预设（默认 **2K 2560×1440**）与自定义 WxH、dpr；storageIdentity 可指定存储身份（**缺省自动探测并复用侧栏窗口的身份 ⇒ 共享其登录态**）。',
     parameters: {
-      op: { type: 'string', required: true, description: 'open | navigate | close | status' },
+      op: { type: 'string', required: true, description: 'open | navigate | expand | collapse | toggle | resolution | screenshot | close | status | cleanup' },
       url: { type: 'string', description: 'op=open/navigate 时的目标地址（http/https）' },
-      width: { type: 'number', description: 'op=open 的面板宽（默认 520）' },
-      height: { type: 'number', description: 'op=open 的面板高（默认 420）' },
-      storageIdentity: { type: 'string', description: 'op=open 的存储身份（默认 dsh-browser-kit:agent-view；不同身份=不同 storage 分区）' },
+      resolution: { type: 'string', description: 'op=open/resolution：预设名（2K/4K/1080p/1440x900/1280x720/iPad Pro/iPad mini/iPhone 15 Pro/iPhone 15 Pro Max/Pixel 7/Galaxy S20）或自定义 WxH（如 1440x900）' },
+      dpr: { type: 'number', description: '设备像素比（缺省按预设；走 webview setZoomFactor）' },
+      state: { type: 'string', description: 'op=open 时的初始形态：collapsed（默认，小窗）| expanded' },
+      storageIdentity: { type: 'string', description: 'op=open 的存储身份（缺省=自动探测侧栏身份以复用登录态；传 dsh-browser-kit:agent-view 用独立干净分区）' },
+      width: { type: 'number', description: '（兼容旧参数）面板宽，现由分辨率与缩放自动决定' },
+      height: { type: 'number', description: '（兼容旧参数）面板高，现由分辨率与缩放自动决定' },
     },
   },
   {
@@ -471,8 +491,8 @@ export const BROWSER_TOOL_SPECS = [
   {
     name: 'browser_screenshot',
     action: 'screenshot',
-    timeoutMs: 30000,
-    description: '截取当前**可见**浏览器面板并落盘，返回文件路径（再用 read_image 看图）。隐藏/零尺寸面板会被拒绝（capturePage 高危，见 pitfalls P47-B）。',
+    timeoutMs: 40000,
+    description: '截取当前**可见**浏览器面板（缺省自持窗口优先）并落盘，返回文件路径（再用 read_image 看图，供视觉识别/布局复刻）。隐藏/零尺寸面板会被拒绝（capturePage 高危，见 pitfalls P47-B）；自持窗口收起时先 `browser_agent_window {op:"expand"}` 或直接用 `{op:"screenshot"}`。',
     parameters: {},
   },
 ];
@@ -490,7 +510,7 @@ for (const spec of BROWSER_TOOL_SPECS) {
   if (!spec.parameters.target) {
     spec.parameters.target = {
       type: 'string',
-      description: '作用目标：agent=Agent 自持窗口（browser_agent_window）；session=本会话侧栏面板；省略=自持窗口优先、否则本会话面板',
+      description: '作用目标：agent=Agent 自持窗口（browser_agent_window）；session=本会话侧栏面板；省略=**自持窗口优先**（若已开），否则本会话面板',
     };
   }
 }
@@ -542,6 +562,10 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
             // R-SCOPE：把**调用方会话**带下去，client 只在「本会话的浏览器面板」上操作（不动别的会话）
             const sessionId = sessionIdOf(exec);
             if (sessionId) params.sessionId = sessionId;
+            // R-OWN-ID：workspace 路径是 storage identity 的输入（cwd:<path>）——只在 agent-view 需要，
+            // 但它很小，统一带上便于将来复用（登录态探测靠它命中侧栏同分区）
+            const workspacePath = workspacePathOf(exec);
+            if (workspacePath) params.workspacePath = workspacePath;
             // dynamicSource：源码随命令下发（页内观察器需要；hook 随页面销毁，下发即自愈）
             if (spec.dynamicSource) {
               try {

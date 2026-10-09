@@ -240,6 +240,36 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /if \(String\(\(c && c\.mode\) \|\| ''\) === 'trusted'\) \{/);
   });
 
+  await t.test("R-OWN v2：分辨率预设 / 右下角小窗 / 登录态复用 / 截图（2026-10-10 用户需求）", () => {
+    // ①分辨率预设（参考 Chrome DevTools），默认 2K
+    assert.match(clientSource, /const AGENT_VIEW_PRESETS = \{/);
+    assert.match(clientSource, /'2K': \{ w: 2560, h: 1440, dpr: 1, label: '2K · 2560×1440' \}/);
+    assert.match(clientSource, /'iPhone 15 Pro': \{ w: 393, h: 852, dpr: 3/);
+    assert.match(clientSource, /const agentViewResolvePreset = \(spec\) => \{/);
+    assert.match(clientSource, /\^\(\\d\{2,5\}\)\\s\*\[x×\]\\s\*\(\\d\{2,5\}\)\$/); // 自定义 WxH
+    // ②guest 视口=目标分辨率，显示靠 transform 缩放（不改视口）
+    assert.match(clientSource, /frame\.style\.width = `\$\{res\.w\}px`;/);
+    assert.match(clientSource, /frame\.style\.transform = `scale\(\$\{expanded \? k : 0\.0001\}\)`;/);
+    assert.match(clientSource, /const k = expanded \? Math\.min\(1, maxW \/ res\.w, maxH \/ res\.h\) : 0;/);
+    // ③默认右下角小窗（收起），点顶部条/按钮展开
+    assert.match(clientSource, /state: \(opts && opts\.state === 'expanded'\) \? 'expanded' : 'collapsed',/);
+    assert.match(clientSource, /panel\.style\.height = expanded \? `\$\{barH \+ stageH \+ 10\}px` : `\$\{barH \+ 12\}px`;/);
+    assert.match(clientSource, /head\.addEventListener\('click', \(\) => \{/);
+    // ④登录态复用：官方身份公式 cwd:<workspace.path> + 用 partition 比对验证
+    assert.match(clientSource, /const discoverStorageIdentity = async \(sessionId, workspacePath\) => \{/);
+    assert.match(clientSource, /if \(workspacePath\) cands\.push\(`cwd:\$\{workspacePath\}`\);/);
+    assert.match(clientSource, /if \(targets\.indexOf\(part\) >= 0\) \{/);
+    assert.match(clientSource, /const AGENT_VIEW_IDENTITY_KEY = 'dsh-browser-kit:agent-view-identity:v1';/);
+    assert.match(clientSource, /data-sidebar-browser-frame="webview"/);
+    // ⑤身份变了要重建（否则切不到共享登录态）
+    assert.match(clientSource, /if \(existing && opts\.recreate !== true && agentView\.identity === identity\) \{/);
+    // ⑥自持窗口截图（供视觉分析）
+    assert.match(clientSource, /if \(op === 'screenshot'\) \{/);
+    assert.match(clientSource, /const r = await captureShot\(\{ target: 'agent' \}\);/);
+    // ⑦默认作用目标翻转为「自持窗口优先」
+    assert.match(clientSource, /return agentViewWebview\(\) \|\| fromSession;/);
+  });
+
   await t.test("R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）", () => {
     // ①会话作用域的 webview 选择（面板容器带 data-sidebar-right-session）
     assert.match(clientSource, /const scopedWebviews = \(sessionId\) => \{/);
@@ -257,8 +287,9 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /guard: 'user-typing'/);
     // ④光效也只在本次会话的面板里找目标（别把光画到别人的窗口上）
     assert.match(clientSource, /const sid = stateRef\.agentGlow \? stateRef\.agentGlow\.sessionId : null;\s*const all = scopedWebviews\(sid\);/);
-    // ⑤截图同样按会话收敛
-    assert.match(clientSource, /const els = scopedWebviews\(ctxCmd && ctxCmd\.sessionId\); \/\/ R-SCOPE/);
+    // ⑤截图同样按会话收敛（R-OWN 后：候选=自持窗口优先+本会话面板，target 可强制）
+    assert.match(clientSource, /const sessionEls = scopedWebviews\(ctxCmd && ctxCmd\.sessionId\);/);
+    assert.match(clientSource, /const wantShot = ctxCmd && ctxCmd\.target \? String\(ctxCmd\.target\) : null;/);
   });
 
   await t.test("R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）", () => {
