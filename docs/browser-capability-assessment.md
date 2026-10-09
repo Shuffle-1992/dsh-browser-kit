@@ -236,6 +236,27 @@ URL + 刷新/关闭按钮，`resize:both`）→ 全部页面级工具都能drive
 
 踩坑四条已记 P52（dom-ready 时序 / 热换残留需收养 / release 形参 / 目标解析必须统一）。
 
+### 3.9.1 自持窗口 vs 会话侧栏窗口（对照与选择指南）
+
+| 维度 | 会话侧栏窗口（原有） | 自持窗口（R-OWN） |
+|---|---|---|
+| 归属 | DSH 侧栏标签（会话语义） | 插件自持租约 + 右下角浮层面板 |
+| **挂载/可用性** | 仅本会话前台时挂载；用户切到别的会话 → 本会话面板卸载（实测 `w=0/h=0`），自动化被如实拒绝 | **与任何会话无关**，跨会话切换/前台切换都一直可用 |
+| 会话隔离 | 属于某个会话 ⇒ 必须做 R-SCOPE 作用域检查（否则动到前台会话） | **天然隔离**：不属于任何会话 |
+| **存储/登录态** | 按 workspace（CWD）分区 ⇒ 与同 workspace 的会话共享 cookie/localStorage（用来自用户的登录态） | **独立分区**：实测写唯一键双向互读均 `found:false`、cookie 互不可见 ⇒ 默认**不带登录态** |
+| 标签能力 | 完整（多标签 + 开/关/切换 + 面板开合：`browser_tabs/open/close/panel`） | 单视图；`onOpenRequested` 只记录（不自动开标签） |
+| 地址栏 | 有（用户可输入导航） | 无（显示 URL + 刷新/关闭）；导航靠工具或页面内跳转 |
+| 尺寸/位置 | 右侧栏（可折叠） | 右下角浮动，可拖动/缩放，可指定 width/height |
+| 页面能力 | 同一套（executeJavaScript / 截图 / 可信输入 / 控制台 hook） | **完全相同** ⇒ `browser_*` 工具通用，靠 `target` 切换 |
+| 关闭语义 | 关标签（DSH 侧栏状态） | 关面板 = **释放租约**（实测关闭后 `allWebviews:0 / agentPanels:0 / leaseRecord:null`） |
+
+**选择指南**：要**在用户正看的那个页面**上帮忙（带他的登录态、批注他打开的站点）→ 会话侧栏窗口
+（`target:'session'`，或缺省时它优先）；要**后台干活 / 不打扰用户 / 需要干净独立 profile / 跨站跑测试**
+→ 自持窗口（`browser_agent_window {op:'open'}`，页面工具缺省会兜底到它）。
+
+**注意**：判定「分区是否共享」必须**写唯一键双向互读**——同一站点在两个分区里各写一份默认键，键名会
+看起来一样（本项目实测踩过，见 P53）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
