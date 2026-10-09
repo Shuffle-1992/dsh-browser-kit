@@ -51,6 +51,11 @@ window.__ModuleLoader__.load({
       + '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
       + '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
       + '</svg>';
+    /* ★作用域坑（实测）：这两个图标既要给内层工具条用、又要给外层自持窗口用，
+     *  必须声明在**模块外层**——先前误放进工具条所在的函数作用域，导致自持窗口 open 抛
+     *  `SHOT_ICON_SVG is not defined`。 */
+    const SIZE_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 17v3.5"/></svg>';
+    const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
     // 工具条强调色——字面色豁免（C15）：主题令牌在工具条上下文可能解析成浅色 → 白底白标
     // 隐形（真机修正）；两处引用（点击即时反馈 + 2s 同步循环）共用常量，勿回退令牌。
     const TOOLBAR_ACCENT = '#2563eb';
@@ -2032,17 +2037,16 @@ window.__ModuleLoader__.load({
             };
             zoomInput.addEventListener('change', commitZoomInput);
             zoomInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commitZoomInput(); } });
-            // ③截图（文字按钮，不用图标）——落盘 + **复制到剪贴板**（用户 2026-10-10 要求）
-            const shootBtn = mkBtn('截图', '截图当前窗口到剪贴板（同时落盘供 Agent 分析）', async () => {
+            // ③截图（**同款图标**，与侧栏工具条一致）——落盘 + **直接输入到输入框**（用户 2026-10-10 要求）
+            const shootBtn = mkBtn('', '截图当前窗口并直接插入输入框（同时落盘供 Agent 分析）', async () => {
               try {
-                const r = await captureShot({ target: 'agent', clipboard: true });
-                const clip = r && r.clipboard;
-                if (r && r.ok) urlText.textContent = clip && clip.ok
-                  ? `已复制到剪贴板（${clip.size || ''}）+ 落盘`
-                  : `已落盘 → ${String(r.path || '').split('\\').pop()}`;
-                else urlText.textContent = `截图失败：${(r && (r.error || (clip && clip.error))) || '未知'}`;
+                const r = await captureShot({ target: 'agent', insertToComposer: true });
+                const cp = r && r.composer;
+                if (r && r.ok) urlText.textContent = cp && cp.via === 'drop-image' ? '已插入输入框（图片附件·drop）+ 落盘' : '已插入输入框（图片附件）+ 落盘';
+                else urlText.textContent = `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
               } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
             });
+            shootBtn.innerHTML = SHOT_ICON_SVG;
             // ④最小化（"-"，在 ✕ 左侧；收起态显示为 ▣ 用于展开）
             const minBtn = mkBtn('▣', '最小化为右下角小窗 / 展开', () => {
               agentView.ui = { ...(agentView.ui || {}), state: (agentView.ui && agentView.ui.state === 'expanded') ? 'collapsed' : 'expanded' };
@@ -3247,8 +3251,8 @@ window.__ModuleLoader__.load({
                 // R-OWN：**把自持窗口当前画面截下来**（供 Agent 视觉分析/布局复刻）——复用截图护栏；
                 // clipboard:true 时同时写入系统剪贴板
                 if (!agentViewWebview()) return { ok: false, op, error: '自持窗口未打开（先 op:"open"）' };
-                const r = await captureShot({ target: 'agent', clipboard: c && c.clipboard === true });
-                return { ok: !!(r && r.ok), op, path: r && r.path, bytes: r && r.bytes, clipboard: r && r.clipboard, error: r && r.error, resolution: agentViewStatus().resolution, dpr: agentViewStatus().dpr };
+                const r = await captureShot({ target: 'agent', clipboard: c && c.clipboard === true, insertToComposer: c && c.insertToComposer === true });
+                return { ok: !!(r && r.ok), op, path: r && r.path, bytes: r && r.bytes, clipboard: r && r.clipboard, composer: r && r.composer, error: r && r.error, resolution: agentViewStatus().resolution, dpr: agentViewStatus().dpr };
               }
               if (op === 'cleanup') {
                 // 清理游离/重复的自持视图实例（热换残留），保留当前收养的那个
@@ -3737,6 +3741,69 @@ window.__ModuleLoader__.load({
             return { ok: false, error: '剪贴板写入失败（两条路径均不可用）' };
           };
 
+          /* ── 截图「直接输入到输入框」（2026-10-10 用户要求：不再走剪贴板）──
+           * ① 首选：把 PNG 包成 `File`，构造 `ClipboardEvent('paste')` 派发到会话输入框
+           *   （DSH 输入框是 Lexical，粘贴图片即成为附件；synthetic 事件在 contenteditable 上实测可用）；
+           * ② 回退：把落盘路径当文本追加进输入框（`primeSessionInput`，P30 纪律：只追加不覆盖）。
+           * 校验**必须延迟**（Lexical 异步 reconcile，同步回读必误报，同 P30）。
+           * 绝不清理/覆盖用户已有内容。 */
+          const composerImageCount = () => {
+            try {
+              const ce = findComposer();
+              if (!ce) return 0;
+              const scope = ce.closest('[data-composer-card]') || ce.parentElement || ce;
+              return scope.querySelectorAll('img, [data-attachment], [class*="attachment"], [class*="image"]').length;
+            } catch { return 0; }
+          };
+          const insertImageToComposer = async (dataUrl, fileName) => {
+            const out = { ok: false, via: null, verified: false, imagesBefore: 0, imagesAfter: 0, error: null, text: null };
+            try {
+              out.imagesBefore = composerImageCount();
+              const blob = await (await fetch(dataUrl)).blob();
+              const file = new File([blob], fileName || `dsh-shot-${Date.now()}.png`, { type: 'image/png' });
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              const ce = findComposer();
+              const target = ce || document.activeElement || document.body;
+              try { if (ce && ce.focus) ce.focus(); } catch { /* 忽略 */ }
+              /** 派发后轮询等待图片出现（Lexical 异步渲染；450ms 回读会误判，实测教训）。 */
+              const waitForImage = async () => {
+                const t0 = Date.now();
+                while (Date.now() - t0 < 2500) {
+                  await new Promise((r) => setTimeout(r, 250));
+                  out.imagesAfter = composerImageCount();
+                  if (out.imagesAfter > out.imagesBefore) return true;
+                }
+                return false;
+              };
+              // 路径①：paste（图片附件）
+              try {
+                const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+                if (target.dispatchEvent(ev)) {
+                  out.via = 'paste-image';
+                  if (await waitForImage()) { out.verified = true; out.ok = true; return out; }
+                }
+              } catch { /* 落到路径② */ }
+              // 路径②：drop（同样实测可用）
+              try {
+                const dt2 = new DataTransfer();
+                dt2.items.add(new File([blob], file.name, { type: 'image/png' }));
+                const root = (ce && (ce.closest('[data-lexical-editor]') || ce)) || target;
+                root.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt2 }));
+                out.via = 'drop-image';
+                if (await waitForImage()) { out.verified = true; out.ok = true; return out; }
+              } catch { /* 落到失败 */ }
+              /* ★用户明确要求：**只插图、不要额外文字**（输入框里绝不追加路径文本）。
+               * 两条路径都失败时如实报错（路径只出现在按钮提示/工具返回值里，不进输入框）。 */
+              out.via = 'failed';
+              out.error = '图片插入输入框失败（paste/drop 均未被编辑器接受）';
+              return out;
+            } catch (e) {
+              out.error = msgOf(e);
+              return out;
+            }
+          };
+
           const captureShot = async (ctxCmd) => {
             const out = { ok: false, error: null, path: null, bytes: null };
             try {
@@ -3800,6 +3867,12 @@ window.__ModuleLoader__.load({
               if (ctxCmd && ctxCmd.clipboard) {
                 out.clipboard = await copyPngToClipboard(dataUrl);
                 if (!out.ok && out.clipboard && out.clipboard.ok) out.ok = true; // 落盘失败但剪贴板成功也算部分成功
+              }
+              // 直接输入到会话输入框（用户要求：截图不走剪贴板，进输入框）
+              if (ctxCmd && ctxCmd.insertToComposer) {
+                const fname = out.path ? String(out.path).split('\\').pop() : null;
+                out.composer = await insertImageToComposer(dataUrl, fname);
+                if (!out.ok && out.composer && out.composer.ok) out.ok = true;
               }
             } catch (e) {
               out.error = msgOf(e);
@@ -4124,9 +4197,16 @@ window.__ModuleLoader__.load({
                 menu.appendChild(row);
               }
               document.body.appendChild(menu);
+              /* 弹层**向下展开**（用户 2026-10-10 要求）——向上会与 DSH 右上角那堆图标/窗口控件
+               * 重叠遮挡；下方空间不足时才翻到上方。 */
               const br = btn.getBoundingClientRect();
+              const mh = menu.offsetHeight;
+              const below = window.innerHeight - br.bottom - 8;
+              const openUp = below < Math.min(mh, 120);
               menu.style.left = `${Math.max(8, Math.min(br.left - 40, window.innerWidth - 214))}px`;
-              menu.style.top = `${Math.max(8, br.top - menu.offsetHeight - 6)}px`;
+              menu.style.top = openUp
+                ? `${Math.max(8, br.top - mh - 6)}px`
+                : `${Math.min(window.innerHeight - mh - 8, br.bottom + 6)}px`;
               paneDeviceMenu = menu;
               const onDown = (ev) => {
                 if (menu.contains(ev.target) || ev.target === btn) return;
@@ -4137,9 +4217,7 @@ window.__ModuleLoader__.load({
               setTimeout(() => { try { document.addEventListener('mousedown', onDown, true); } catch { /* 忽略 */ } }, 0);
               return menu;
             };
-            const SIZE_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 17v3.5"/></svg>';
-            const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
-            /** 工具条按钮（批注 / 尺寸 / 截图到剪贴板），带 P37 认领戳。 */
+            /** 工具条按钮（批注 / 尺寸 / 截图到输入框），带 P37 认领戳。 */
             const mkToolbarBtn = (id, title, svg, first) => {
               const btn = document.createElement('button');
               btn.id = id;
@@ -4157,7 +4235,7 @@ window.__ModuleLoader__.load({
               const specs = [
                 { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击本窗口加入/退出共享批注）', svg: ANNOT_ICON_SVG, first: true },
                 { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false },
-                { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器到剪贴板', svg: SHOT_ICON_SVG, first: false },
+                { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false },
               ];
               for (const form of toolbarForms()) {
                 const pane0 = webviewOfForm(form);
@@ -4203,12 +4281,13 @@ window.__ModuleLoader__.load({
                       if (!pane) return;
                       btn.style.background = TOOLBAR_ACCENT;
                       btn.style.color = TOOLBAR_ACCENT_TEXT;
-                      const r = await captureShot({ el: pane, clipboard: true });
+                      // 截图 → **直接输入到输入框**（用户要求：不走剪贴板）
+                      const r = await captureShot({ el: pane, insertToComposer: true });
                       setTimeout(() => { btn.style.background = 'transparent'; btn.style.color = 'inherit'; }, 700);
-                      const clip = r && r.clipboard;
-                      btn.title = r && clip && clip.ok
-                        ? `已复制到剪贴板（${clip.size || ''}，${clip.method || ''}）`
-                        : `截图失败：${(r && (r.error || (clip && clip.error))) || '未知'}`;
+                      const cp = r && r.composer;
+                      btn.title = r && r.ok
+                        ? (cp && cp.via === 'drop-image' ? '已插入输入框（图片附件·drop）' : '已插入输入框（图片附件）')
+                        : `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
                     });
                   }
                   form.appendChild(btn);

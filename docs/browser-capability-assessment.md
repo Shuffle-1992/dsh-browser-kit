@@ -345,6 +345,23 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 （写 `393px`，`getBoundingClientRect().width` 仍 `1149px`）⇒ 设备尺寸必须用
 `style.setProperty('width', px, 'important')`（height/min-width/max-width/transform 同理），并 `flex:0 0 auto`。
 
+### 3.9.7 R-OWN v7：截图**直接输入到输入框** + 弹层向下 + 自持窗口同款图标（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| 尺寸弹层**向下展开**（避开 DSH 右上图标堆叠遮挡） | 计算按钮下方可用高度；足够就 `top = btn.bottom + 6`，不足才向上翻 | `btnBottom 110 → menuTop 116`、`menuBottom 423`、`downward:true` ✓ |
+| 自持窗口「截图」换成**同款图标** | 复用模块级 `SHOT_ICON_SVG`（与侧栏工具条同一枚） | 面板按钮序列 `[svg图标, −, ✕]`（`svg:true`）✓ |
+| 截图**不再进剪贴板，直接输入框** | `insertImageToComposer()`：PNG→`File`→`ClipboardEvent('paste')`（路径①）；未接受则 `DragEvent('drop')`（路径②）；**只插图片，绝不追加文字** | 机制实证（独立探针）：`paste` 与 `drop` 各自让输入框图片数 +1（3→4→5→6）✓ |
+
+**两个实测教训（都踩过）**：
+1. **校验窗口太短会误判**：Lexical 渲染图片附件是异步的，450ms 回读时图片还没出现 → 被判定失败并错误回退成
+   「写路径文本」。改为**轮询等待（最长 2.5s）**后才正确识别成功。
+2. **`SHOT_ICON_SVG` 作用域**：图标常量既要给内层工具条、又要给外层自持窗口用，**必须声明在模块外层**；
+   先前误放进工具条所在函数作用域，导致自持窗口 `open` 抛 `SHOT_ICON_SVG is not defined`（已记 P56）。
+
+**用户明确要求**：输入框里**只放图片、不附带任何文字**（`截图已保存：…` 之类一律不写；失败时只在按钮提示/工具
+返回值里报错）。已用 `assert.doesNotMatch(clientSource, /截图已保存/)` 钉住，防回归。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

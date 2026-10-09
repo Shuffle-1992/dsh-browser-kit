@@ -41,9 +41,12 @@
     - **设备尺寸**：点击弹出分辨率清单（2K/4K/1080p/1440×900/1280×720/iPad/iPhone/Pixel/Galaxy + 重置）。选中后把该面板的 guest 视口设成预设分辨率，**显示缩放按「当前浏览器板块的尺寸」计算**（`k = min(1, 板块宽/预设宽, 板块高/预设高)`）。
       实测：选 2K → `width:2560px` + `transform:scale(0.448)`（1147/2560）、**页内 `window.innerWidth = 2560×1440`**；重置即恢复自适应面板。
       ★踩坑：DSH 侧栏 webview 的宽度由 flex/百分比决定，**普通 inline width 会被压回原宽**（写 393px 实际仍 1149px）⇒ 必须 `style.setProperty(..., 'important')`。
-    - **截图到剪贴板**：点击把**当前浏览器截图写入系统剪贴板**（直接用 `Ctrl+V` 粘贴）。
-      剪贴板写入实测结论：`ClipboardItem` 用 `fetch(dataURL)`/手搓 `Blob` 会报 `DataError: Failed to read or decode ClipboardItemData`；**`canvas.toBlob` → `clipboard.write` 可用**，`document.execCommand('copy')` 选中 `<img>` 也可用（按此顺序回退）。已用 PowerShell `[Windows.Forms.Clipboard]::GetImage()` 独立核验剪贴板确为图片。
-14. **自持窗口「截图」按钮同样复制到剪贴板**：落盘（供 Agent `read_image` 分析）+ 写入系统剪贴板；`browser_agent_window {op:'screenshot', clipboard:true}` 亦同（缺省不抢用户剪贴板）。
+    - **截图到输入框（不再走剪贴板）**：点击把**当前浏览器截图直接插入会话输入框**（图片附件，可直接发送给 Agent）。
+      实现：PNG → `File` → `ClipboardEvent('paste')`（**路径①**）；未被编辑器接受则用 `DragEvent('drop')`（**路径②**，两条均实测可用）；
+      校验用**轮询等待**（Lexical 异步渲染，450ms 回读会误判失败——实测教训）。
+      **只插图片、绝不追加任何文字**（用户明确要求）。
+    - 尺寸弹层**向下展开**（向上会与 DSH 右上角图标堆叠重叠遮挡）；下方空间不足才翻到上方。
+14. **自持窗口「截图」= 同款图标**：点击后**直接插入会话输入框**（图片附件）+ 落盘（供 Agent `read_image` 分析）；`browser_agent_window {op:'screenshot', insertToComposer:true}` 亦同（`clipboard:true` 仍可显式要求写剪贴板，但缺省不做）。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 

@@ -263,7 +263,19 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const minBtn = mkBtn\('▣', '最小化为右下角小窗 \/ 展开'/);
     assert.match(clientSource, /minBtn\.setAttribute\('data-dsh-kit-agent-view-min', ''\);/);
     assert.match(clientSource, /if \(minBtn\) minBtn\.textContent = expanded \? '−' : '▣';/);
-    assert.match(clientSource, /const shootBtn = mkBtn\('截图', '截图当前窗口到剪贴板（同时落盘供 Agent 分析）'/);
+    assert.match(clientSource, /const shootBtn = mkBtn\('', '截图当前窗口并直接插入输入框（同时落盘供 Agent 分析）'/);
+    assert.match(clientSource, /shootBtn\.innerHTML = SHOT_ICON_SVG;/);
+    // ⑬R-OWN v7：截图**直接输入到输入框**（只插图片、绝不加文字）；尺寸弹层**向下展开**
+    assert.match(clientSource, /const insertImageToComposer = async \(dataUrl, fileName\) => \{/);
+    assert.match(clientSource, /new ClipboardEvent\('paste', \{ bubbles: true, cancelable: true, clipboardData: dt \}\)/);
+    assert.match(clientSource, /new DragEvent\('drop', \{ bubbles: true, cancelable: true, dataTransfer: dt2 \}\)/); // 路径②
+    assert.match(clientSource, /const waitForImage = async \(\) => \{/); // 轮询校验（450ms 回读会误判）
+    assert.doesNotMatch(clientSource, /截图已保存/); // ★用户要求：不加任何文字进输入框
+    assert.match(clientSource, /if \(ctxCmd && ctxCmd\.insertToComposer\) \{/);
+    assert.match(clientSource, /const r = await captureShot\(\{ el: pane, insertToComposer: true \}\);/);
+    assert.match(clientSource, /const openUp = below < Math\.min\(mh, 120\);/);
+    assert.match(clientSource, /menu\.style\.top = openUp/);
+    assert.match(clientSource, /const r = await captureShot\(\{ target: 'agent', insertToComposer: true \}\);/);
     // ⑪R-OWN v6：截图可同时复制到系统剪贴板（实测：canvas.toBlob→ClipboardItem 可用、execCommand 兜底）
     assert.match(clientSource, /const copyPngToClipboard = async \(dataUrl\) => \{/);
     assert.match(clientSource, /await navigator\.clipboard\.write\(\[new ClipboardItem\(\{ 'image\/png': blob \}\)\]\);/);
@@ -277,8 +289,8 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const k = Math\.min\(1, availW \/ res\.w, availH \/ res\.h\);/);
     assert.match(clientSource, /const openPaneDeviceMenu = \(btn, pane\) => \{/);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false \},/);
-    assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器到剪贴板', svg: SHOT_ICON_SVG, first: false \},/);
-    assert.match(clientSource, /const r = await captureShot\(\{ el: pane, clipboard: true \}\);/);
+    assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false \},/);
+    assert.match(clientSource, /const r = await captureShot\(\{ el: pane, insertToComposer: true \}\);/);
     assert.match(clientSource, /const zoomSel = mkSelect\(\s*ZOOM_STEPS/);
     assert.match(clientSource, /const ZOOM_STEPS = \[0\.25, 0\.5, 0\.67, 0\.75, 0\.8, 0\.9, 1, 1\.1, 1\.25, 1\.5, 1\.75, 2, 2\.5, 3, 4, 5\];/);
     assert.match(clientSource, /head\.appendChild\(presetSel\);\s*head\.appendChild\(zoomSel\);\s*head\.appendChild\(zoomInput\);\s*head\.appendChild\(shootBtn\);\s*head\.appendChild\(minBtn\);\s*head\.appendChild\(closeBtn\);/);
@@ -308,7 +320,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /if \(existing && opts\.recreate !== true && agentView\.identity === identity\) \{/);
     // ⑥自持窗口截图（供视觉分析）
     assert.match(clientSource, /if \(op === 'screenshot'\) \{/);
-    assert.match(clientSource, /const r = await captureShot\(\{ target: 'agent', clipboard: c && c\.clipboard === true \}\);/);
+    assert.match(clientSource, /const r = await captureShot\(\{ target: 'agent', clipboard: c && c\.clipboard === true, insertToComposer: c && c\.insertToComposer === true \}\);/);
     // ⑦默认作用目标翻转为「自持窗口优先」+ 命中即续期「操作中」
     assert.match(clientSource, /if \(av\) \{ touchAgentView\(\); return av; \}/);
     // ⑧空闲即「让给用户」：边框回中性色 + 可配空闲自动释放（默认 10 分钟）
