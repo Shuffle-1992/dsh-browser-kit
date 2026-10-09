@@ -430,6 +430,10 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(annotSource2, /panel\.style\.bottom = bottomGap \+ "px";/);
     assert.match(annotSource2, /setPaneMetrics: function \(m\) \{/);
     assert.match(clientSource, /const ANNOT_ICON_ACTIVE_SVG = /);
+    // v14：激活图标 = 原图标**描边**变蓝（fill:none，不是蓝块）；批注激活时自持小窗换到左下角
+    assert.match(clientSource, /fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/);
+    assert.match(clientSource, /panel\.style\.left = \(!expanded && annotOn\) \? '12px' : 'auto';/);
+    assert.match(clientSource, /if \(agentView\.lastAnnotOn !== on\) \{ agentView\.lastAnnotOn = on; applyAgentViewLayout\(\); \}/);
     assert.match(clientSource, /if \(b\.innerHTML !== want\) b\.innerHTML = want;/);
     assert.match(clientSource, /const syncAnnotMetrics = \(pane\) => \{/);
     assert.match(clientSource, /const paneUiScale = \(pane\) => \{/);

@@ -58,11 +58,11 @@ window.__ModuleLoader__.load({
     const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
     /** ↘ 箭头（与 DSH「系统浏览器打开」的 ↗ 图标镜像）：把当前页以**同登录态**开进自持浏览器。 */
     const OWN_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 8.5V18H8.5"/></svg>';
-    /** R-OWN v13：**激活态**批注图标（蓝色实心气泡 + 白色加号）——用「换图标」表示激活，
-     *  彻底不用背景色（背景色会被其它写者清掉/闪烁，是先前的老问题）。 */
+    /** R-OWN v14：**激活态**批注图标 = 「原来那枚图标的白色描边整体改成蓝色」（用户要求：
+     *  不是填充蓝块，只是把白色换成蓝色）。仍用"换图标"表达激活（背景色会被覆盖 → 闪烁，见 P60/P64）。 */
     const ANNOT_ICON_ACTIVE_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">'
-      + '<path d="M4 4h16v12H9l-5 4V4z" fill="#2563eb" stroke="#2563eb" stroke-width="1.4" stroke-linejoin="round"/>'
-      + '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>'
+      + '<path d="M4 4h16v12H9l-5 4V4z" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>'
+      + '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>'
       + '</svg>';
     // 工具条强调色——字面色豁免（C15）：主题令牌在工具条上下文可能解析成浅色 → 白底白标
     // 隐形（真机修正）；两处引用（点击即时反馈 + 2s 同步循环）共用常量，勿回退令牌。
@@ -2425,9 +2425,13 @@ window.__ModuleLoader__.load({
             panel.style.width = expanded ? `${panelW}px` : '260px';
             panel.style.height = expanded ? `${panelH}px` : `${barH + 12}px`;
             // 展开：贴到标题栏下方（右上角窗口按钮不被遮挡）；收起：右下角小窗
+            // R-OWN v14：**批注会话激活时小窗换到左下角**——DSH 板块的批注面板在右下角，
+            //   两者叠一起会互相遮挡（用户实测反馈）；批注关闭后自动回到右下角。
+            const annotOn = !!(stateRef.annot && stateRef.annot.active);
             panel.style.top = expanded ? `${topOffset}px` : 'auto';
             panel.style.bottom = expanded ? 'auto' : '16px';
-            panel.style.right = expanded ? '12px' : '16px';
+            panel.style.right = expanded ? '12px' : (annotOn ? 'auto' : '16px');
+            panel.style.left = (!expanded && annotOn) ? '12px' : 'auto';
             panel.style.zIndex = '2147483647'; // 置顶
             panel.dataset.kitAgentViewState = ui.state;
             // 控件可见性/文案随形态切换（用属性选择器，收养后也有效；display 用**记住的原值**恢复）
@@ -2500,6 +2504,11 @@ window.__ModuleLoader__.load({
             try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
             try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
+            // R-OWN v14：批注开关状态变化 → 重排小窗停靠（激活时让开右下角，避免与批注面板重叠）
+            try {
+              const on = !!(stateRef.annot && stateRef.annot.active);
+              if (agentView.lastAnnotOn !== on) { agentView.lastAnnotOn = on; applyAgentViewLayout(); }
+            } catch { /* 忽略 */ }
             const idle = Date.now() - (agentView.lastOpAt || 0);
             if (idle > AGENT_VIEW_IDLE_MS) agentViewSetBorder(false); // 空闲：撤掉青色边框
             const limit = Number(agentView.idleReleaseMs || 0);
