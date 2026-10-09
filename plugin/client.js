@@ -2042,7 +2042,7 @@ window.__ModuleLoader__.load({
               try {
                 const r = await captureShot({ target: 'agent', insertToComposer: true });
                 const cp = r && r.composer;
-                if (r && r.ok) urlText.textContent = cp && cp.via === 'drop-image' ? '已插入输入框（图片附件·drop）+ 落盘' : '已插入输入框（图片附件）+ 落盘';
+                if (r && r.ok) urlText.textContent = cp && cp.verified ? '已插入输入框（图片附件）+ 落盘' : '已提交插入（请确认输入框）';
                 else urlText.textContent = `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
               } catch (e) { urlText.textContent = `截图失败：${msgOf(e)}`; }
             });
@@ -3752,51 +3752,71 @@ window.__ModuleLoader__.load({
               const ce = findComposer();
               if (!ce) return 0;
               const scope = ce.closest('[data-composer-card]') || ce.parentElement || ce;
-              return scope.querySelectorAll('img, [data-attachment], [class*="attachment"], [class*="image"]').length;
+              let n = 0;
+              /* ★实测坑：输入框卡片里本来就有 DSH 自己的图标（`data:image/svg+xml…`，18×18），
+               * 先前把它们也计入 ⇒ 「粘贴成功」被判成失败 ⇒ 又补发一次 drop ⇒ **一次点击插入 2 张**
+               * （用户实测反馈）。故：排除 svg 图标，并把背景图/附件 chip 也计进来。 */
+              for (const im of Array.from(scope.querySelectorAll('img'))) {
+                const src = String(im.getAttribute('src') || '');
+                if (!src || /^data:image\/svg/i.test(src)) continue;
+                n += 1;
+              }
+              n += scope.querySelectorAll('[data-attachment], [class*="attachment"], [style*="background-image"]').length;
+              return n;
             } catch { return 0; }
           };
+          /** 同一时刻只允许一次插入（防连点/防重复派发）。 */
+          let composerInsertAt = 0;
           const insertImageToComposer = async (dataUrl, fileName) => {
-            const out = { ok: false, via: null, verified: false, imagesBefore: 0, imagesAfter: 0, error: null, text: null };
+            const out = { ok: false, via: null, verified: false, imagesBefore: 0, imagesAfter: 0, error: null };
             try {
+              if (Date.now() - composerInsertAt < 1500) {
+                out.error = '插入过于频繁（1.5s 内已插入过一次，已忽略以防重复插图）';
+                return out;
+              }
               out.imagesBefore = composerImageCount();
               const blob = await (await fetch(dataUrl)).blob();
               const file = new File([blob], fileName || `dsh-shot-${Date.now()}.png`, { type: 'image/png' });
-              const dt = new DataTransfer();
-              dt.items.add(file);
               const ce = findComposer();
               const target = ce || document.activeElement || document.body;
               try { if (ce && ce.focus) ce.focus(); } catch { /* 忽略 */ }
-              /** 派发后轮询等待图片出现（Lexical 异步渲染；450ms 回读会误判，实测教训）。 */
+              /** 只用于**报告**，绝不据此补发第二次插入（补发 = 双插，实测踩过）。 */
               const waitForImage = async () => {
                 const t0 = Date.now();
-                while (Date.now() - t0 < 2500) {
+                while (Date.now() - t0 < 4000) {
                   await new Promise((r) => setTimeout(r, 250));
                   out.imagesAfter = composerImageCount();
                   if (out.imagesAfter > out.imagesBefore) return true;
                 }
                 return false;
               };
-              // 路径①：paste（图片附件）
+              /* 路径①：paste。`dispatchEvent` 返回 false 表示编辑器 `preventDefault()` = **已接管**，
+               * 此时**绝不再发 drop**；只有返回 true（没人处理）或抛错才尝试路径②。 */
+              let handled = false;
               try {
+                const dt = new DataTransfer();
+                dt.items.add(file);
                 const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
-                if (target.dispatchEvent(ev)) {
-                  out.via = 'paste-image';
-                  if (await waitForImage()) { out.verified = true; out.ok = true; return out; }
-                }
-              } catch { /* 落到路径② */ }
-              // 路径②：drop（同样实测可用）
-              try {
-                const dt2 = new DataTransfer();
-                dt2.items.add(new File([blob], file.name, { type: 'image/png' }));
-                const root = (ce && (ce.closest('[data-lexical-editor]') || ce)) || target;
-                root.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt2 }));
-                out.via = 'drop-image';
-                if (await waitForImage()) { out.verified = true; out.ok = true; return out; }
-              } catch { /* 落到失败 */ }
-              /* ★用户明确要求：**只插图、不要额外文字**（输入框里绝不追加路径文本）。
-               * 两条路径都失败时如实报错（路径只出现在按钮提示/工具返回值里，不进输入框）。 */
-              out.via = 'failed';
-              out.error = '图片插入输入框失败（paste/drop 均未被编辑器接受）';
+                handled = target.dispatchEvent(ev) === false;
+                out.via = 'paste-image';
+              } catch { handled = false; }
+              if (!handled) {
+                try {
+                  const dt2 = new DataTransfer();
+                  dt2.items.add(new File([blob], file.name, { type: 'image/png' }));
+                  const root = (ce && (ce.closest('[data-lexical-editor]') || ce)) || target;
+                  root.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt2 }));
+                  handled = true;
+                  out.via = 'drop-image';
+                } catch { handled = false; }
+              }
+              composerInsertAt = Date.now();
+              if (!handled) {
+                out.error = '图片插入输入框失败（paste/drop 均未被编辑器接管）';
+                return out;
+              }
+              out.ok = true;
+              out.verified = await waitForImage(); // 仅观测
               return out;
             } catch (e) {
               out.error = msgOf(e);
@@ -4286,7 +4306,7 @@ window.__ModuleLoader__.load({
                       setTimeout(() => { btn.style.background = 'transparent'; btn.style.color = 'inherit'; }, 700);
                       const cp = r && r.composer;
                       btn.title = r && r.ok
-                        ? (cp && cp.via === 'drop-image' ? '已插入输入框（图片附件·drop）' : '已插入输入框（图片附件）')
+                        ? (cp && cp.verified ? '已插入输入框（图片附件）' : '已提交插入（请看一眼输入框确认）')
                         : `截图失败：${(r && (r.error || (cp && cp.error))) || '未知'}`;
                     });
                   }

@@ -270,6 +270,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /new ClipboardEvent\('paste', \{ bubbles: true, cancelable: true, clipboardData: dt \}\)/);
     assert.match(clientSource, /new DragEvent\('drop', \{ bubbles: true, cancelable: true, dataTransfer: dt2 \}\)/); // 路径②
     assert.match(clientSource, /const waitForImage = async \(\) => \{/); // 轮询校验（450ms 回读会误判）
+    // ★用户实测 bug：一次点击插入 2 张 —— 根因是「检测器把 DSH 自带 svg 图标算成附件」+「按异步计数补发 drop」
+    assert.match(clientSource, /if \(!src \|\| \/\^data:image\\\/svg\/i\.test\(src\)\) continue;/); // 排除 DSH 自带图标
+    assert.match(clientSource, /handled = target\.dispatchEvent\(ev\) === false;/); // false=编辑器接管
+    assert.match(clientSource, /if \(!handled\) \{/); // 只在**未被接管**时才发 drop（绝不补发）
+    assert.match(clientSource, /if \(Date\.now\(\) - composerInsertAt < 1500\) \{/); // 防连点
+    assert.match(clientSource, /out\.verified = await waitForImage\(\); \/\/ 仅观测/);
     assert.doesNotMatch(clientSource, /截图已保存/); // ★用户要求：不加任何文字进输入框
     assert.match(clientSource, /if \(ctxCmd && ctxCmd\.insertToComposer\) \{/);
     assert.match(clientSource, /const r = await captureShot\(\{ el: pane, insertToComposer: true \}\);/);

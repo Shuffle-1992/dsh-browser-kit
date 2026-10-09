@@ -362,6 +362,16 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 **用户明确要求**：输入框里**只放图片、不附带任何文字**（`截图已保存：…` 之类一律不写；失败时只在按钮提示/工具
 返回值里报错）。已用 `assert.doesNotMatch(clientSource, /截图已保存/)` 钉住，防回归。
 
+**用户实测 bug：一次点击插入了 2 张（已修，记 P58）**
+- 根因①：`composerImageCount()` 把 DSH 输入框**自带的 18×18 svg 图标**当成附件计数（口径错）；
+- 根因②（致命）：用「异步计数是否 +1」决定**补发** drop —— paste 已成功却因计数未及时变化被判失败，
+  于是又发一次 drop，**两个事件都被编辑器处理 ⇒ 2 张**。
+- 修法：判定交付看**事件是否被接管**（`dispatchEvent(paste) === false` = 编辑器 preventDefault 已接管）
+  ⇒ 绝不再发 drop；异步计数**只用于报告**，永不用于决策补发；检测器排除 `/^data:image\/svg/i`；
+  另加 1.5s 防连点。
+- 实测：单次点击 `nonSvgImgs 0 → 1`（**正好一张**）；2s 内连点两次 `1 → 2`（只 +1，防连点有效）；
+  按钮提示 `已插入输入框（图片附件）`、`verified:true`（渲染成 `blob:dsh-app://…` 缩略图）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。
