@@ -1801,7 +1801,7 @@ window.__ModuleLoader__.load({
           const PANEL_ACTIONS = new Set(['browser-open', 'browser-close', 'browser-panel']);
           /* 只读盘点：不要求前台（读全局清单无害），但 DOM 侧只列本会话的面板 + 回显前后台会话便于核对 */
           const READONLY_ACTIONS = new Set(['browser-tabs']);
-          const PAGE_ACTIONS = new Set(['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer']);
+          const PAGE_ACTIONS = new Set(['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer', 'storage', 'upload', 'find']);
           const INTERACTIVE_ACTIONS = new Set(['input', 'click', 'type', 'select', 'check']);
           /** 操作页面元信息（多标签时「我到底点了哪个页面」的判据）。 */
           const inputPageMeta = (el) => {
@@ -2481,6 +2481,124 @@ window.__ModuleLoader__.load({
               );
               try { return { ...(typeof raw === 'string' ? JSON.parse(raw) : raw) }; } catch { return { ok: false, error: '结果解析失败' }; }
             },
+            'storage': async function (svc, c) {
+              /* R-P2：页内存储读写（无 CDP 也能用）。op: get|set|remove|clear；kind: local|session|cookie。
+               * cookie 只看得到非 HttpOnly 的（HttpOnly 需要 CDP，本环境不可达——如实说明）。 */
+              const target = inputTargetOf(c) || pickGuestEl();
+              const op = String((c && c.op) || 'get').toLowerCase();
+              const kind = String((c && c.kind) || 'local').toLowerCase();
+              const key = c && c.key != null ? String(c.key) : '';
+              const value = c && c.value != null ? String(c.value) : '';
+              if (!['get', 'set', 'remove', 'clear'].includes(op)) return { ok: false, error: `未知 op=${op}（get|set|remove|clear）` };
+              if (!['local', 'session', 'cookie'].includes(kind)) return { ok: false, error: `未知 kind=${kind}（local|session|cookie）` };
+              if ((op === 'set' || op === 'remove') && !key) return { ok: false, error: `op=${op} 需要 key` };
+              const raw = await target.executeJavaScript(
+                `(function () {\n`
+                + `  var kind = ${JSON.stringify(kind)}, op = ${JSON.stringify(op)}, key = ${JSON.stringify(key)}, value = ${JSON.stringify(value)};\n`
+                + `  if (kind === 'cookie') {\n`
+                + `    var readCookies = function () { var out = {}; String(document.cookie || '').split(';').forEach(function (p) { var i = p.indexOf('='); if (i > 0) out[p.slice(0, i).trim()] = p.slice(i + 1).trim(); }); return out; };\n`
+                + `    var del = function (k) { document.cookie = encodeURIComponent(k) + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'; };\n`
+                + `    if (op === 'get') { var all = readCookies(); return JSON.stringify({ ok: true, kind: kind, count: Object.keys(all).length, cookies: all, note: 'HttpOnly cookie 不可见（需 CDP）' }); }\n`
+                + `    if (op === 'set') { document.cookie = encodeURIComponent(key) + '=' + encodeURIComponent(value) + '; path=/'; }\n`
+                + `    if (op === 'remove') { del(key); }\n`
+                + `    if (op === 'clear') { var ks = Object.keys(readCookies()); ks.forEach(del); return JSON.stringify({ ok: true, kind: kind, cleared: ks.length }); }\n`
+                + `    return JSON.stringify({ ok: true, kind: kind, op: op, count: Object.keys(readCookies()).length });\n`
+                + `  }\n`
+                + `  var s = kind === 'session' ? window.sessionStorage : window.localStorage;\n`
+                + `  if (!s) return JSON.stringify({ ok: false, error: kind + ' 不可用' });\n`
+                + `  if (op === 'get') {\n`
+                + `    if (key) { var v = s.getItem(key); return JSON.stringify({ ok: true, kind: kind, key: key, value: v, found: v !== null }); }\n`
+                + `    var out = {}; for (var i = 0; i < s.length && i < 200; i++) { var k = s.key(i); out[k] = String(s.getItem(k)).slice(0, 200); }\n`
+                + `    return JSON.stringify({ ok: true, kind: kind, count: s.length, items: out });\n`
+                + `  }\n`
+                + `  if (op === 'set') { s.setItem(key, value); return JSON.stringify({ ok: true, kind: kind, key: key, value: s.getItem(key) }); }\n`
+                + `  if (op === 'remove') { s.removeItem(key); return JSON.stringify({ ok: true, kind: kind, removed: key }); }\n`
+                + `  var n = s.length; s.clear(); return JSON.stringify({ ok: true, kind: kind, cleared: n });\n`
+                + `})()`,
+                true,
+              );
+              let info = raw;
+              try { if (typeof raw === 'string') info = JSON.parse(raw); } catch { info = { ok: false, error: '结果解析失败' }; }
+              return { ...info, url: inputPageMeta(target).url };
+            },
+            'upload': async function (svc, c) {
+              /* R-P2：文件上传——**DOM 注入 File + DataTransfer**（等价 CDP 的 DOM.setFileInputFiles，
+               * 本环境没有 CDP，但这条路径对多数框架有效）。base64 上限 4MB（命令通道是本地文件，不占模型 token）。 */
+              const target = inputTargetOf(c) || pickGuestEl();
+              const sel = c && c.ref != null ? `[data-dsh-kit-ref="${Number(c.ref)}"]` : String((c && c.selector) || '');
+              if (!sel) return { ok: false, error: '需要 ref 或 selector' };
+              const b64 = String((c && c.base64) || '');
+              if (!b64) return { ok: false, error: '需要 base64（文件内容）' };
+              if (b64.length > 4 * 1024 * 1024) return { ok: false, error: `文件过大：base64 ${b64.length} 字节 > 4MB 上限` };
+              const name = String((c && c.name) || 'upload.bin').slice(0, 120);
+              const mime = String((c && c.mimeType) || 'application/octet-stream').slice(0, 120);
+              const raw = await target.executeJavaScript(
+                `(function () {\n`
+                + `  var el = document.querySelector(${JSON.stringify(sel)});\n`
+                + `  if (!el) return JSON.stringify({ ok: false, error: 'no element: ' + ${JSON.stringify(sel)} });\n`
+                + `  if (el.tagName !== 'INPUT' || el.type !== 'file') return JSON.stringify({ ok: false, error: 'not a file input: ' + el.tagName + '/' + (el.type || '') });\n`
+                + `  try {\n`
+                + `    var bin = atob(${JSON.stringify(b64)});\n`
+                + `    var arr = new Uint8Array(bin.length);\n`
+                + `    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);\n`
+                + `    var file = new File([arr], ${JSON.stringify(name)}, { type: ${JSON.stringify(mime)} });\n`
+                + `    var dt = new DataTransfer(); dt.items.add(file); el.files = dt.files;\n`
+                + `    el.dispatchEvent(new Event('input', { bubbles: true }));\n`
+                + `    el.dispatchEvent(new Event('change', { bubbles: true }));\n`
+                + `    return JSON.stringify({ ok: true, name: file.name, size: file.size, filesCount: el.files.length, accept: el.getAttribute('accept') || null });\n`
+                + `  } catch (e) { return JSON.stringify({ ok: false, error: String((e && e.message) || e) }); }\n`
+                + `})()`,
+                true,
+              );
+              let info = raw;
+              try { if (typeof raw === 'string') info = JSON.parse(raw); } catch { info = { ok: false, error: '结果解析失败' }; }
+              return { ...info, url: inputPageMeta(target).url };
+            },
+            'find': async function (svc, c) {
+              /* R-P2：页内查找（**省 token**）——大页面里按文本/选择器只回匹配项与其路径，
+               * 而不是把整份快照丢进上下文。mode: elements（默认，带 ref）| text | links。 */
+              const target = inputTargetOf(c) || pickGuestEl();
+              const q = String((c && c.query) || '');
+              if (!q) return { ok: false, error: '需要 query' };
+              const mode = String((c && c.mode) || 'elements').toLowerCase();
+              if (!['elements', 'text', 'links'].includes(mode)) return { ok: false, error: `未知 mode=${mode}（elements|text|links）` };
+              const limit = Math.min(50, Math.max(1, Number((c && c.limit) || 10)));
+              const raw = await target.executeJavaScript(
+                `(function () {\n`
+                + `  var q = ${JSON.stringify(q)}, mode = ${JSON.stringify(mode)}, LIMIT = ${limit};\n`
+                + `  var re = null; try { re = new RegExp(q, 'i'); } catch (e) { re = null; }\n`
+                + `  function match(s) { s = String(s || ''); return re ? re.test(s) : s.toLowerCase().indexOf(q.toLowerCase()) >= 0; }\n`
+                + `  function path(el) { var out = []; var n = el; var d = 0; while (n && n.nodeType === 1 && d < 4) { var seg = n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''); out.unshift(seg); n = n.parentElement; d++; } return out.join(' > '); }\n`
+                + `  if (mode === 'links') {\n`
+                + `    var ls = Array.prototype.slice.call(document.querySelectorAll('a[href]')).filter(function (a) { return match(a.textContent) || match(a.getAttribute('href')); }).slice(0, LIMIT);\n`
+                + `    return JSON.stringify({ ok: true, mode: mode, query: q, count: ls.length, items: ls.map(function (a) { return { text: String(a.textContent || '').trim().slice(0, 80), href: a.href }; }) });\n`
+                + `  }\n`
+                + `  if (mode === 'text') {\n`
+                + `    var body = (document.body && document.body.innerText) || '';\n`
+                + `    var items = []; var idx = 0; var lower = q.toLowerCase(); var hay = body.toLowerCase();\n`
+                + `    while (items.length < LIMIT) { var at = hay.indexOf(lower, idx); if (at < 0) break; items.push({ at: at, context: body.slice(Math.max(0, at - 60), at + 90).replace(/\\s+/g, ' ') }); idx = at + Math.max(1, lower.length); }\n`
+                + `    return JSON.stringify({ ok: true, mode: mode, query: q, count: items.length, items: items, textLength: body.length });\n`
+                + `  }\n`
+                + `  var SEL = 'a[href],button,input,textarea,select,[role],h1,h2,h3,h4,[data-testid],[aria-label]';\n`
+                + `  var els = Array.prototype.slice.call(document.querySelectorAll(SEL));\n`
+                + `  var out = [];\n`
+                + `  for (var i = 0; i < els.length && out.length < LIMIT; i++) {\n`
+                + `    var el = els[i];\n`
+                + `    if (el.closest && el.closest('[data-dsh-kit-ui]')) continue;\n`
+                + `    var hay2 = [el.textContent, el.id, el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('data-testid'), el.getAttribute('name')].join(' ');\n`
+                + `    if (!match(hay2)) continue;\n`
+                + `    var ref = out.length + 1; el.setAttribute('data-dsh-kit-ref', String(ref));\n`
+                + `    var r = el.getBoundingClientRect();\n`
+                + `    out.push({ ref: ref, tag: el.tagName.toLowerCase(), id: el.id || null, text: String(el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 60), path: path(el), inViewport: r.top < innerHeight && r.bottom > 0 });\n`
+                + `  }\n`
+                + `  return JSON.stringify({ ok: true, mode: mode, query: q, count: out.length, scanned: els.length, items: out });\n`
+                + `})()`,
+                true,
+              );
+              let info = raw;
+              try { if (typeof raw === 'string') info = JSON.parse(raw); } catch { info = { ok: false, error: '结果解析失败' }; }
+              return { ...info, url: inputPageMeta(target).url };
+            },
             'input': async function (svc, c) {
               // R-INPUT：可信输入统一入口（sendInputEvent）。op: click|dblclick|rightclick|hover|type|press|scroll
               const op = String((c && c.op) || 'click').toLowerCase();
@@ -2678,7 +2796,7 @@ window.__ModuleLoader__.load({
           /* Agent 操作光效打点集合（R-GLOW）：**在分发器统一打点**，新增浏览器命令无需逐个改 handler。
            * 只收「会动页面 / Agent 在操作浏览器」的动作；纯盘点类（browser-tabs/panes-probe/dom-scan/
            * kit-status/toolbar-probe/hid-*）不打点，免得用户屏幕上一直闪。 */
-          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check']);
+          const AGENT_GLOW_ACTIONS = new Set(['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check', 'storage', 'upload', 'find']);
 
           /** 命令分发：查表执行；未知 action 显式报错（不静默）。 */
           const executeCommand = async (svc, command) => {

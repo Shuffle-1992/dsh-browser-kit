@@ -209,7 +209,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // A6a（C2 拆表后）：commandHandlers 的每个 action 键只能出现一次，且全量清单钉死
     const keyRe = /'([a-z-]+)': async function \(svc, c\) \{/g;
     const keys = [...clientSource.matchAll(keyRe)].map((m) => m[1]);
-    const expected = ['inject-annotator', 'start-annotator', 'toggle-pane', 'stop-annotator', 'annotator-status', 'guest-eval', 'page-open', 'kit-status', 'report-now', 'gui-eval', 'panel-toggle', 'toolbar-probe', 'panes-probe', 'browser-tabs', 'browser-open', 'browser-close', 'browser-panel', 'console-observer', 'agent-glow', 'page-close', 'dom-scan', 'snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'submit-annotations', 'hid-enumerate', 'hid-open', 'hid-trace'];
+    const expected = ['inject-annotator', 'start-annotator', 'toggle-pane', 'stop-annotator', 'annotator-status', 'guest-eval', 'page-open', 'kit-status', 'report-now', 'gui-eval', 'panel-toggle', 'toolbar-probe', 'panes-probe', 'browser-tabs', 'browser-open', 'browser-close', 'browser-panel', 'console-observer', 'agent-glow', 'page-close', 'dom-scan', 'snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'storage', 'upload', 'find', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'submit-annotations', 'hid-enumerate', 'hid-open', 'hid-trace'];
     const dup = keys.filter((v, i) => keys.indexOf(v) !== i);
     assert.deepEqual(dup, [], `commandHandlers 重复键：${dup.join(",")}`);
     assert.deepEqual(keys, expected, "commandHandlers 动作全量清单必须逐字一致");
@@ -247,8 +247,9 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const inputTargetOf = \(c\) => \{\s*\/\/ R-SCOPE/);
     // ②面板类命令比对「当前前台会话」，页面类命令要求本会话有已挂载面板
     assert.match(clientSource, /const scopeCheck = \(action, c\) => \{/);
-    assert.match(clientSource, /const PANEL_ACTIONS = new Set\(\['browser-tabs', 'browser-open', 'browser-close', 'browser-panel'\]\)/);
-    assert.match(clientSource, /const PAGE_ACTIONS = new Set\(\['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer'\]\)/);
+    assert.match(clientSource, /const PANEL_ACTIONS = new Set\(\['browser-open', 'browser-close', 'browser-panel'\]\)/);
+    assert.match(clientSource, /const READONLY_ACTIONS = new Set\(\['browser-tabs'\]\)/);
+    assert.match(clientSource, /const PAGE_ACTIONS = new Set\(\['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer', 'storage', 'upload', 'find'\]\)/);
     assert.match(clientSource, /const INTERACTIVE_ACTIONS = new Set\(\['input', 'click', 'type', 'select', 'check'\]\)/);
     assert.match(clientSource, /const denied = scopeCheck\(action, c\);/);
     // ③用户正在输入时拒绝（force 逃逸）+ 焦点归还
@@ -262,7 +263,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
 
   await t.test("R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）", () => {
     // 打点集合必须覆盖会动页面的浏览器命令；纯盘点类不得入集（免得屏幕常闪）
-    assert.match(clientSource, /const AGENT_GLOW_ACTIONS = new Set\(\['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check'\]\)/);
+    assert.match(clientSource, /const AGENT_GLOW_ACTIONS = new Set\(\['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check', 'storage', 'upload', 'find'\]\)/);
     assert.doesNotMatch(clientSource, /AGENT_GLOW_ACTIONS = new Set\(\[[^\]]*'browser-tabs'/);
     // 分发器统一打点（新增命令无需逐个改 handler）+ R-SCOPE：打点时钉住本次会话 id
     assert.match(clientSource, /if \(AGENT_GLOW_ACTIONS\.has\(action\)\) \{ stateRef\.agentGlow\.sessionId = c && c\.sessionId \? String\(c\.sessionId\) : null; pulseAgentActivity\(action\); \}/);

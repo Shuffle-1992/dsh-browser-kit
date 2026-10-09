@@ -165,6 +165,16 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 
 → 用户前台的窗口**不再被碰**；代价是：用户停在其他会话时本会话面板未挂载 ⇒ 本会话自动化被如实拒绝（诚实失败优于越界操作）。
 
+## 3.7 P2 深化（2026-10-10）
+
+| 能力 | 工具 | 实现 | 验证状态 |
+|---|---|---|---|
+| 存储读写 | `browser_storage` | 页内 `localStorage/sessionStorage`（get 单个或列全部、set/remove/clear）与 `document.cookie`（非 HttpOnly）。**HttpOnly cookie 与 storage 分区级操作需 CDP，本环境不可达**（如实回报） | 代码+静态契约绿；正向实机待面板挂载 |
+| 文件上传 | `browser_upload` | DOM + `DataTransfer` 注入 `File` → 赋给 `input.files` 并派发 `input/change`（等价 CDP `DOM.setFileInputFiles`；对读 `e.target.files` 的框架有效），base64 ≤ 4MB | 同上 |
+| 页内查找（省 token） | `browser_find` | `mode=elements`（子串/正则匹配文本·id·placeholder·aria-label·data-testid·name，命中项**分配 ref** 可直接点）/ `text`（全文子串 + ±60 字上下文）/ `links` | 同上 |
+
+**仍需 DSH 宿主能力（本轮做不了，已列 §8）**：下载观测（session `will-download`）、整页/元素级截图（`Page.captureScreenshot`）、独立浏览器视图租约并发（`dshDesktop.browser.acquire/release` + 一个 UI 座位）、HttpOnly cookie 与 storage 分区级操作（CDP `Network.getCookies`/`Storage.*`）。
+
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。
 - 2026-10-09 23:2x：探针调用 `<webview>.capturePage()` 后 DSH 进程崩溃重启（同一探针里还有 `sendInputEvent` 与页内 console hook，不能 100% 归因，但 `capturePage` 是唯一有已知 V8 FATAL 记录的调用）。

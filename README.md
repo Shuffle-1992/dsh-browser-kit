@@ -20,6 +20,7 @@
 8. **可信输入（R-INPUT，2026-10-10 实测解锁）**：`<webview>.sendInputEvent` 能发 **Chromium 级真事件**（页面侧 `isTrusted === true`，React 受控组件/反自动化检测都认），且不像 `capturePage` 那样崩。工具族：`browser_click / browser_dblclick / browser_hover / browser_type / browser_press / browser_scroll`；**点击前做遮挡检测**（中心被盖住则提前失败并回报遮挡者，`force:true` 可强点）；`type` 支持 `clear` 与 `submit`，中文可用（value 为准）。
 9. **等待/状态/表单补全（R-STATE/R-WAIT/R-FORM，2026-10-10）**：`browser_wait`（页面内轮询等 selector/text/url/load/fn，超时以 `matched:false` 返回，不报错）、`browser_state`（url/title/loading/前进后退可用性/视口/滚动/焦点/控制台计数）、`browser_history`（back/forward）、`browser_select`（按 value 或文本选项）、`browser_check`（checkbox/radio 勾选）、`browser_element_info`（元素档案：属性/值/勾选/几何/**遮挡情况**；ref 失效明确提示重取快照）；`browser_snapshot` 默认 **compact** 省 token。合计 **22 个 `browser_*` 工具**。
 10. **会话隔离（R-SCOPE，2026-10-10 用户需求）**：**自动化只作用于本会话的浏览器窗口**——工具层把「调用方会话 id」随命令下发，client 只在 `[data-sidebar-right-session="<调用会话>"]` 子树里找 webview；本会话没有已挂载面板、或面板操作的目标不是前台会话时**一律明确拒绝**（绝不去动别的会话）。另有**「用户正在输入」守卫**（焦点在输入框且不在本会话面板内 ⇒ 拒绝，`force:true` 才继续）与**焦点归还**（操作完把焦点还给原元素），避免打断用户打字。
+11. **P2 深化（2026-10-10）**：`browser_storage`（localStorage/sessionStorage/cookie 的 get/set/remove/clear；HttpOnly cookie 需 CDP 故不可见）、`browser_upload`（DOM+DataTransfer 注入 `File` 到 `<input type=file>`，等价 CDP 的 `DOM.setFileInputFiles`，上限 4MB）、`browser_find`（**省 token**：按关键词在 elements/text/links 三种模式下只回匹配项，命中元素带 ref 可直接点击）。合计 **25 个 `browser_*` 工具**。仍需 DSH 宿主能力的项（下载观测 `will-download`、整页截图 `Page.captureScreenshot`、独立浏览器视图租约）已在评估文档 §8 列明。
 
 **明确不做**：画笔涂鸦式批注；MVP 阶段不做后台/隐藏 tab 截图；不修改 DSH 权限策略（无必要，见调研文档 §4.3）。
 
