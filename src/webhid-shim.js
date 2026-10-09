@@ -104,8 +104,30 @@
         + "border:1px solid var(--dshkit-hid-border);border-radius:12px;min-width:360px;max-width:520px;"
         + "box-shadow:var(--dshkit-hid-shadow);overflow:hidden;";
       var head = document.createElement("div");
-      head.style.cssText = "padding:12px 16px;font-weight:600;border-bottom:1px solid var(--dshkit-hid-border);";
-      head.textContent = "选择 HID 设备（dsh-browser-kit 桥）";
+      head.style.cssText = "padding:12px 16px;font-weight:600;border-bottom:1px solid var(--dshkit-hid-border);"
+        + "display:flex;align-items:center;justify-content:space-between;gap:10px;";
+      var headText = document.createElement("span");
+      headText.textContent = "选择 HID 设备（dsh-browser-kit 桥）";
+      head.appendChild(headText);
+      // ⓘ hover 提示（A 方案）：来源与独占语义一行说明——不弹窗、零交互成本。
+      //   内容只说事实：系统枚举、与 Chrome 授权无关、独占占用会打开失败。
+      var info = document.createElement("span");
+      info.textContent = "ⓘ";
+      info.title = "";
+      info.style.cssText = "font-size:12px;font-weight:400;color:var(--dshkit-hid-text2);cursor:help;"
+        + "border:1px solid var(--dshkit-hid-border);border-radius:999px;width:16px;height:16px;"
+        + "display:inline-flex;align-items:center;justify-content:center;flex:none;";
+      var tip = document.createElement("div");
+      tip.textContent = "设备来自系统枚举（与 Chrome 授权无关）；若打开失败，请先关闭其他程序中正在使用该设备的页面（HID 独占）。";
+      tip.style.cssText = "position:absolute;right:12px;top:44px;z-index:1;max-width:340px;padding:8px 12px;"
+        + "background:var(--dshkit-hid-bg);border:1px solid var(--dshkit-hid-border);border-radius:8px;"
+        + "color:var(--dshkit-hid-text2);font-size:12px;font-weight:400;box-shadow:var(--dshkit-hid-shadow);"
+        + "display:none;text-align:left;line-height:1.5;";
+      info.addEventListener("mouseenter", function () { tip.style.display = "block"; });
+      info.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+      head.append(headText, info);
+      panel.style.position = "relative"; // ⓘ 的 hover 提示以面板为定位锚
+      panel.appendChild(tip);
       var list = document.createElement("div");
       list.style.cssText = "max-height:320px;overflow:auto;";
       var foot = document.createElement("div");
