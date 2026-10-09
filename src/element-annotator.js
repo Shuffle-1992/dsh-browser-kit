@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.2"; // 1.6.2：评审采纳——意见框 Enter/Esc 死代码修复（R-01）、删除日志 gid 去重（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.6.3"; // 1.6.3：可见带定位（设备尺寸缩放下面板/提示条不再被挤出右边界）+ all:initial 隔离页面 CSS（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -930,12 +930,39 @@
     });
   }
 
+  /* ── R-OWN v12：**可见带**定位 ──
+   * 面板套了"设备尺寸"后，guest 视口可能远宽于实际可见的板块宽（外层 `transform: scale` 只缩放显示），
+   * 此时 `position:fixed; right:12px` 的面板会落到可见区之外（用户实测：面板被挤出右边界看不到）。
+   * client 通过 `start({ visibleWidth })` / `setVisibleWidth(w)` 告知"可见的 guest 宽度"，
+   * 面板与提示条据此锚定；未告知时按视口宽（等价于原来的 right:12，布局不变）。 */
+  var visibleWidth = 0;
+  function viewportWidth() {
+    try {
+      return Math.max(1, document.documentElement.clientWidth || window.innerWidth || 1);
+    } catch (e) { return 1024; }
+  }
+  function visibleBand() {
+    var vw = viewportWidth();
+    return visibleWidth > 0 ? Math.min(visibleWidth, vw) : vw;
+  }
+  function positionPanel() {
+    if (!panel || !panel.isConnected) return;
+    try {
+      var band = visibleBand();
+      var w = panel.getBoundingClientRect().width || 264;
+      panel.style.left = Math.max(8, Math.round(band - w - 12)) + "px";
+      panel.style.right = "auto";
+    } catch (e) { /* 忽略 */ }
+  }
+
   function ensurePanel() {
     if (panel && panel.isConnected) {
       renderPanel();
+      positionPanel();
       return;
     }
     panel = makeElement("div", {
+      all: "initial", // R-OWN v12：隔离宿主页面 CSS（否则不同站点下面板排版会不一致）
       background: "rgba(17, 24, 39, 0.95)",
       borderRadius: "12px",
       boxShadow: "0 18px 38px rgba(15, 23, 42, 0.4)",
@@ -951,8 +978,7 @@
       top: "12px",
       width: "264px",
       zIndex: "2147483647",
-    });
-    panel.setAttribute("data-dsh-kit-panel", "");
+    });    panel.setAttribute("data-dsh-kit-panel", "");
     panel.setAttribute(UI_FLAG, "");
 
     var header = makeElement("div", {
@@ -1081,6 +1107,7 @@
     });
 
     document.documentElement.append(panel);
+    positionPanel(); // R-OWN v12：按可见带锚定（未告知可见宽时等价于 right:12）
     renderPanel();
   }
 
@@ -1304,13 +1331,14 @@
       toastTimer = null;
     }
     toastEl = makeElement("div", {
+      all: "initial", // R-OWN v12：隔离宿主页面 CSS
       background: "rgba(17, 24, 39, 0.92)",
       borderRadius: "8px",
       bottom: "24px",
       boxSizing: "border-box",
       color: "#f9fafb",
       font: "12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-      left: "50%",
+      left: Math.round(visibleBand() / 2) + "px", // R-OWN v12：可见带内居中（缩放裁剪下也看得见）
       padding: "8px 14px",
       position: "fixed",
       transform: "translateX(-50%)",
@@ -1457,6 +1485,7 @@
         return; // 会话已结束：丢弃该帧
       }
       repositionAllBadges();
+      positionPanel(); // R-OWN v12：视口/可见带变化时面板也要跟着回位
     });
   }
 
@@ -1492,6 +1521,9 @@
     var opts = options || {};
     if (opts.startIndex != null) {
       indexBase = Number(opts.startIndex) || 0; // 多面板共享编号：后加入窗口从全局最大号之后继续
+    }
+    if (opts.visibleWidth != null) {
+      visibleWidth = Math.max(0, Number(opts.visibleWidth) || 0); // R-OWN v12：可见带宽度（guest px）
     }
     return new Promise(function (resolve) {
       session = {
@@ -1578,6 +1610,13 @@
     /** 结束当前会话并清理图层（已收集的批注保留在内存，clear() 才清空）。 */
     stop: function () {
       stopAnnotating();
+    },
+    /** R-OWN v12：设置"可见带宽度"（guest px）——设备尺寸缩放/裁剪时，面板与提示条据此锚定在可见区内。
+     *  传 0 或不传 = 按视口宽（原行为）。 */
+    setVisibleWidth: function (w) {
+      visibleWidth = Math.max(0, Number(w) || 0);
+      positionPanel();
+      return { visibleWidth: visibleWidth, band: visibleBand() };
     },
     /** 打包当前批注（纯函数式：不结束会话、不清空）。 */
     submit: function () {

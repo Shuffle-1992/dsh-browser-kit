@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.2'/);
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.6\.3'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.2"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.6\.3"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
@@ -296,7 +296,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const applyPaneDeviceSize = \(pane, presetKey\) => \{/);
     assert.match(clientSource, /const k = Math\.min\(1, availW \/ res\.w, availH \/ res\.h\);/);
     assert.match(clientSource, /const openPaneDeviceMenu = \(btn, pane\) => \{/);
-    assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false \},/);
+    assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: true \},/);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false \},/);
     assert.match(clientSource, /const r = await captureShot\(\{ el: pane, insertToComposer: true \}\);/);
     assert.match(clientSource, /const zoomSel = mkSelect\(\s*ZOOM_STEPS/);
@@ -365,6 +365,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /background:\$\{TOOLBAR_ACCENT\} !important;color:\$\{TOOLBAR_ACCENT_TEXT\} !important;/);
     // ⑲R-OWN v11b：归属识别用 closest（P61：手写层数不够会静默失配）
     assert.match(clientSource, /host = pane\.closest \? pane\.closest\('\[data-sidebar-right-session\]'\) : null;/);
+    // ⑳R-OWN v12：批注面板"可见带"定位（缩放/裁剪下不被挤出右边界）+ 页面 CSS 隔离 + 图标顺序
+    assert.match(clientSource, /const paneVisibleWidth = \(pane\) => \{/);
+    assert.match(clientSource, /return Math\.max\(0, Math\.round\(Math\.min\(hostW, rectW\) \/ \(k > 0 \? k : 1\)\)\);/);
+    assert.match(clientSource, /visibleWidth: \$\{Number\(vw\) \|\| 0\}/);
+    assert.match(clientSource, /window\.__dshKitAnnotator\.setVisibleWidth\(\$\{band\}\)/);
+    assert.match(clientSource, /\/\/ 顺序（用户 2026-10-10 指定）：尺寸 → 截图 → 批注；首个取 margin-left:auto 右对齐/);
     assert.match(clientSource, /const OWN_ICON_SVG = /);
     assert.match(clientSource, /\{ id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true \},/);
     assert.match(clientSource, /const openUrlInAgentView = async \(url, opts = \{\}\) => \{/);
@@ -407,6 +413,16 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /agentView\.idleReleaseMs = opts && opts\.idleReleaseMs != null \? Math\.max\(0, Number\(opts\.idleReleaseMs\)\) : 10 \* 60 \* 1000;/);
     assert.match(clientSource, /agentView\.releasedForIdle = new Date\(\)\.toISOString\(\);/);
     assert.match(clientSource, /if \(op === 'idle'\) \{/);
+  });
+
+  await t.test("R-OWN v12：批注面板可见带定位 + 页面 CSS 隔离（1.6.3）", () => {
+    const annotSource2 = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
+    assert.match(annotSource2, /visibleWidth = Math\.max\(0, Number\(opts\.visibleWidth\) \|\| 0\)/);
+    assert.match(annotSource2, /setVisibleWidth: function \(w\) \{/);
+    assert.match(annotSource2, /all: "initial", \/\/ R-OWN v12：隔离宿主页面 CSS/);
+    assert.match(annotSource2, /function positionPanel\(\) \{/);
+    assert.match(annotSource2, /left: Math\.round\(visibleBand\(\) \/ 2\) \+ "px"/);
+    assert.match(annotSource2, /positionPanel\(\); \/\/ R-OWN v12：按可见带锚定/);
   });
 
   await t.test("R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）", () => {

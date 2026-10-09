@@ -789,7 +789,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.2';
+          const EXPECTED_ANNOT_VERSION = '1.6.3';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1449,12 +1449,28 @@ window.__ModuleLoader__.load({
             }
           };
 
+          /** R-OWN v12：这个面板**实际可见**的 guest 宽度（px）。
+           *  两种被裁场景：①侧栏套了设备尺寸 + 外层 `transform: scale`（可见带 = 容器宽 / 缩放）；
+           *  ②自持窗口 100% 显示时 guest 视口比舞台更宽（可见带 = 舞台宽，右侧被裁）。
+           *  批注面板是 `position:fixed; right:12px`，不告知就会被挤到可见区之外（用户实测"超出右边界看不到"）。 */
+          const paneVisibleWidth = (pane) => {
+            try {
+              const host = pane.parentElement || pane;
+              const hostW = host.getBoundingClientRect().width;          // 容器可见宽（屏幕 px）
+              const rectW = pane.getBoundingClientRect().width;          // 元素可见宽（= CSS 宽 × 缩放）
+              const m = String(pane.style && pane.style.transform || '').match(/scale\(([\d.]+)\)/);
+              const k = m ? (Number(m[1]) || 1) : 1;
+              return Math.max(0, Math.round(Math.min(hostW, rectW) / (k > 0 ? k : 1)));
+            } catch { return 0; }
+          };
+
           const startPaneInSession = async (target, startIndex) => {
             const howPromise = (async () => {
               let how = 'cancelled';
               try {
+                const vw = paneVisibleWidth(target);
                 how = await target.executeJavaScript(
-                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0} })`,
+                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0}, visibleWidth: ${Number(vw) || 0} })`,
                   true,
                 );
               } catch (e) {
@@ -2400,6 +2416,14 @@ window.__ModuleLoader__.load({
             // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
             let theme = null;
             try { theme = agentViewApplyTheme(); } catch { theme = null; }
+            // R-OWN v12：把"舞台可见带"告知批注器（100% 显示且 guest 比舞台宽时，固定右缘的面板会被裁）
+            try {
+              const wv = agentViewWebview();
+              if (wv) {
+                const band = paneVisibleWidth(wv);
+                wv.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(${band}) : 0`, true).catch(() => {});
+              }
+            } catch { /* 忽略 */ }
             return {
               state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
               scale: Number(k.toFixed(3)), stageW, stageH, topOffset, theme: theme ? theme.dark : null,
@@ -4689,6 +4713,10 @@ window.__ModuleLoader__.load({
                   pane.style.transformOrigin = '';
                   try { delete pane.dataset.kitDevicePreset; } catch { /* 忽略 */ }
                   try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(1); } catch { /* 忽略 */ }
+                  // R-OWN v12：重置可见带（恢复"按视口宽"的原始面板定位；fire-and-forget，本函数是同步的）
+                  try {
+                    pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(0) : 0', true).catch(() => {});
+                  } catch { /* 忽略 */ }
                   return { ok: true, reset: true };
                 }
                 const res = agentViewResolvePreset(presetKey);
@@ -4708,6 +4736,10 @@ window.__ModuleLoader__.load({
                 pane.style.setProperty('transform', `scale(${k})`, 'important');
                 try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
                 pane.dataset.kitDevicePreset = res.key;
+                // R-OWN v12：告知批注器"可见带"（否则它的 fixed 面板会被挤出可见区）；fire-and-forget
+                try {
+                  pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(${Math.round(availW / (k || 1))}) : 0`, true).catch(() => {});
+                } catch { /* 批注器未注入：无妨 */ }
                 return { ok: true, preset: res.key, resolution: `${res.w}×${res.h}`, scale: Number(k.toFixed(3)), paneW: availW, paneH: availH };
               } catch (e) { return { ok: false, error: msgOf(e) }; }
             };
@@ -4782,9 +4814,10 @@ window.__ModuleLoader__.load({
             const ensureToolbarButtons = () => {
               let attached = 0;
               const specs = [
-                { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击本窗口加入/退出共享批注）', svg: ANNOT_ICON_SVG, first: true },
-                { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: false },
+                // 顺序（用户 2026-10-10 指定）：尺寸 → 截图 → 批注；首个取 margin-left:auto 右对齐
+                { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: true },
                 { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false },
+                { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击开关共享批注：所有浏览器窗口同步）', svg: ANNOT_ICON_SVG, first: false },
                 { id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true },
               ];
               for (const form of toolbarForms()) {
