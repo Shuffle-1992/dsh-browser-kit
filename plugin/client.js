@@ -58,6 +58,12 @@ window.__ModuleLoader__.load({
     const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
     /** ↘ 箭头（与 DSH「系统浏览器打开」的 ↗ 图标镜像）：把当前页以**同登录态**开进自持浏览器。 */
     const OWN_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 8.5V18H8.5"/></svg>';
+    /** R-OWN v13：**激活态**批注图标（蓝色实心气泡 + 白色加号）——用「换图标」表示激活，
+     *  彻底不用背景色（背景色会被其它写者清掉/闪烁，是先前的老问题）。 */
+    const ANNOT_ICON_ACTIVE_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">'
+      + '<path d="M4 4h16v12H9l-5 4V4z" fill="#2563eb" stroke="#2563eb" stroke-width="1.4" stroke-linejoin="round"/>'
+      + '<path d="M12 7.5v5M9.5 10h5" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>'
+      + '</svg>';
     // 工具条强调色——字面色豁免（C15）：主题令牌在工具条上下文可能解析成浅色 → 白底白标
     // 隐形（真机修正）；两处引用（点击即时反馈 + 2s 同步循环）共用常量，勿回退令牌。
     const TOOLBAR_ACCENT = '#2563eb';
@@ -136,16 +142,20 @@ window.__ModuleLoader__.load({
     const ANNOT_ON_STYLE_ID = 'dsh-kit-annot-on-style';
     const ensureAnnotOnStyle = () => {
       try {
-        if (document.getElementById(ANNOT_ON_STYLE_ID)) return;
+        const css = '#dsh-kit-toolbar-btn[data-kit-annot-on="1"],[data-dsh-kit-agent-view-annot][data-kit-annot-on="1"]'
+          + '{background:transparent !important;color:inherit !important;box-shadow:none !important;}';
+        const old = document.getElementById(ANNOT_ON_STYLE_ID);
+        if (old && old.textContent === css) return; // 幂等：内容没变不重建
+        if (old) old.remove();
         const el = document.createElement('style');
         el.id = ANNOT_ON_STYLE_ID;
-        el.textContent = '#dsh-kit-toolbar-btn[data-kit-annot-on="1"],[data-dsh-kit-agent-view-annot][data-kit-annot-on="1"]'
-          + `{background:${TOOLBAR_ACCENT} !important;color:${TOOLBAR_ACCENT_TEXT} !important;`
-          + 'box-shadow:0 0 0 1px rgba(255,255,255,0.35) inset !important;}';
+        // ★用户要求：**删除蓝色背景**；激活只用"蓝色批注图标"表示。
+        //  仍保留一条 !important 规则把背景钉成透明（防其它写者给它加底色）。
+        el.textContent = css;
         (document.head || document.documentElement).appendChild(el);
       } catch { /* 忽略 */ }
     };
-    /** 按会话状态点亮/熄灭所有批注图标（属性驱动，见上；由 tick/点击/创建三处调用）。 */
+    /** 按会话状态点亮/熄灭所有批注图标：**切换图标**（普通 ↔ 蓝色激活），不碰背景色。 */
     const applyAnnotBtnState = (stateRef2) => {
       try {
         ensureAnnotOnStyle();
@@ -155,6 +165,8 @@ window.__ModuleLoader__.load({
         for (const b of Array.from(list)) {
           if (on) b.setAttribute('data-kit-annot-on', '1');
           else b.removeAttribute('data-kit-annot-on');
+          const want = on ? ANNOT_ICON_ACTIVE_SVG : ANNOT_ICON_SVG;
+          if (b.innerHTML !== want) b.innerHTML = want; // 换图标：幂等、无闪烁
         }
         if (ref) { try { ref.annotBtnAt = new Date().toISOString(); } catch { /* 忽略 */ } }
       } catch { /* 忽略 */ }
@@ -789,7 +801,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.6.3';
+          const EXPECTED_ANNOT_VERSION = '1.6.4';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1464,13 +1476,50 @@ window.__ModuleLoader__.load({
             } catch { return 0; }
           };
 
+          /** R-OWN v13：guest→屏幕的放大倍数。
+           *  ★不要用 `getZoomFactor()`——它把**显示器缩放**也算进来（实测侧栏面板被放大 ~1.23 倍）。
+           *  改为**几何测量 + 我们自己设过的缩放**：元素可见宽 / 元素 CSS 宽 × 我们设的页面缩放。 */
+          const paneUiScale = (pane) => {
+            try {
+              const rectW = pane.getBoundingClientRect().width || 0;
+              const cssW = pane.offsetWidth || rectW || 1;
+              const geom = cssW > 0 ? rectW / cssW : 1;
+              let z = 1;
+              try { z = Number((pane.dataset && (pane.dataset.kitZoomFactor || pane.dataset.kitDeviceDpr)) || 1) || 1; } catch { z = 1; }
+              return Math.max(0.05, geom * z);
+            } catch { return 1; }
+          };
+          /** R-OWN v13：可见带**高度**（guest px）——自持窗口 100% 显示时 guest 比舞台高，底部会被裁。 */
+          const paneVisibleHeight = (pane) => {
+            try {
+              const host = pane.parentElement || pane;
+              const hostH = host.getBoundingClientRect().height;
+              const rectH = pane.getBoundingClientRect().height;
+              const m = String(pane.style && pane.style.transform || '').match(/scale\(([\d.]+)\)/);
+              const k = m ? (Number(m[1]) || 1) : 1;
+              return Math.max(0, Math.round(Math.min(hostH, rectH) / (k > 0 ? k : 1)));
+            } catch { return 0; }
+          };
+          /** 一次性把"可见带(宽/高) + 放大倍数"推给批注器（少一次往返）。 */
+          const syncAnnotMetrics = (pane) => {
+            try {
+              if (!pane) return;
+              const band = paneVisibleWidth(pane);
+              const bandH = paneVisibleHeight(pane);
+              const s = Number(paneUiScale(pane).toFixed(4));
+              pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setPaneMetrics) ? window.__dshKitAnnotator.setPaneMetrics({ visibleWidth: ${band}, visibleHeight: ${bandH}, uiScale: ${s} }) : 0`, true).catch(() => {});
+            } catch { /* 忽略 */ }
+          };
+
           const startPaneInSession = async (target, startIndex) => {
             const howPromise = (async () => {
               let how = 'cancelled';
               try {
                 const vw = paneVisibleWidth(target);
+                const vh = paneVisibleHeight(target);
+                const us = Number(paneUiScale(target).toFixed(4));
                 how = await target.executeJavaScript(
-                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0}, visibleWidth: ${Number(vw) || 0} })`,
+                  `window.__dshKitLastSubmit = undefined; window.__dshKitAnnotator.start({ onSubmit: function (r) { window.__dshKitLastSubmit = r; }, startIndex: ${Number(startIndex) || 0}, visibleWidth: ${Number(vw) || 0}, visibleHeight: ${Number(vh) || 0}, uiScale: ${us} })`,
                   true,
                 );
               } catch (e) {
@@ -2353,6 +2402,7 @@ window.__ModuleLoader__.load({
             frame.style.height = `${res.h}px`;
             // 设备像素比与页面缩放共用 setZoomFactor ⇒ 取两者乘积（inputZoom 读到的就是它，坐标换算自洽）
             try { if (typeof frame.setZoomFactor === 'function') frame.setZoomFactor(zoom * dpr); } catch { /* 忽略 */ }
+            try { frame.dataset.kitZoomFactor = String(zoom * dpr); } catch { /* 忽略 */ } // v13：批注面板反缩放用（勿读 getZoomFactor）
             const expanded = ui.state === 'expanded';
             const barH = expanded ? 60 : 32; // 展开态两行：标签行 + 地址/工具栏行（DSH 同款布局）
             const fit = ui.fit === true;
@@ -2416,14 +2466,8 @@ window.__ModuleLoader__.load({
             // 主题适配（面板 + 原生控件；主题变了也在这里立刻跟上）
             let theme = null;
             try { theme = agentViewApplyTheme(); } catch { theme = null; }
-            // R-OWN v12：把"舞台可见带"告知批注器（100% 显示且 guest 比舞台宽时，固定右缘的面板会被裁）
-            try {
-              const wv = agentViewWebview();
-              if (wv) {
-                const band = paneVisibleWidth(wv);
-                wv.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(${band}) : 0`, true).catch(() => {});
-              }
-            } catch { /* 忽略 */ }
+            // R-OWN v12/v13：把"舞台可见带 + 放大倍数"告知批注器（面板固定尺寸且不被裁）
+            try { syncAnnotMetrics(agentViewWebview()); } catch { /* 忽略 */ }
             return {
               state: ui.state, preset: ui.preset, resolution: `${res.w}×${res.h}`, dpr, fit, zoom,
               scale: Number(k.toFixed(3)), stageW, stageH, topOffset, theme: theme ? theme.dark : null,
@@ -4713,10 +4757,8 @@ window.__ModuleLoader__.load({
                   pane.style.transformOrigin = '';
                   try { delete pane.dataset.kitDevicePreset; } catch { /* 忽略 */ }
                   try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(1); } catch { /* 忽略 */ }
-                  // R-OWN v12：重置可见带（恢复"按视口宽"的原始面板定位；fire-and-forget，本函数是同步的）
-                  try {
-                    pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(0) : 0', true).catch(() => {});
-                  } catch { /* 忽略 */ }
+                  try { pane.dataset.kitZoomFactor = '1'; } catch { /* 忽略 */ }
+                  syncAnnotMetrics(pane); // R-OWN v12/v13：重置后重新同步（回到按视口宽 + 缩放）
                   return { ok: true, reset: true };
                 }
                 const res = agentViewResolvePreset(presetKey);
@@ -4735,11 +4777,9 @@ window.__ModuleLoader__.load({
                 pane.style.transformOrigin = 'top left';
                 pane.style.setProperty('transform', `scale(${k})`, 'important');
                 try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
+                try { pane.dataset.kitZoomFactor = String(Number(res.dpr) || 1); } catch { /* 忽略 */ } // v13：面板反缩放用（勿读 getZoomFactor，含显示器缩放）
                 pane.dataset.kitDevicePreset = res.key;
-                // R-OWN v12：告知批注器"可见带"（否则它的 fixed 面板会被挤出可见区）；fire-and-forget
-                try {
-                  pane.executeJavaScript(`(window.__dshKitAnnotator && window.__dshKitAnnotator.setVisibleWidth) ? window.__dshKitAnnotator.setVisibleWidth(${Math.round(availW / (k || 1))}) : 0`, true).catch(() => {});
-                } catch { /* 批注器未注入：无妨 */ }
+                syncAnnotMetrics(pane); // R-OWN v12/v13：同步可见带 + 放大倍数（面板固定尺寸并落在可见区）
                 return { ok: true, preset: res.key, resolution: `${res.w}×${res.h}`, scale: Number(k.toFixed(3)), paneW: availW, paneH: availH };
               } catch (e) { return { ok: false, error: msgOf(e) }; }
             };

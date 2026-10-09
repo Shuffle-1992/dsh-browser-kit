@@ -461,7 +461,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.6.3"; // 1.6.3：可见带定位（设备尺寸缩放下面板/提示条不再被挤出右边界）+ all:initial 隔离页面 CSS（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.6.4"; // 1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -936,6 +936,8 @@
    * client 通过 `start({ visibleWidth })` / `setVisibleWidth(w)` 告知"可见的 guest 宽度"，
    * 面板与提示条据此锚定；未告知时按视口宽（等价于原来的 right:12，布局不变）。 */
   var visibleWidth = 0;
+  var visibleHeight = 0; // R-OWN v13：可见带高度（guest px）——自持窗口 100% 显示时 guest 比舞台高，底部会被裁
+  var uiScale = 1; // R-OWN v13：guest→屏幕的放大倍数（设备尺寸缩放 × 页面缩放 × dpr）；面板据此**反向缩放**
   function viewportWidth() {
     try {
       return Math.max(1, document.documentElement.clientWidth || window.innerWidth || 1);
@@ -945,13 +947,42 @@
     var vw = viewportWidth();
     return visibleWidth > 0 ? Math.min(visibleWidth, vw) : vw;
   }
+  /** R-OWN v13：可见带高度（vh 内我们实际看得见的那段）。 */
+  function visibleBandHeight() {
+    var vh = 0;
+    try { vh = Math.max(1, document.documentElement.clientHeight || window.innerHeight || 1); } catch (e) { vh = 720; }
+    return visibleHeight > 0 ? Math.min(visibleHeight, vh) : vh;
+  }
+  /** R-OWN v13：面板/提示条的尺寸**固定不随分辨率变化** —— 用 1/uiScale 反向缩放抵消外层
+   *  （设备尺寸 transform、页面缩放、dpr），视觉尺寸恒为 264px 宽（实测基准 264×82）。 */
+  function applyPanelScale(el, origin) {
+    if (!el) return;
+    try {
+      if (uiScale && uiScale !== 1) {
+        el.style.transformOrigin = origin;
+        el.style.transform = "scale(" + (1 / uiScale).toFixed(4) + ")";
+      } else {
+        el.style.transformOrigin = "";
+        el.style.transform = "none";
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+  /** 面板定位：**右下角**（用户 2026-10-10 指定）+ 落在可见带内。
+   *  用 offsetWidth（不受 transform 影响）算左边界，避免反向缩放后自反馈。 */
   function positionPanel() {
     if (!panel || !panel.isConnected) return;
     try {
       var band = visibleBand();
-      var w = panel.getBoundingClientRect().width || 264;
+      var w = panel.offsetWidth || 264;
+      var vh = 0;
+      try { vh = Math.max(1, document.documentElement.clientHeight || window.innerHeight || 1); } catch (e) { vh = 720; }
+      // 右下角：右缘贴可见带右侧，下缘贴**可见带底部**（可见带底部可能高于视口底部——自持窗口 100% 显示时）
+      var bottomGap = Math.max(12, Math.round(vh - visibleBandHeight()) + 12);
+      panel.style.top = "auto";
+      panel.style.bottom = bottomGap + "px";
       panel.style.left = Math.max(8, Math.round(band - w - 12)) + "px";
       panel.style.right = "auto";
+      applyPanelScale(panel, "bottom right");
     } catch (e) { /* 忽略 */ }
   }
 
@@ -1341,7 +1372,8 @@
       left: Math.round(visibleBand() / 2) + "px", // R-OWN v12：可见带内居中（缩放裁剪下也看得见）
       padding: "8px 14px",
       position: "fixed",
-      transform: "translateX(-50%)",
+      transform: "translateX(-50%)" + (uiScale && uiScale !== 1 ? " scale(" + (1 / uiScale).toFixed(4) + ")" : ""),
+      transformOrigin: "bottom center", // R-OWN v13：与反向缩放配合，底边保持贴底
       zIndex: "2147483647",
     });
     toastEl.setAttribute(UI_FLAG, "");
@@ -1525,6 +1557,9 @@
     if (opts.visibleWidth != null) {
       visibleWidth = Math.max(0, Number(opts.visibleWidth) || 0); // R-OWN v12：可见带宽度（guest px）
     }
+    if (opts.uiScale != null) {
+      uiScale = Math.max(0.05, Number(opts.uiScale) || 1); // R-OWN v13：反向缩放基准（视觉尺寸恒定）
+    }
     return new Promise(function (resolve) {
       session = {
         resolve: resolve,
@@ -1617,6 +1652,22 @@
       visibleWidth = Math.max(0, Number(w) || 0);
       positionPanel();
       return { visibleWidth: visibleWidth, band: visibleBand() };
+    },
+    /** R-OWN v13：设置 uiScale（guest→屏幕放大倍数）——面板按 1/uiScale 反向缩放，**视觉尺寸恒定**，
+     *  不随分辨率/页面缩放变化。 */
+    setUiScale: function (s) {
+      uiScale = Math.max(0.05, Number(s) || 1);
+      positionPanel();
+      return { uiScale: uiScale };
+    },
+    /** R-OWN v13：一次性同步"可见带 + 缩放"（client 侧合并调用，少一次跨进程往返）。 */
+    setPaneMetrics: function (m) {
+      var o = m || {};
+      if (o.visibleWidth != null) visibleWidth = Math.max(0, Number(o.visibleWidth) || 0);
+      if (o.visibleHeight != null) visibleHeight = Math.max(0, Number(o.visibleHeight) || 0);
+      if (o.uiScale != null) uiScale = Math.max(0.05, Number(o.uiScale) || 1);
+      positionPanel();
+      return { visibleWidth: visibleWidth, visibleHeight: visibleHeight, band: visibleBand(), bandH: visibleBandHeight(), uiScale: uiScale };
     },
     /** 打包当前批注（纯函数式：不结束会话、不清空）。 */
     submit: function () {

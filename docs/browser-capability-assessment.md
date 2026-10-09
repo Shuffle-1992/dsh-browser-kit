@@ -411,6 +411,20 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
 **★坑（P62）**：guest 里的 `position:fixed` 浮层按**视口**定位，但"看得见的区域"可能小于视口
 （外层 transform 缩放 / 容器裁剪 / 滚动）——凡是注入 guest 的浮层都必须接受"可见带"参数。
 
+### 3.9.13 R-OWN v13：批注面板固定尺寸 / 右下角 / 蓝色激活图标（2026-10-10 用户要求）
+
+| 要求 | 实现 | 实测 |
+|---|---|---|
+| 面板**固定尺寸**，不随分辨率变化 | 批注器新增 `uiScale`：面板按 `1/uiScale` **反向缩放**（`transform-origin: bottom right`），视觉尺寸恒定；基准 = 实测 **264×82** | 默认 `scale:none` → 264×82 ✓；侧栏 2K `scale(2.4685)` × 外层 0.405 → **屏幕上仍是 264×82** ✓；自持 2K `none` → 264×82 ✓ |
+| 面板移到**右下角** | `top:auto; bottom:12px`（可见带底部补偿：guest 比舞台高时 `bottom` 变大，仍贴"看得见的底部"）；右缘用 `offsetWidth` 算（不受自身 transform 影响，避免自反馈） | 默认/侧栏 `bottom:12px` ✓；自持 2K `bottom:180px`（贴可见带底部）✓ |
+| **删除按钮蓝色背景**，改用**蓝色批注图标**表示激活 | 新增 `ANNOT_ICON_ACTIVE_SVG`（蓝色实心气泡 + 白色加号）；`applyAnnotBtnState` 只做"**换图标**"（幂等、无闪烁），CSS 规则改为把背景钉成 `transparent !important` | 激活：`bg:transparent, blue:true` ✓；未激活：`bg:transparent, blue:false` ✓ |
+
+**★v13 的坑（P63）**：`webview.getZoomFactor()` **混入了显示器缩放**（实测本机 ≈1.23），
+用它算"反缩放"会把侧栏面板放大 1.23 倍。改为**几何测量 + 我们已知的缩放**：
+`uiScale = 元素可见宽 / 元素 CSS 宽 × 我们设过的缩放（dataset.kitZoomFactor）` ✓
+（几何比值天然包含外层 `transform: scale`，且不含显示器缩放）。
+另外"可见带"**要同时算宽和高**——自持窗口 100% 显示时 guest 比舞台高，只补偿宽度会让面板贴到看不见的底部。
+
 **收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
 丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
 
