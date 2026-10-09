@@ -550,7 +550,7 @@ window.__ModuleLoader__.load({
             sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按归属行补挂）
             lastToggleError: null,
             clientBootAt: new Date().toISOString(),
-            agentGlow: { until: 0, label: '', count: 0, sticky: false, timer: 0 }, // Agent 操作光效（见 ensureAgentGlow 注释块）
+            agentGlow: { until: 0, label: '', count: 0, sticky: false, timer: 0, sessionId: null }, // Agent 操作光效（见 ensureAgentGlow 注释块）
             panelCollapsed: false,
             autoLeft: MAX_AUTO_REPROBE,
             autoShotLeft: 1, // 自动截图仅一次（MVP-1 验收），手动截图不限
@@ -1046,9 +1046,11 @@ window.__ModuleLoader__.load({
           const AGENT_GLOW_TICK = 200;
           const agentGlowEnabled = () => { try { return localStorage.getItem(AGENT_GLOW_KEY) !== '0'; } catch { return true; } };
           const setAgentGlowEnabled = (on) => { try { localStorage.setItem(AGENT_GLOW_KEY, on ? '1' : '0'); } catch { /* 尽力而为 */ } };
-          /** 目标面板：优先包含焦点的 webview，其次首个可见 webview（= 用户正在看的那个）。 */
+          /** 目标面板：优先包含焦点的 webview，其次首个可见 webview（= 用户正在看的那个）。
+           *  R-SCOPE：若本次操作来自某个具体会话，只在该会话的面板里选——绝不把光效/操作画到别的会话窗口上。 */
           const agentGlowTarget = () => {
-            const all = Array.from(document.querySelectorAll('webview'));
+            const sid = stateRef.agentGlow ? stateRef.agentGlow.sessionId : null;
+            const all = scopedWebviews(sid);
             const focused = all.find((el) => el.contains(document.activeElement));
             if (focused) return focused;
             return all.find((el) => { const r = el.getBoundingClientRect(); return r.width > 80 && r.height > 80; }) || null;
@@ -1687,7 +1689,8 @@ window.__ModuleLoader__.load({
            * 遮挡检测：点击前 `document.elementFromPoint(中心)`，命中不是目标（且非其祖先/后代）即判遮挡，
            * 默认拒绝并回报遮挡者（抄 agent-browser 的稳定性设计：宁可提前失败也不点错东西）。 */
           const inputTargetOf = (c) => {
-            const els = Array.from(document.querySelectorAll('webview'));
+            // R-SCOPE：只在**调用会话**的面板里选（sessionId 缺省才退回全局，兼容探针）
+            const els = scopedWebviews(c && c.sessionId);
             const idx = Number(c && c.tab);
             return (Number.isFinite(idx) && els[idx]) || els.find(captureVisible) || els[0] || null;
           };
@@ -1718,8 +1721,88 @@ window.__ModuleLoader__.load({
           };
           const sendMouse = (el, type, x, y, extra) => el.sendInputEvent({ type, x, y, ...(extra || {}) });
           /** 让 guest 视图拿到焦点：**纯键盘事件（press）必须先把焦点交给 webview**，否则
-           *  keyDown 到了页面但焦点不动（实测 Tab 无效、activeElement 仍 BODY）。鼠标事件会顺带聚焦。 */
-          const focusGuest = (el) => { try { if (el && typeof el.focus === 'function') el.focus(); } catch { /* 聚焦失败不影响鼠标路径 */ } };
+           *  keyDown 到了页面但焦点不动（实测 Tab 无效、activeElement 仍 BODY）。鼠标事件会顺带聚焦。
+           *  R-SCOPE：操作后**把焦点还给原元素**——用户可能在别的会话输入框里打字，别把焦点留在 guest。 */
+          const focusGuest = (el) => {
+            let prev = null;
+            try { prev = document.activeElement || null; } catch { prev = null; }
+            try { if (el && typeof el.focus === 'function') el.focus(); } catch { /* 聚焦失败不影响鼠标路径 */ }
+            if (prev && prev !== el && prev !== document.body) {
+              setTimeout(() => {
+                try { if (document.contains(prev) && typeof prev.focus === 'function') prev.focus(); } catch { /* 忽略 */ }
+              }, 60);
+            }
+          };
+          /* ── R-SCOPE（2026-10-10 用户需求）：**自动化只作用于本会话的浏览器窗口** ──
+           * 背景（实测）：本插件在 GUI 里是单实例，而 `ctx.sidebarRight` 作用于**当前显示的那个会话**——
+           * 后台会话下命令会动到用户前台会话的窗口；`webview.focus()` 还会抢走用户输入框的焦点
+           * （用户在别的会话打字被影响）。因此：
+           *  ①页面类命令必须只在 `[data-sidebar-right-session="<调用会话>"]` 子树里选 webview；
+           *  ②面板类命令（开/关标签、开合面板）先比对「当前前台会话」== 调用会话，不等就拒绝；
+           *  ③交互类命令在用户正聚焦可编辑元素时拒绝（除非 force:true）；操作后归还焦点（见 focusGuest）。 */
+          /** 当前前台的会话 id（公开 API：sidebarRight.commandTarget(null) 返回 {sessionId,...}）。 */
+          const currentSurfaceSession = () => {
+            try {
+              const t = sidebarRightSvc && typeof sidebarRightSvc.commandTarget === 'function' ? sidebarRightSvc.commandTarget(null) : null;
+              return (t && t.sessionId) || null;
+            } catch { return null; }
+          };
+          /** 指定会话下的 webview（sessionId 缺省 = 全局，兼容裸命令通道探针）。 */
+          const scopedWebviews = (sessionId) => {
+            const all = Array.from(document.querySelectorAll('webview'));
+            if (!sessionId) return all;
+            try { return Array.from(document.querySelectorAll(`[data-sidebar-right-session="${String(sessionId)}"] webview`)); } catch { return []; }
+          };
+          /** 用户正在输入守卫：焦点在可编辑元素上、且不在本次目标会话的面板里 → 拒绝（除非 force）。 */
+          const typingGuard = (c) => {
+            if (c && c.force === true) return null;
+            let ae = null;
+            try { ae = document.activeElement || null; } catch { ae = null; }
+            if (!ae) return null;
+            const tag = String(ae.tagName || '').toLowerCase();
+            const editable = tag === 'input' || tag === 'textarea' || ae.isContentEditable === true;
+            if (!editable) return null;
+            const sid = c && c.sessionId ? String(c.sessionId) : null;
+            if (sid) {
+              try { if (ae.closest && ae.closest(`[data-sidebar-right-session="${sid}"]`)) return null; } catch { /* 忽略 */ }
+            }
+            return {
+              ok: false,
+              guard: 'user-typing',
+              error: '检测到用户正在输入（焦点在输入框上）——为避免打断用户已拒绝自动化；确需继续请传 force:true',
+            };
+          };
+          /** 分发器前置检查：返回非 null 即拒绝执行（并如实说明原因）。 */
+          const scopeCheck = (action, c) => {
+            const sid = c && c.sessionId ? String(c.sessionId) : null;
+            if (!sid) return null; // 裸命令通道（探针/实施会话）：保持既有全局行为
+            if (PANEL_ACTIONS.has(action)) {
+              const cur = currentSurfaceSession();
+              if (cur && cur !== sid) {
+                return {
+                  ok: false, scoped: true, sessionId: sid, currentSession: cur,
+                  error: `当前前台显示的是会话 ${cur}，而调用方是 ${sid}——为避免影响其他会话，本次操作已拒绝（请在本会话前台时重试）`,
+                };
+              }
+              return null;
+            }
+            if (PAGE_ACTIONS.has(action) && !scopedWebviews(sid).length) {
+              return {
+                ok: false, scoped: true, sessionId: sid,
+                error: `本会话（${sid}）当前没有已挂载的浏览器面板——为避免动到其他会话的窗口，本次操作已拒绝（请先在本会话打开内置浏览器）`,
+              };
+            }
+            if (INTERACTIVE_ACTIONS.has(action)) {
+              const g = typingGuard(c);
+              if (g) return { ...g, scoped: true, sessionId: sid };
+            }
+            return null;
+          };
+          const PANEL_ACTIONS = new Set(['browser-open', 'browser-close', 'browser-panel']);
+          /* 只读盘点：不要求前台（读全局清单无害），但 DOM 侧只列本会话的面板 + 回显前后台会话便于核对 */
+          const READONLY_ACTIONS = new Set(['browser-tabs']);
+          const PAGE_ACTIONS = new Set(['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer']);
+          const INTERACTIVE_ACTIONS = new Set(['input', 'click', 'type', 'select', 'check']);
           /** 操作页面元信息（多标签时「我到底点了哪个页面」的判据）。 */
           const inputPageMeta = (el) => {
             const out = { url: null, title: null };
@@ -1976,7 +2059,12 @@ window.__ModuleLoader__.load({
             'browser-tabs': async function (svc, c) {
               // R-BROWSER：枚举当前窗口**全部已开网页**——侧栏服务快照（权威：含 sessionId/tabId/标题/URL）
               // + DOM 侧 webview 实测补充（wcId / 实际 URL / DevTools 态）。
+              // R-SCOPE：清单是全局只读（允许任何会话读），但 **DOM 侧只列本会话的面板**，
+              //   并回显「调用会话 / 当前前台会话」——让 agent 一眼看清自己能看到谁、能不能操作。
               const out = { tabs: [], tabsError: null, webviews: [] };
+              const reqSid = c && c.sessionId ? String(c.sessionId) : null;
+              out.requestedSession = reqSid;
+              out.currentSession = currentSurfaceSession();
               try {
                 const store = sidebarRightSvc && sidebarRightSvc.openTabs;
                 const snap = store && typeof store.getSnapshot === 'function' ? store.getSnapshot() : null;
@@ -1992,7 +2080,10 @@ window.__ModuleLoader__.load({
                   out.tabsError = sidebarRightSvc ? 'openTabs.getSnapshot 不可用' : 'sidebarRight 服务不可用（降级：仅 DOM 枚举）';
                 }
               } catch (e) { out.tabsError = msgOf(e); }
-              for (const el of Array.from(document.querySelectorAll('webview'))) {
+              // DOM 侧：只列**本会话**已挂载的面板（无 sessionId 时才是全量，兼容探针）
+              const myEls = scopedWebviews(reqSid);
+              out.scopedWebviewCount = myEls.length;
+              for (const el of myEls) {
                 const one = {};
                 try { one.src = el.getAttribute('src') || null; } catch { /* 忽略 */ }
                 try { one.url = typeof el.getURL === 'function' ? el.getURL() : null; } catch { /* 忽略 */ }
@@ -2001,6 +2092,12 @@ window.__ModuleLoader__.load({
                 try { one.devtoolsOpened = typeof el.isDevToolsOpened === 'function' ? el.isDevToolsOpened() : null; } catch { /* 忽略 */ }
                 out.webviews.push(one);
               }
+              // 我的标签（清单里属于本会话的项）与「当前前台会话是否就是我」
+              out.myTabs = reqSid ? out.tabs.filter((t) => t.sessionId === reqSid) : null;
+              out.isFrontSession = reqSid ? (out.currentSession === reqSid) : null;
+              out.note = reqSid && out.currentSession && out.currentSession !== reqSid
+                ? '当前前台是别的会话：可读清单，但「会动窗口」的操作会被拒绝以避免影响用户'
+                : null;
               return { ok: true, count: out.tabs.length, ...out };
             },
             'browser-open': async function (svc, c) {
@@ -2525,7 +2622,7 @@ window.__ModuleLoader__.load({
               return { ok: true, requested: url, currentHref: href, note: '跨源导航受宿主白名单限制，可能被静默拒绝（须用户在 DSH UI 手动导航）' };
             },
             'screenshot': async function (svc, c) {
-              return await captureShot();
+              return await captureShot(c);
             },
             'submit-annotations': async function (svc, c) {
               // 多面板共享会话：收集全部成员批注 → host saveMerged（重编号 + 合并构建）
@@ -2590,7 +2687,10 @@ window.__ModuleLoader__.load({
             try {
               const handler = commandHandlers[action];
               if (!handler) return { ok: false, error: `未知命令 action=${action}` };
-              if (AGENT_GLOW_ACTIONS.has(action)) pulseAgentActivity(action);
+              // R-SCOPE：会话隔离/用户输入守卫（拒绝时如实说明，不静默、不误伤别的会话）
+              const denied = scopeCheck(action, c);
+              if (denied) return denied;
+              if (AGENT_GLOW_ACTIONS.has(action)) { stateRef.agentGlow.sessionId = c && c.sessionId ? String(c.sessionId) : null; pulseAgentActivity(action); }
               return await handler(svc, c);
             } catch (e) {
               return { ok: false, error: msgOf(e) };
@@ -2687,13 +2787,13 @@ window.__ModuleLoader__.load({
             }
           } catch { /* localStorage 不可用：跳过断路器 */ }
 
-          const captureShot = async () => {
+          const captureShot = async (ctxCmd) => {
             const out = { ok: false, error: null, path: null, bytes: null };
             try {
               if (captureInFlight) { out.error = '已有截图在进行（单飞护栏）'; return out; }
               const nowAt = Date.now();
               if (nowAt < captureCooldownUntil) { out.error = `截图冷却中（剩 ${captureCooldownUntil - nowAt}ms）`; return out; }
-              const els = Array.from(document.querySelectorAll('webview'));
+              const els = scopedWebviews(ctxCmd && ctxCmd.sessionId); // R-SCOPE：只截本会话的面板
               // 只在**可见**面板上截：隐藏/后台 surface 是 capturePage 挂死/崩溃的高危场景
               const target = els.find(captureVisible) || null;
               if (!target) {

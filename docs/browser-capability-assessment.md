@@ -140,7 +140,30 @@ DSH 侧无 DevTools/CDP（§0/§2 证据），唯一可行路径是**页内 hook
 | 勾选 | `browser_check` | 勾选 `{before:false,after:true}` → 取消 `{before:true,after:false}` |
 | 快照省 token | `browser_snapshot` | 默认 `compact`：只回 `ref/tag/text`（截断 40、上限 60 项）；需要 id/placeholder/type/value 时 `compact:false` |
 
-工具总数达到 **21 个 `browser_*`**（含 §3.1-§3.4 的全部能力）。
+工具总数达到 **22 个 `browser_*`**（含 §3.1-§3.4 的全部能力）。
+
+## 3.6 会话隔离（R-SCOPE，2026-10-10 用户需求：自动化不得影响其他会话）
+
+**用户现场**：「Agent 自动化时只应对本会话的浏览器窗口生效；我在别的会话打字好像被影响了。」
+
+**根因（实测确认）**：client 插件在 GUI 里是**单实例**，`ctx.sidebarRight` 作用于**当前前台会话**——后台会话下命令会落到前台会话上；`webview.focus()` 还会抢走用户输入框焦点。
+
+**修法**：
+1. 工具层从 `exec.agent.session` 取**调用方会话 id**，随每条命令下发（结果里回显 `requestedSession`）；
+2. client 只在 `[data-sidebar-right-session="<调用会话>"]` 子树里选 webview；
+3. 面板类命令（`browser-open/close/panel`）要求前台会话 == 调用会话；只读清单（`browser-tabs`）放行并回显 `myTabs / isFrontSession / currentSession / scopedWebviewCount`；
+4. 交互类命令加**用户正在输入守卫**（GUI 焦点在可编辑元素且不在本会话面板 ⇒ 拒绝，`force:true` 逃逸）；
+5. 操作后**归还焦点**（60ms 把 activeElement 还回去）；光效目标也按会话过滤（不会把光画到别人窗口）。
+
+**实测（2026-10-10 00:3x，用户在 session-1661… 前台、本会话 70a5… 后台）**：
+
+| 检查 | 结果 |
+|---|---|
+| `browser_tabs`（只读） | `requestedSession:'session-70a5…'`、`currentSession:'session-1661…'`、`myTabs:[tab3(browser), tab11(text)]`、`scopedWebviewCount:0`、`isFrontSession:false` + 提示语 |
+| `browser_state`（页面级） | 被拒：「本会话（session-70a5…）当前没有已挂载的浏览器面板——为避免动到其他会话的窗口，本次操作已拒绝」 |
+| `browser-open`（面板级） | 被拒：「当前前台显示的是会话 session-1661…，而调用方是 session-70a5…」 |
+
+→ 用户前台的窗口**不再被碰**；代价是：用户停在其他会话时本会话面板未挂载 ⇒ 本会话自动化被如实拒绝（诚实失败优于越界操作）。
 
 ## 4. 风险：截图会崩（本轮实测）
 - ZCode 源码注释原文：**「走 CDP Page.captureScreenshot（规避 renderer webContents.capturePage 的 V8 FATAL，且拿全页）」**——他们踩过并绕开了。

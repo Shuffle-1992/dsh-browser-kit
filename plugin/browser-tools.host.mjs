@@ -168,6 +168,27 @@ const OUT = {
   render: (args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
 };
 
+/* ─────────────── 调用方会话识别（R-SCOPE） ─────────────── */
+
+/**
+ * 从工具调用上下文里取「调用方会话 id」。
+ * 依据：dsh-tools 的 `tool.execute(exec.arguments, exec)`，而 `exec.agent.session` 是调用 agent 的会话
+ * （refs/dsh-tools/lib/index.js:1423 用 `exec.agent.session.header.cwd` 取 cwd ⇒ header 存在）。
+ * 版本差异可能落在不同字段 → 逐个候选尝试；全拿不到返回 null（client 侧退回旧行为并如实回报）。
+ */
+export function sessionIdOf(exec) {
+  try {
+    const agent = exec && exec.agent;
+    const session = agent && agent.session;
+    const h = (session && session.header) || {};
+    const cands = [h.id, h.sessionId, session && session.id, agent && agent.sessionId, exec && exec.sessionId, h.key, h.uid];
+    for (const c of cands) if (typeof c === 'string' && c) return c;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 规格表：`action` 必须与 client.js 的 commandHandlers 键逐字一致（漂移 = 工具静默失败）。
  * 参数名**不得使用 `action` / `id`**（命令信封已占用，P47-D）。
@@ -445,9 +466,12 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
           description: spec.description,
           parameters: spec.parameters || {},
           output: OUT,
-          execute: async (args) => {
+          execute: async (args, exec) => {
             // staticParams：规格层固定参数（如 mode:'trusted' / op:'hover'），调用方可覆盖
             const params = { ...(spec.staticParams || {}), ...(args && typeof args === 'object' ? args : {}) };
+            // R-SCOPE：把**调用方会话**带下去，client 只在「本会话的浏览器面板」上操作（不动别的会话）
+            const sessionId = sessionIdOf(exec);
+            if (sessionId) params.sessionId = sessionId;
             // dynamicSource：源码随命令下发（页内观察器需要；hook 随页面销毁，下发即自愈）
             if (spec.dynamicSource) {
               try {
@@ -457,8 +481,9 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
               }
             }
             const r = await runBrowserCommand(pluginDir, spec.action, params, spec.timeoutMs || 25000);
-            // 结果统一带工具名与客户端 action，便于排障（工具名 ≠ action 名，别让模型混淆）
-            return { tool: spec.name, action: spec.action, ...(r && typeof r === 'object' ? r : { value: r }) };
+            // 结果统一带工具名与客户端 action，便于排障（工具名 ≠ action 名，别让模型混淆）；
+            // sessionId 回显用于核对「到底作用在哪个会话」（R-SCOPE 的可见性保证）
+            return { tool: spec.name, action: spec.action, ...(sessionId ? { requestedSession: sessionId } : {}), ...(r && typeof r === 'object' ? r : { value: r }) };
           },
         });
         const dispose = ctx.tools.register(def);

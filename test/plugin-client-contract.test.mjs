@@ -224,8 +224,10 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /const sendMouse = \(el, type, x, y, extra\) => el\.sendInputEvent\(\{ type, x, y, \.\.\.\(extra \|\| \{\}\) \}\)/);
     assert.match(clientSource, /sendMouse\(target, 'mouseDown'/);
     assert.match(clientSource, /target\.sendInputEvent\(\{ type: 'char', keyCode: ch \}\)/);
-    // ②键盘路径必须先把焦点交给 guest（否则 Tab 等纯键盘事件无效）
-    assert.match(clientSource, /const focusGuest = \(el\) => \{ try \{ if \(el && typeof el\.focus === 'function'\) el\.focus\(\); \} catch/);
+    // ②键盘路径必须先把焦点交给 guest（否则 Tab 等纯键盘事件无效），并在操作后**归还焦点**（R-SCOPE：不打断用户）
+    assert.match(clientSource, /const focusGuest = \(el\) => \{/);
+    assert.match(clientSource, /try \{ prev = document\.activeElement \|\| null; \} catch \{ prev = null; \}/);
+    assert.match(clientSource, /if \(document\.contains\(prev\) && typeof prev\.focus === 'function'\) prev\.focus\(\);/);
     assert.match(clientSource, /const trustedClick = async \(target, c, op\) => \{\s*focusGuest\(target\);/);
     assert.match(clientSource, /const trustedType = async \(target, c\) => \{\s*focusGuest\(target\);/);
     // ③滚轮 delta 符号翻正（Windows 上 Electron 与网页相反）
@@ -238,12 +240,32 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /if \(String\(\(c && c\.mode\) \|\| ''\) === 'trusted'\) \{/);
   });
 
+  await t.test("R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）", () => {
+    // ①会话作用域的 webview 选择（面板容器带 data-sidebar-right-session）
+    assert.match(clientSource, /const scopedWebviews = \(sessionId\) => \{/);
+    assert.match(clientSource, /\[data-sidebar-right-session="\$\{String\(sessionId\)\}"\] webview/);
+    assert.match(clientSource, /const inputTargetOf = \(c\) => \{\s*\/\/ R-SCOPE/);
+    // ②面板类命令比对「当前前台会话」，页面类命令要求本会话有已挂载面板
+    assert.match(clientSource, /const scopeCheck = \(action, c\) => \{/);
+    assert.match(clientSource, /const PANEL_ACTIONS = new Set\(\['browser-tabs', 'browser-open', 'browser-close', 'browser-panel'\]\)/);
+    assert.match(clientSource, /const PAGE_ACTIONS = new Set\(\['snapshot', 'state', 'history', 'wait', 'select', 'element', 'check', 'input', 'click', 'type', 'page-inject', 'reload', 'navigate', 'screenshot', 'console-observer'\]\)/);
+    assert.match(clientSource, /const INTERACTIVE_ACTIONS = new Set\(\['input', 'click', 'type', 'select', 'check'\]\)/);
+    assert.match(clientSource, /const denied = scopeCheck\(action, c\);/);
+    // ③用户正在输入时拒绝（force 逃逸）+ 焦点归还
+    assert.match(clientSource, /const typingGuard = \(c\) => \{/);
+    assert.match(clientSource, /guard: 'user-typing'/);
+    // ④光效也只在本次会话的面板里找目标（别把光画到别人的窗口上）
+    assert.match(clientSource, /const sid = stateRef\.agentGlow \? stateRef\.agentGlow\.sessionId : null;\s*const all = scopedWebviews\(sid\);/);
+    // ⑤截图同样按会话收敛
+    assert.match(clientSource, /const els = scopedWebviews\(ctxCmd && ctxCmd\.sessionId\); \/\/ R-SCOPE/);
+  });
+
   await t.test("R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）", () => {
     // 打点集合必须覆盖会动页面的浏览器命令；纯盘点类不得入集（免得屏幕常闪）
     assert.match(clientSource, /const AGENT_GLOW_ACTIONS = new Set\(\['navigate', 'reload', 'click', 'type', 'page-inject', 'screenshot', 'snapshot', 'browser-open', 'browser-close', 'browser-panel', 'input', 'history', 'select', 'check'\]\)/);
     assert.doesNotMatch(clientSource, /AGENT_GLOW_ACTIONS = new Set\(\[[^\]]*'browser-tabs'/);
-    // 分发器统一打点（新增命令无需逐个改 handler）
-    assert.match(clientSource, /if \(AGENT_GLOW_ACTIONS\.has\(action\)\) pulseAgentActivity\(action\)/);
+    // 分发器统一打点（新增命令无需逐个改 handler）+ R-SCOPE：打点时钉住本次会话 id
+    assert.match(clientSource, /if \(AGENT_GLOW_ACTIONS\.has\(action\)\) \{ stateRef\.agentGlow\.sessionId = c && c\.sessionId \? String\(c\.sessionId\) : null; pulseAgentActivity\(action\); \}/);
     // 浮层：四边描边 + 外发光 + 呼吸动画；纯提示不挡交互
     assert.match(clientSource, /const AGENT_GLOW_ID = 'dsh-kit-agent-glow'/);
     assert.match(clientSource, /pointer-events:none;z-index:2147483645/);

@@ -262,3 +262,16 @@
 - **现象 D（遮挡检测要先于点击）**：点击前用 `document.elementFromPoint(中心)` 判遮挡并**回报遮挡者**，默认拒绝（`force:true` 才照点）——这是最有价值的稳定性设计（抄 agent-browser），能把「点错东西」变成「提前失败」。
 - **现象 E（CJK 的 keydown 是空的）**：中文/emoji 的 keydown `key`/`code` 都是空串，文本由 `char` 事件插入 → **断言以 input.value 为准**，不要用 keydown 的 key 判中文。
 - **判据**：输入「看起来成功但页面没反应」时，按序查：guest 是否 focus → 坐标是否落在目标（elementFromPoint）→ 滚轮符号 → 事件是否 trusted（页面内探针）。
+### P51 单实例插件 × 会话作用域：会动到别的会话的窗口（用户实测抱怨）
+- **现象**：Agent 在 A 会话下 `browser-open / click / type`，**用户在 B 会话的窗口被开页/被操作**；用户正在 B 会话输入框打字时还会被打断。
+- **根因**（两层，缺一不可）：
+  1. **client 插件在 GUI 里是单实例**，而 `ctx.sidebarRight` 作用于**当前前台显示的那个会话**（`require().sessionId` = 已挂载表面）——后台会话下命令 ⇒ 落到前台会话上；
+  2. `<webview>.focus()` 会**抢走 GUI 的输入焦点**（用户正在输入框打字时最明显）。
+- **对策（R-SCOPE，已落地）**：
+  - 工具层从 `exec.agent.session`（dsh-tools `execute(args, exec)` 第二参）取**调用方会话 id**，随每条命令下发并在结果里回显；
+  - client 只在 `[data-sidebar-right-session="<调用会话>"]` 子树里选 webview；该会话没有已挂载面板就**明确拒绝**，绝不动别人的窗口；
+  - 面板类命令（开/关标签、开合面板）要求「前台会话 == 调用会话」；只读清单（browser-tabs）放行并回显 `myTabs / isFrontSession / currentSession`；
+  - **用户正在输入守卫**：GUI 焦点在可编辑元素且不在本会话面板内 ⇒ 拒绝交互操作（`force:true` 才继续）；
+  - 操作后**归还焦点**（记住操作前 activeElement，60ms 后还回去）。
+- **边界**：用户停在其他会话时，本会话的浏览器面板**未挂载** ⇒ 该会话的自动化被如实拒绝（这是「绝不影响用户」的代价）。keepMounted 的标签保留能否支撑后台会话继续工作，需再实测。
+- **判据**：自动化「命令说成功但用户说被影响」⇒ 先查**会话边界**（`data-sidebar-right-session` / `currentSession` vs 调用会话），再查焦点抢占。
