@@ -27,17 +27,19 @@ test("v25：提示条有兜底回收（不依赖被移除的胶囊发 mouseleave
   assert.match(src, /ensureAnnotChip\(\);[\s\S]{0,200}reapAnnTip\(\);/, "tickChipLifecycle 里必须调用 reapAnnTip");
 });
 
-test("v25：批注会话按 DSH 对话隔离（换对话即结束+清空，编号从 1 起）", () => {
-  assert.match(src, /const enforceAnnotConvoScope = \(\) => \{/);
-  const a = src.indexOf("const enforceAnnotConvoScope = () => {");
+test("v25/v28：批注按 DSH 会话隔离（换会话即清空，编号从 1 起）", () => {
+  assert.match(src, /const enforceAnnotSessionScope = \(\) => \{/, "v28：判据改为会话 id");
+  const a = src.indexOf("const enforceAnnotSessionScope = () => {");
   const body = src.slice(a, src.indexOf("const tickChipLifecycle", a));
-  assert.match(body, /const now = convoTitle\(\);/);
-  assert.match(body, /if \(!st\.convo \|\| !now \|\| st\.convo === now\) return;/, "同对话直接返回（不能误清）");
-  assert.match(body, /resetAnnotState\('end', true\);/, "换对话要复位会话状态");
-  assert.match(body, /a\.clearAll\(\)/, "换对话要清空页面批注（否则旧编号与新会话混在一起）");
-  assert.match(body, /hideAnnTip\(\);/, "换对话顺带收掉提示条");
+  // v28：判据是会话 id 变化（比标题稳定），且**与"批注会话是否活跃"解耦**（旧实现 !active 就 return ⇒ 泄漏 ✗）
+  assert.match(body, /sid = currentSurfaceSession\(\)/, "判据必须用会话 id");
+  assert.match(body, /if \(sid === annotScopeSessionId\) return;/, "同会话直接返回（不能误清）");
+  assert.doesNotMatch(body, /if \(!st \|\| !st\.active\) return;/, "v28：不得因『未活跃』而跳过清理（用户实测的跨会话泄漏根因）");
+  assert.match(body, /resetAnnotState\('end', true\);/, "换会话要复位会话状态");
+  assert.match(body, /a\.clearAll\(\)/, "换会话要清空页面批注");
+  assert.match(body, /hideAnnTip\(\);/, "换会话顺带收掉提示条");
   // 必须在主 tick 里被驱动
-  assert.match(src, /enforceAnnotConvoScope\(\); \/\/ v25/, "主 tick 必须调用 enforceAnnotConvoScope");
+  assert.match(src, /enforceAnnotConvoScope\(\); \/\/ v25/, "主 tick 必须调用隔离守卫");
   // 会话开始时要记下所属对话（隔离判据的来源）
   assert.match(src, /convo: convoTitle\(\)/, "会话开始必须记录 convo，否则无从判断切换");
 });

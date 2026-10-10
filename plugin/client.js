@@ -2188,8 +2188,19 @@ window.__ModuleLoader__.load({
               st.origins = plan.nextOrigins;
               /* v26：草稿箱 = 各面板列表的并集（按 gid），并带上来源页 URL 供同页门控。
                * 这样**跳转页面**（新文档）后，草稿仍在；而删除日志命中的条目同时从草稿剔除。 */
+              /* v28（用户实测跨会话泄漏）：**只并本会话面板的列表** —— 别的会话残留的批注
+               * 会被吸进本会话草稿，从而"在别的会话里看到本会话的批注"✗。 */
               try {
-                for (const s2 of states) if (!s2.dead) draftMerge(s2.list, s2.url);
+                const sidNow = currentSurfaceSession();
+                for (const s2 of states) {
+                  if (s2.dead) continue;
+                  if (sidNow) {
+                    let inScope = true;
+                    try { inScope = !!s2.pane.closest(`[data-sidebar-right-session="${String(sidNow)}"]`); } catch { inScope = true; }
+                    if (!inScope) continue;
+                  }
+                  draftMerge(s2.list, s2.url);
+                }
                 draftRemove(Object.keys(plan.removedGids || {}));
               } catch { /* 草稿合并失败不影响同步 */ }
               st.originUrls = plan.nextOriginUrls;
@@ -5681,27 +5692,35 @@ window.__ModuleLoader__.load({
               if (!chip || !hovered) hideAnnTip();
             } catch { /* 忽略 */ }
           };
-          /** R-OWN v25（用户要求：批注是单会话的，避免跨会话）：**批注会话按 DSH 对话隔离**。
-           *  现有实现里 `stateRef.annot` 是实例级全局 ⇒ 换对话后批注会话与编号会**跨会话续用**
-           *  （新对话里新批注接着 4、5、6 排 ✗，页面还留着上个对话的徽标 ✗）。
-           *  判据：会话开始时记录的 `convo` 与当前 `convoTitle()` 不一致 ⇒ 结束并**清空**，
-           *  使新对话从 1 开始编号（页面标记一并清掉，避免与旧编号混在一起）。 */
-          const enforceAnnotConvoScope = () => {
-            const st = stateRef.annot;
-            if (!st || !st.active) return;
-            const now = convoTitle();
-            if (!st.convo || !now || st.convo === now) return;
-            const panes = (st.panes || []).slice();
-            resetAnnotState('end', true);
-            for (const p of panes) {
+          /** ★R-OWN v28（用户实测的跨会话泄漏）：**清理必须与"是否活跃"解耦**。
+           *  旧实现在 `!st.active` 时直接 return ⇒ 用户「删掉批注（清除后会话已不活跃）→ 切到别的会话」
+           *  时，**残留的批注仍留在页面上** ⇒ 别的会话"看到"了本会话的批注 ✗（用户实测）。
+           *  判据改为**会话 id**（比标题稳定）：id 变化 ⇒ 无论批注会话是否活跃，都清掉上一会话的页面批注
+           *  + 复位状态 + 换草稿本（编号随之从 1 开始）。 */
+          let annotScopeSessionId = null; // 上一次见到的 DSH 会话 id
+          const enforceAnnotSessionScope = () => {
+            let sid = null;
+            try { sid = currentSurfaceSession(); } catch { sid = null; }
+            if (annotScopeSessionId === null) { annotScopeSessionId = sid; return; } // 首次只登记
+            if (sid === annotScopeSessionId) return;
+            const prev = annotScopeSessionId;
+            annotScopeSessionId = sid;
+            // 上一会话的浏览器面板：无论批注会话是否 active，一律停掉并清空（否则新会话会"看到"旧批注）
+            let targets = [];
+            try { targets = scopedWebviews(prev); } catch { targets = []; }
+            if (!targets.length) { try { targets = Array.from(document.querySelectorAll('webview')); } catch { targets = []; } }
+            for (const p of targets) {
               try {
                 p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true).catch(() => {});
-              } catch { /* 面板已关闭等：忽略 */ }
+              } catch { /* 面板不可达：忽略 */ }
             }
-            hideAnnTip(); // 胶囊/提示条是会话门控的，切换时一并收掉（避免孤儿浮窗）
-            draftReload(); // v26：草稿按会话隔离（key = 会话 id ⇒ 换会话即换草稿）
-            say('info', '会话已切换：批注会话结束并清空（批注按 DSH 对话隔离）');
+            resetAnnotState('end', true);
+            draftReload(); // 换会话即换草稿本（key = 会话 id）
+            removeAnnotMirror();
+            hideAnnTip();
+            say('info', '已切换会话：上一会话的批注已清理（批注按会话隔离）');
           };
+          const enforceAnnotConvoScope = enforceAnnotSessionScope; // 兼容旧命名（标题判据已被 id 取代）
           const tickChipLifecycle = (webviews) => {
             /* v26：会话身份（id）变化 ⇒ 换草稿本（并首次加载：模块初始化时 sidebar 服务可能未就绪） */
             try { draftEnsure(); } catch { /* 忽略 */ } // v26：懒加载 + 会话切换即换草稿本
