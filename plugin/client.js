@@ -5779,11 +5779,14 @@ window.__ModuleLoader__.load({
               try {
                 if (!pane || !entry) return { ok: false, error: '无面板/无条目' };
                 const onlyIfEmpty = !!(opts && opts.onlyIfEmpty);
+                const withToken = !!(opts && opts.withToken); // ★回传文档代际 token（刷新/导航后应重新填充 ✓）
                 const r = await pane.executeJavaScript(
                   `(function () {
                      var user = ${JSON.stringify(String(entry.username || ''))};
                      var pass = ${JSON.stringify(String(entry.password || ''))};
-                     function setVal(el, v) {
+                     try { if (!window.__dshKitAfDocToken) window.__dshKitAfDocToken = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); } catch (e) {}
+                   var docToken = (function () { try { return window.__dshKitAfDocToken || null; } catch (e) { return null; } })();
+                   function setVal(el, v) {
                        if (!el || !v) return false;
                        var d = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
                        if (d && d.set) d.set.call(el, v); else el.value = v;
@@ -5802,15 +5805,15 @@ window.__ModuleLoader__.load({
                      if (${onlyIfEmpty ? 'true' : 'false'}) {
                        if (!pw || String(pw.value || '').length > 0) return JSON.stringify({ skipped: 'not-empty', hasPassField: !!pw });
                      }
-                     return JSON.stringify({ user: setVal(uEl, user), pass: setVal(pw, pass), hasUserField: !!uEl, hasPassField: !!pw });
+                     return JSON.stringify({ user: setVal(uEl, user), pass: setVal(pw, pass), hasUserField: !!uEl, hasPassField: !!pw, docToken: docToken });
                    })()`,
                   true,
                 );
                 let o = {};
                 try { o = typeof r === 'string' ? JSON.parse(r) : (r || {}); } catch { o = {}; }
-                if (o.skipped === 'not-empty') return { ok: true, skipped: true, reason: '密码字段已有内容，不覆盖' };
+                if (o.skipped === 'not-empty') return { ok: true, skipped: true, reason: '密码字段已有内容，不覆盖', docToken: o.docToken || null };
                 if (!o.hasPassField) return { ok: false, error: '当前页面没找到密码输入框' };
-                return { ok: true, filled: o };
+                return { ok: true, filled: o, docToken: o.docToken || null };
               } catch (e) { return { ok: false, error: msgOf(e) }; }
             };
             /* ★2026-10-10（用户要求）：**识别到对应域名后自动填写对应表单**（参考 Chrome 自动填充）。
@@ -5822,7 +5825,12 @@ window.__ModuleLoader__.load({
             const CRED_AUTOFILL_KEY = 'dsh-kit-cred-autofill';
             const credAutofillOn = () => { try { return localStorage.getItem(CRED_AUTOFILL_KEY) !== '0'; } catch { return true; } };
             const credAutofillSet = (on) => { try { localStorage.setItem(CRED_AUTOFILL_KEY, on ? '1' : '0'); } catch { /* 忽略 */ } };
-            const credAutofillTried = new Set(); // `${paneId}|${url}`
+            /* ★2026-10-10（用户实测："页面已经保存有账号密码时，**刷新页面后**应该自动填充好"）：
+             * 旧实现把"已尝试"记成 `面板|URL` ✗ —— 刷新后 **URL 不变** ⇒ 永久跳过、再也不填 ✗。
+             * 新实现按**文档代际**判定：页面内持久一个 token（新文档 = 新 token ✓），且**只有填充成功才置"完成"**；
+             * 表单晚渲染（SPA/慢加载）时按次数重试 ✓。 */
+            const credAutofillState = new Map(); // paneId → { token, tries, done }
+            const AF_MAX_TRIES = 8; // ≈16s（每轮 tick 一次）
             const tryAutofillPanes = async () => {
               try {
                 if (!credAutofillOn()) return;
@@ -5837,18 +5845,27 @@ window.__ModuleLoader__.load({
                 for (const p of panes) {
                   const url = credOriginOf(p);
                   if (!url || url === 'about:blank') continue;
-                  const key = `${paneIdOf(p)}|${url}`;
-                  if (credAutofillTried.has(key)) continue;
                   const entry = credMatch(list, url);
                   if (!entry) continue;
-                  credAutofillTried.add(key); // 标记已尝试（无论成功与否，避免每轮重试）
-                  const r = await fillCredential(p, entry, { onlyIfEmpty: true });
-                  if (r && r.ok && !r.skipped) {
+                  const pid = String(paneIdOf(p));
+                  const st = credAutofillState.get(pid) || { token: null, tries: 0, done: false };
+                  const r = await fillCredential(p, entry, { onlyIfEmpty: true, withToken: true });
+                  if (!r || !r.ok) continue; // 面板不可达：下轮再试（不置 done）
+                  if (r.docToken && st.token !== r.docToken) { st.token = r.docToken; st.done = false; st.tries = 0; } // 新文档（刷新/导航）⇒ 重新填 ✓
+                  if (st.done) continue;
+                  if (r.skipped === 'not-empty') { st.done = true; credAutofillState.set(pid, st); continue; } // 用户已填：不打扰
+                  if (r.filled && r.filled.pass) {
+                    st.done = true;
+                    credAutofillState.set(pid, st);
                     stateRef.credAutofill = stateRef.credAutofill || { count: 0, lastAt: null };
                     stateRef.credAutofill.count += 1;
                     stateRef.credAutofill.lastAt = new Date().toISOString();
                     say('info', `已按域名自动填充账号：${entry.username || '(无用户名)'}（仅同源、仅空字段、不自动提交）`);
+                    continue;
                   }
+                  st.tries += 1;
+                  if (st.tries >= AF_MAX_TRIES) st.done = true; // 连续多轮无密码框：本文档放弃
+                  credAutofillState.set(pid, st);
                 }
               } catch { /* 自动填充失败绝不影响主流程，且不记录任何值 */ }
             };

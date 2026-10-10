@@ -86,8 +86,16 @@ test("居中定位 + 同源自动填充的安全边界（本轮新增）", () =>
   // ②自动填充：仅同源、仅空字段、不自动提交、可开关、不回显明文
   assert.match(block, /const tryAutofillPanes = async \(\) => \{/, "必须有自动填充驱动");
   assert.match(block, /const entry = credMatch\(list, url\);/, "必须先按域名匹配（同源）");
-  assert.match(block, /fillCredential\(p, entry, \{ onlyIfEmpty: true \}\)/, "自动填充必须 onlyIfEmpty（不覆盖用户输入）");
-  assert.match(block, /credAutofillTried\.add\(key\)/, "同一 (面板,URL) 只尝试一次");
+  assert.match(block, /fillCredential\(p, entry, \{ onlyIfEmpty: true, withToken: true \}\)/, "自动填充必须 onlyIfEmpty（不覆盖用户输入）+ 回传文档 token");
+  // ★2026-10-10 修：**刷新页面后必须重填** —— 旧实现按 `面板|URL` 记忆"已尝试" ⇒ URL 不变就永久跳过 ✗
+  assert.match(block, /const credAutofillState = new Map\(\);/, "必须按面板记自动填充状态");
+  assert.match(block, /if \(r\.docToken && st\.token !== r\.docToken\) \{ st\.token = r\.docToken; st\.done = false; st\.tries = 0; \}/, "文档代际变化（刷新/导航）必须重置为可填");
+  assert.match(block, /window\.__dshKitAfDocToken/, "页面内要有文档代际 token");
+  assert.match(block, /const withToken = !!\(opts && opts\.withToken\)/, "填充需支持回传文档 token");
+  assert.match(block, /filled: o, docToken: o\.docToken \|\| null/, "成功时要回传文档 token");
+  assert.match(block, /if \(r\.filled && r\.filled\.pass\) \{/, "只有填充成功才置完成");
+  assert.match(block, /const AF_MAX_TRIES = 8;/, "表单晚渲染要按次数重试");
+  assert.doesNotMatch(block, /credAutofillTried/, "旧的 `面板|URL` 记忆必须删除 ✗");
   assert.match(block, /if \(!pw \|\| String\(pw\.value \|\| ''\)\.length > 0\) return JSON\.stringify\(\{ skipped: 'not-empty', hasPassField: !!pw \}\);/, "空字段判定必须在页面内做");
   assert.doesNotMatch(block, /\.submit\(\)|requestSubmit/, "绝不自动提交");
   assert.match(block, /stateRef\.credAutofill\.count \+= 1;/, "诊断只记次数");
