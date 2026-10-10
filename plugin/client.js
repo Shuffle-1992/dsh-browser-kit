@@ -5924,10 +5924,19 @@ window.__ModuleLoader__.load({
                   b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
                   return b;
                 };
+                /** ★2026-10-10（用户要求："应该有类似这样的列表，直观展示，点击后可以查看对应网址的账号信息，
+                 *  可以编辑保存删除" —— 对齐 Chrome 密码页的信息架构）：
+                 *  **两级视图**：①站点列表（按 host 聚合；同站多账号折叠成一行并标注「N 个账号」；行尾 ▸ 可点进）
+                 *  ②站点详情（该站账号逐条：显示/隐藏密码 · 填充 · 编辑 · 删除；下方可新增/保存）。
+                 *  安全边界不变：仅 GUI localStorage、不落文件、不调 host 服务、不自动提交、不回显明文到诊断。 */
+                let credView = { level: 'list', host: null };
                 /** ★编辑态（跨 render 保持）：正在编辑的条目 id（null=新增模式） */
                 let editingId = null;
-                /** ★全量管理器的搜索词（跨 render 保持） */
+                /** ★列表视图的搜索词（跨 render 保持） */
                 let credFilter = '';
+                const hostOf = (o) => {
+                  try { return new URL(String(o || '')).host || String(o || ''); } catch { return String(o || ''); }
+                };
                 const mkInput = (placeholder, type) => {
                   const i = document.createElement('input');
                   i.type = type || 'text';
@@ -5937,12 +5946,9 @@ window.__ModuleLoader__.load({
                     + `background:${dark ? 'rgba(255,255,255,.06)' : '#fff'};color:inherit;border:1px solid ${dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.15)'};`;
                   return i;
                 };
-                const render = () => {
-                  const list = credLoad();
-                  const hit = credMatch(list, origin);
-                  menu.textContent = '';
+                const renderHead = (sub) => {
                   const h = document.createElement('div');
-                  h.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin-bottom:6px;';
+                  h.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin-bottom:4px;';
                   const hb = document.createElement('b');
                   hb.style.fontSize = '13px';
                   hb.textContent = '账号与密码';
@@ -5953,16 +5959,31 @@ window.__ModuleLoader__.load({
                   menu.append(h);
                   const site = document.createElement('div');
                   site.style.cssText = 'opacity:.7;font-size:11px;margin:0 0 8px;word-break:break-all;';
-                  site.textContent = origin ? `当前站点：${origin}` : '当前站点：未知';
+                  site.textContent = sub;
                   menu.append(site);
-                  /* ★2026-10-10（用户要求："要可以查看**所有**已保存的信息，进行编辑删除，而不是当前页面的"）：
-                   * 面板是**全量管理器** —— 列出所有已保存条目（不止当前站点 ✓），带计数、搜索与完整站点名；
-                   * 属于当前站点的行加「本页」标记（只是标记，**不是过滤** ✗）。 */
+                };
+                const render = () => {
+                  const list = credLoad();
+                  const curHost = hostOf(origin);
+                  menu.textContent = '';
+                  if (credView.level === 'detail') { renderDetail(list, curHost); return; }
+                  renderList(list, curHost);
+                };
+
+                /** ①站点列表（Chrome 式）：一行一个站点，多账号折叠并标注数量，点行进入详情。 */
+                const renderList = (list, curHost) => {
+                  renderHead(origin ? `当前站点：${origin}` : '当前站点：未知');
                   const bar = document.createElement('div');
                   bar.style.cssText = 'display:flex;align-items:center;gap:6px;margin:0 0 6px;';
                   const cnt = document.createElement('span');
                   cnt.style.cssText = 'font-size:11px;opacity:.75;flex:0 0 auto;';
-                  cnt.textContent = `已保存 ${list.length} 条`;
+                  // 站点数（用户看的是"有哪些站点"）——条目数放在详情里
+                  const groupsAll = new Map();
+                  for (const e of list) {
+                    const h = hostOf(e.origin);
+                    groupsAll.set(h, (groupsAll.get(h) || 0) + 1);
+                  }
+                  cnt.textContent = `已保存 ${list.length} 条 · ${groupsAll.size} 个站点`;
                   bar.append(cnt);
                   if (list.length) {
                     const filter = document.createElement('input');
@@ -5976,7 +5997,6 @@ window.__ModuleLoader__.load({
                       credFilter = filter.value;
                       const pos = filter.selectionStart;
                       render();
-                      // 重渲染后把焦点与光标放回搜索框（否则每敲一个字就失焦 ✗）
                       try {
                         const nf = menu.querySelector('[data-dsh-kit-cred-filter]');
                         if (nf) { nf.focus(); nf.setSelectionRange(pos, pos); }
@@ -5987,75 +6007,52 @@ window.__ModuleLoader__.load({
                   menu.append(bar);
                   const kw = credFilter.trim().toLowerCase();
                   const shown = kw
-                    ? list.filter((e) => `${e.origin || ''} ${e.username || ''}`.toLowerCase().indexOf(kw) >= 0)
+                    ? list.filter((e) => `${e.origin || ''} ${e.username || ''} ${hostOf(e.origin)}`.toLowerCase().indexOf(kw) >= 0)
                     : list;
+                  // 按 host 聚合（保持首次出现顺序，直观且稳定）
+                  const groups = new Map();
+                  for (const e of shown) {
+                    const h = hostOf(e.origin);
+                    if (!groups.has(h)) groups.set(h, []);
+                    groups.get(h).push(e);
+                  }
                   if (!list.length) {
                     const empty = document.createElement('div');
                     empty.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
-                    empty.textContent = '还没有保存的账号。可在下面添加（站点默认取当前页面）。';
+                    empty.textContent = '还没有保存的账号。点右上「添加」或下面的表单新建（站点默认取当前页面）。';
                     menu.append(empty);
-                  } else if (!shown.length) {
+                  } else if (!groups.size) {
                     const none = document.createElement('div');
                     none.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
-                    none.textContent = `没有匹配「${credFilter.trim()}」的条目（共 ${list.length} 条）。`;
+                    none.textContent = `没有匹配「${credFilter.trim()}」的站点（共 ${list.length} 条）。`;
                     menu.append(none);
                   }
-                  for (const e of shown) {
+                  for (const [host, items] of groups) {
                     const row = document.createElement('div');
-                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px;border-radius:8px;margin-bottom:4px;background:${dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.035)'};`;
-                    const info = document.createElement('div');
-                    info.style.cssText = 'flex:1;min-width:0;';
-                    const u = document.createElement('div');
-                    u.style.cssText = 'font-size:12px;word-break:break-all;';
-                    /* 全量管理视图：**站点名不截断**（否则分不清是哪个站点 ✗） */
-                    u.textContent = `${e.username || '(无用户名)'}  ·  ${String(e.origin || '').replace(/^https?:\/\//, '')}`;
-                    const p = document.createElement('div');
-                    p.style.cssText = 'font:11px ui-monospace, Menlo, Consolas, monospace;opacity:.75;cursor:pointer;';
-                    p.textContent = '••••••••';
-                    p.title = '点击显示 / 隐藏';
-                    let shown = false;
-                    p.addEventListener('click', (ev) => {
-                      ev.stopPropagation();
-                      shown = !shown;
-                      p.textContent = shown ? String(e.password || '') : '••••••••';
-                      p.style.opacity = shown ? '1' : '.75';
-                    });
-                    info.append(u, p);
-                    const fillBtn = mkBtn('填充', () => {
-                      fillCredential(curPane, e).then((res) => {
-                        say(res.ok ? 'info' : 'warn', res.ok ? `已填充账号：${e.username || '(无用户名)'}` : `填充失败：${res.error}`);
-                      });
-                    }, true);
-                    /* ★2026-10-10（用户要求："应该要可以管理已经保存的账号和密码，可以编辑或删除"）：
-                     * 「编辑」把该条读进下面的表单（保存键变「保存修改」，多出「取消编辑」）✓。 */
-                    const editBtn = mkBtn('编辑', () => {
-                      editingId = e.id;
-                      render(); // 重渲染后由 syncFormForEditing 回填（表单是重建的，必须回填 ✗）
-                    });
-                    /* 「删除」两段式确认（误删已保存密码很烦 ✗）：首次点击变「确认删除」，3 秒内再点才真删。 */
-                    const delBtn = mkBtn('删除', () => {
-                      if (delBtn.dataset.armed !== '1') {
-                        delBtn.dataset.armed = '1';
-                        delBtn.textContent = '确认删除';
-                        delBtn.style.borderColor = '#ef4444';
-                        delBtn.style.color = '#ef4444';
-                        setTimeout(() => {
-                          try { delBtn.dataset.armed = '0'; delBtn.textContent = '删除'; delBtn.style.borderColor = ''; delBtn.style.color = ''; } catch { /* 节点已重建 */ }
-                        }, 3000);
-                        return;
-                      }
-                      credSave(credLoad().filter((x) => x.id !== e.id));
-                      if (editingId === e.id) editingId = null;
-                      say('info', '已删除该账号（仅本机）');
-                      render();
-                    });
-                    row.append(info, fillBtn, editBtn, delBtn);
-                    if (hit && hit.id === e.id) {
+                    row.setAttribute('data-dsh-kit-cred-site', host);
+                    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;margin-bottom:4px;cursor:pointer;background:${dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.035)'};`;
+                    const dot = document.createElement('span');
+                    dot.style.cssText = `flex:0 0 auto;width:14px;height:14px;border-radius:50%;background:${dark ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.18)'};`;
+                    const name = document.createElement('div');
+                    name.style.cssText = 'flex:1;min-width:0;font-size:12.5px;word-break:break-all;';
+                    name.textContent = `${host}${items.length > 1 ? `  ${items.length} 个账号` : ''}`;
+                    const chev = document.createElement('span');
+                    chev.style.cssText = 'flex:0 0 auto;opacity:.55;font-size:12px;';
+                    chev.textContent = '›';
+                    row.append(dot, name);
+                    if (curHost && host === curHost) {
                       const tag = document.createElement('span');
-                      tag.style.cssText = 'font-size:10px;opacity:.7;';
+                      tag.style.cssText = `flex:0 0 auto;font-size:10px;padding:1px 5px;border-radius:5px;background:${dark ? 'rgba(59,130,246,.25)' : 'rgba(59,130,246,.15)'};color:${dark ? '#bfdbfe' : '#1d4ed8'};`;
                       tag.textContent = '本页';
                       row.append(tag);
                     }
+                    row.append(chev);
+                    row.addEventListener('click', (ev) => {
+                      ev.stopPropagation();
+                      credView = { level: 'detail', host };
+                      editingId = null;
+                      render();
+                    });
                     menu.append(row);
                   }
                   const box = document.createElement('div');
@@ -6074,13 +6071,95 @@ window.__ModuleLoader__.load({
                   afTxt.textContent = '识别到相同域名时自动填充（仅空字段，不自动提交）';
                   afRow.append(afBox, afTxt);
                   box.append(afRow);
+                  const actions = document.createElement('div');
+                  actions.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;';
+                  actions.append(mkBtn('添加账号', () => {
+                    credView = { level: 'detail', host: curHost || '' };
+                    editingId = null;
+                    render();
+                  }, true));
+                  actions.append(mkBtn('关闭', () => { try { menu.remove(); } catch { /* 忽略 */ } credMenu = null; }));
+                  box.append(actions);
+                  const tip = document.createElement('div');
+                  tip.style.cssText = 'opacity:.6;font-size:10px;margin-top:6px;line-height:1.5;';
+                  tip.textContent = '点站点行查看账号。数据只存在本机 DSH 界面存储中：不落工作区、不写文件、不返回给工具与 Agent。';
+                  box.append(tip);
+                  menu.append(box);
+                };
+
+                /** ②站点详情：该站账号逐条（显示/隐藏 · 填充 · 编辑 · 删除）+ 新增/保存表单。 */
+                const renderDetail = (list, curHost) => {
+                  const host = credView.host || '';
+                  const items = list.filter((e) => hostOf(e.origin) === host);
+                  renderHead(host ? `站点：${host}${host === curHost ? '（本页）' : ''} · ${items.length} 个账号` : '新增账号');
+                  const back = document.createElement('div');
+                  back.style.cssText = 'margin:0 0 8px;';
+                  back.append(mkBtn('‹ 返回列表', () => { credView = { level: 'list', host: null }; editingId = null; render(); }));
+                  menu.append(back);
+                  const mkBtnRow = (label, fn, primary) => mkBtn(label, fn, primary);
+                  for (const e of items) {
+                    const row = document.createElement('div');
+                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px;border-radius:8px;margin-bottom:4px;background:${dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.035)'};`;
+                    const info = document.createElement('div');
+                    info.style.cssText = 'flex:1;min-width:0;';
+                    const u = document.createElement('div');
+                    u.style.cssText = 'font-size:12px;word-break:break-all;';
+                    u.textContent = e.username || '(无用户名)';
+                    const p = document.createElement('div');
+                    p.style.cssText = 'font:11px ui-monospace, Menlo, Consolas, monospace;opacity:.75;cursor:pointer;';
+                    p.textContent = '••••••••';
+                    p.title = '点击显示 / 隐藏';
+                    let shown = false;
+                    p.addEventListener('click', (ev) => {
+                      ev.stopPropagation();
+                      shown = !shown;
+                      p.textContent = shown ? String(e.password || '') : '••••••••';
+                      p.style.opacity = shown ? '1' : '.75';
+                    });
+                    info.append(u, p);
+                    const fillBtn = mkBtn('填充', () => {
+                      fillCredential(curPane, e).then((res) => {
+                        say(res.ok ? 'info' : 'warn', res.ok ? `已填充账号：${e.username || '(无用户名)'}` : `填充失败：${res.error}`);
+                      });
+                    }, true);
+                    const editBtn = mkBtn('编辑', () => {
+                      editingId = e.id;
+                      render();
+                    });
+                    const delBtn = mkBtn('删除', () => {
+                      if (delBtn.dataset.armed !== '1') {
+                        delBtn.dataset.armed = '1';
+                        delBtn.textContent = '确认删除';
+                        delBtn.style.borderColor = '#ef4444';
+                        delBtn.style.color = '#ef4444';
+                        setTimeout(() => {
+                          try { delBtn.dataset.armed = '0'; delBtn.textContent = '删除'; delBtn.style.borderColor = ''; delBtn.style.color = ''; } catch { /* 节点已重建 */ }
+                        }, 3000);
+                        return;
+                      }
+                      credSave(credLoad().filter((x) => x.id !== e.id));
+                      if (editingId === e.id) editingId = null;
+                      say('info', '已删除该账号（仅本机）');
+                      render();
+                    });
+                    row.append(info, fillBtn, editBtn, delBtn);
+                    menu.append(row);
+                  }
+                  if (!items.length) {
+                    const none = document.createElement('div');
+                    none.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
+                    none.textContent = '该站点还没有账号，可在下面新增。';
+                    menu.append(none);
+                  }
+                  const box = document.createElement('div');
+                  box.style.cssText = `margin-top:8px;padding-top:8px;border-top:1px solid ${dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)'};`;
                   const iSite = mkInput('站点（如 https://example.com）');
                   const iUser = mkInput('用户名 / 邮箱');
                   const iPass = mkInput('密码', 'password');
                   /** ★编辑态回填：表单是每次 render 重建的 ⇒ 必须在这里恢复（否则编辑时字段是空的 ✗）。 */
                   const syncFormForEditing = () => {
                     const cur = editingId ? credLoad().find((x) => x.id === editingId) : null;
-                    if (!cur) { editingId = null; iSite.value = origin || ''; return null; }
+                    if (!cur) { editingId = null; iSite.value = host ? `https://${host}` : (origin || ''); return null; }
                     iSite.value = cur.origin || '';
                     iUser.value = cur.username || '';
                     iPass.value = cur.password || '';
@@ -6096,27 +6175,29 @@ window.__ModuleLoader__.load({
                     if (!siteV || !passV) { say('warn', '站点与密码必填'); return; }
                     const all = credLoad();
                     if (editingId) {
-                      /* 编辑：按 id 就地更新（保留 id，便于列表稳定与"本页"标记继续匹配 ✓） */
                       const hitIdx = all.findIndex((x) => x.id === editingId);
                       if (hitIdx >= 0) {
                         all[hitIdx] = Object.assign({}, all[hitIdx], { origin: siteV, username: userV, password: passV, updatedAt: new Date().toISOString() });
                         credSave(all);
                         say('info', '已保存修改（仅本机，不进入 Agent 上下文）');
                         editingId = null;
+                        credView = { level: 'detail', host: hostOf(siteV) };
                         render();
                         return;
                       }
-                      editingId = null; // 目标已不存在：退化为新增
+                      editingId = null;
                     }
                     const next = all.filter((x) => !(x.origin === siteV && x.username === userV));
                     next.push({ id: 'c' + Date.now().toString(36), origin: siteV, username: userV, password: passV, updatedAt: new Date().toISOString() });
                     credSave(next);
                     say('info', '已保存到本机（不进入 Agent 上下文）');
+                    credView = { level: 'detail', host: hostOf(siteV) };
                     render();
                   }, true));
                   if (editing) {
                     actions.append(mkBtn('取消编辑', () => { editingId = null; render(); }));
                   }
+                  actions.append(mkBtn('‹ 返回列表', () => { credView = { level: 'list', host: null }; editingId = null; render(); }));
                   actions.append(mkBtn('关闭', () => { try { menu.remove(); } catch { /* 忽略 */ } credMenu = null; }));
                   box.append(iSite, iUser, iPass, actions);
                   const tip = document.createElement('div');
@@ -6655,3 +6736,4 @@ window.__ModuleLoader__.load({
     };
   },
 });
+

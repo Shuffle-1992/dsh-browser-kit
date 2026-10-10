@@ -125,18 +125,45 @@ test("可管理已保存账号：编辑（就地更新，保留 id）与删除�
 test("面板是全量管理器：列出**所有**已保存条目（不止当前站点）+ 计数 + 搜索 + 本页仅标记", () => {
   const block = credBlock();
   // 全部条目都要渲染（不得按当前站点过滤 ✗）
-  assert.match(block, /for \(const e of shown\) \{/, "必须遍历（过滤后的）全部条目");
+  assert.match(block, /const groups = new Map\(\);/, "列表视图必须按 host 聚合（Chrome 式）");
   assert.match(block, /const shown = kw\s*\n?\s*\?\s*list\.filter/, "搜索只影响显示，不影响数据");
   assert.match(block, /const list = credLoad\(\);/, "列表来源是全部已保存条目");
   assert.doesNotMatch(block, /for \(const e of list\) \{[\s\S]{0,200}credMatch\(\[e\], origin\) \? continue/, "不得把非当前站点的条目跳过 ✗");
   // 计数 + 搜索框 + 空结果提示
-  assert.match(block, /cnt\.textContent = `已保存 \$\{list\.length\} 条`;/, "要有总条数");
+  assert.match(block, /cnt\.textContent = `已保存 \$\{list\.length\} 条 · \$\{groupsAll\.size\} 个站点`;/, "要有总条数与站点数（Chrome 式列表视角）");
   assert.match(block, /filter\.placeholder = '搜索站点 \/ 用户名';/, "要有搜索框");
   assert.match(block, /filter\.setAttribute\('data-dsh-kit-cred-filter', ''\);/, "搜索框要有稳定属性（供重渲染后恢复焦点）");
   assert.match(block, /let credFilter = '';/, "搜索词要跨 render 保持");
-  assert.match(block, /没有匹配「\$\{credFilter\.trim\(\)\}」的条目（共 \$\{list\.length\} 条）/, "无匹配要有明确提示");
+  assert.match(block, /没有匹配「\$\{credFilter\.trim\(\)\}」的站点（共 \$\{list\.length\} 条）/, "无匹配要有明确提示（列表视图按站点提示）");
   // 站点名不截断
   assert.doesNotMatch(block, /replace\(\/\^https\?:\\\/\\\/\/, ''\)\.slice\(0, 30\)/, "全量视图不得截断站点名 ✗");
   // 「本页」只是标记
   assert.match(block, /tag\.textContent = '本页';/, "当前站点的行要有「本页」标记");
+});
+test("Chrome 式两级视图：站点列表 → 点进详情（查看/编辑/保存/删除）", () => {
+  const block = credBlock();
+  // 两级视图与状态
+  assert.match(block, /let credView = \{ level: 'list', host: null \};/, "必须有列表/详情两级视图状态");
+  assert.match(block, /if \(credView\.level === 'detail'\) \{ renderDetail\(list, curHost\); return; \}/, "详情分支要先于列表");
+  assert.match(block, /const renderList = \(list, curHost\) => \{/, "缺少列表视图");
+  assert.match(block, /const renderDetail = \(list, curHost\) => \{/, "缺少详情视图");
+  // 列表：按 host 聚合、显示"N 个账号"、行尾 ›、点击进入、本页标记
+  assert.match(block, /name\.textContent = `\$\{host\}\$\{items\.length > 1 \? `  \$\{items\.length\} 个账号` : ''\}`;/, "同站多账号要折叠并标数量");
+  assert.match(block, /chev\.textContent = '›';/, "行尾要有箭头（可点进）");
+  assert.match(block, /credView = \{ level: 'detail', host \};/, "点行进入详情");
+  assert.match(block, /tag\.textContent = '本页';/, "当前站点要有「本页」标记");
+  assert.match(block, /row\.setAttribute\('data-dsh-kit-cred-site', host\);/, "站点行要有稳定属性");
+  // 详情：返回、逐账号操作、空态、编辑态
+  assert.match(block, /mkBtn\('‹ 返回列表'/, "详情要有返回");
+  assert.match(block, /mkBtn\('填充'/, "详情要能填充");
+  assert.match(block, /mkBtn\('编辑'/, "详情要能编辑");
+  assert.match(block, /delBtn\.dataset\.armed !== '1'/, "删除仍需二次确认");
+  assert.match(block, /该站点还没有账号，可在下面新增。/, "详情空态提示");
+  assert.match(block, /const hitIdx = all\.findIndex\(\(x\) => x\.id === editingId\);/, "编辑就地更新");
+  assert.match(block, /editing \? '保存修改' : '保存到本机'/, "编辑态保存键文案");
+  // 列表页的「添加账号」进入详情新增
+  assert.match(block, /mkBtn\('添加账号', \(\) => \{/, "列表要有「添加账号」");
+  // 安全边界不变
+  assert.doesNotMatch(block, /writeFileSync|\bsvc\b|getRemote|saveMerged/, "不得落盘/调 host");
+  assert.doesNotMatch(block, /\.submit\(\)|requestSubmit/, "不得自动提交");
 });
