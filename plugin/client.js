@@ -1452,10 +1452,9 @@ window.__ModuleLoader__.load({
               base: { n: rowsNow.length, first: rowKey(rowsNow[0] || null), last: rowKey(rowsNow[rowsNow.length - 1] || null) },
             };
             ensureAnnotChip();
-            if (!document.getElementById(CHIP_ID)) {
-              const c = Number.isFinite(n) && n > 0 ? n : 0;
-              primeSessionInput(`${c > 0 ? `已提交 ${c} 条元素批注` : '元素批注已提交'}：${r.path}`);
-            }
+            /* ★v30（用户明确要求：**不要带文字**）：这里原先会在胶囊没挂上时把
+             * 「已提交 N 条元素批注：<path>」写进会话输入框 —— 已删除。
+             * 输入框只由用户自己控制；批注状态由胶囊表达（hover 有提示）。 */
           };
 
           /** v22（审计）：会话状态复位**唯一来源**——收尾两条路径（提交 / 显式结束）都走它，
@@ -2166,26 +2165,10 @@ window.__ModuleLoader__.load({
           /* @annotator-sync-canonical-end */
 
           let syncBusy = false;
-          /** ★R-OWN v29（用户要求"发送信息要带批注出去"）：把批注引用写进**输入框** ——
-           *  这是消息里唯一能被 agent 读到的通道（胶囊是 DOM 装饰，agent 看不到）。
-           *  ⚠️ 两条硬约束：①**输入框有内容时绝不写入**（曾因此抹掉用户正在打的字）；
-           *  ②每个草稿版本只写一次（`n:maxIndex` 签名去重），避免重复追加。 */
-          let primedDraftSig = null;
-          const maybePrimeDraft = () => {
-            try {
-              const n = draftCount();
-              if (n === 0) { primedDraftSig = null; return; }
-              const sig = `${n}:${draftMaxIndex()}`;
-              if (sig === primedDraftSig) return;
-              const ce = findComposer();
-              if (!ce) return;
-              let cur = '';
-              try { cur = (typeof ce.value === 'string' ? ce.value : (ce.innerText || ce.textContent || '')).trim(); } catch { cur = ''; }
-              if (cur) return; // 有内容：让用户自己发（胶囊仍会挂到发出的消息上）
-              primeSessionInput(`[附元素批注 ${n} 条：发送本条消息即提交]`);
-              primedDraftSig = sig;
-            } catch { /* 忽略：写不进去不影响消费链路 */ }
-          };
+          /* ★v30（用户明确要求：**不要带文字**）：**不往会话输入框写任何内容**。
+           * 上一轮为"让 agent 读到批注"加过 `maybePrimeDraft()`（把 `[附元素批注 N 条…]` 写进空输入框），
+           * 已按用户要求**整体删除** —— 输入框只由用户自己控制；批注信息由**胶囊**表达（点击可清除），
+           * 批注在发送时仍会被消费（落盘 + 清空 + 重置，见 consumeDraft），只是不再改写输入框。 */
           /** ★R-OWN v29（用户实测两个症状的**共同根因**）：**批注功能关闭时草稿也要继续采集**。
            *  旧实现只在批注会话活跃时从 `st.panes` 取列表 ⇒ 关闭批注后草稿恒空 ⇒
            *  ①输入框不显示批注信息 ✗ ②发送检测 `draftCount()===0` ⇒ 不消费 ✗。
@@ -5777,7 +5760,6 @@ window.__ModuleLoader__.load({
             reapAnnTip(); // v25：提示条兜底回收（胶囊被移除/重建后不永久滞留）
             ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
             ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
-            maybePrimeDraft(); // v29：草稿存在时把批注引用写进空输入框（agent 唯一可读通道）
           };
             const tickToolbarStyles = (activeIds) => {
               // R-OWN v11：图标点亮 = **会话是否活跃**（会话级总开关，两处浏览器同步）
