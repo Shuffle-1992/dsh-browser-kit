@@ -121,13 +121,22 @@ export function renderAnnotDelivery(d) {
 
 /* ─────────────── 投递登记 + pre-step 注入 ─────────────── */
 
-/** 从 saveMerged 的 sets 里抽摘要（sets: [{url,title,owner,annotations:[…]}, …]）。 */
+/** 从 saveMerged 的 sets 里抽摘要（sets: [{url,title,owner,annotations:[…]}, …]）。
+ *  ⚠️ 同一条批注会被跨窗口同步复制进**多个**面板 ⇒ 每个 set 里都有同一个 gid ✗ ⇒ **必须按 gid 去重**。
+ *  实测（2026-10-10）：不去重时交付文本写成「窗口 B（3 条）」且条目重复 3 次 ✗，而落盘侧本来就按 gid 去重
+ *  ⇒ 两处口径必须一致（否则 Agent 会以为有 3 条不同批注）。 */
 export function summarizeSetsForDelivery(sets) {
   const items = [];
   const byWin = new Map();
+  const seenGids = new Set();
   for (const s of Array.isArray(sets) ? sets : []) {
     for (const a of (s && s.annotations) || []) {
       if (!a || a.dirty === false) continue; // 只报"这次新提交的"
+      const gid = a.gid ? String(a.gid) : null;
+      if (gid) {
+        if (seenGids.has(gid)) continue; // 跨面板同步副本：同一条只报一次
+        seenGids.add(gid);
+      }
       const code = String((a.windowCode || '') || '');
       const label = String((a.window || (s && s.owner)) || '');
       items.push({

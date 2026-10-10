@@ -61,7 +61,7 @@ test("v34：批注器接收并显示窗口代号", () => {
   assert.match(annotSrc, /data-dsh-kit-window-tag/, "面板行要有窗口代号徽章");
   assert.match(annotSrc, /winNode\.textContent = record\._window\.code \? `窗口 \$\{record\._window\.code\}` : "窗口";/, "徽章显示窗口代号");
   assert.match(annotSrc, /winNode\.title = record\._window\.label \|\| "";/, "悬停显示完整窗口行");
-  assert.match(annotSrc, /__dshKitAnnotatorVersion = "1\.12\.0"/, "版本必须升（否则宿主不重注入 ⇒ 面板看不到窗口代号）");
+  assert.match(annotSrc, /__dshKitAnnotatorVersion = "1\.13\.0"/, "版本必须升（否则宿主不重注入 ⇒ 面板看不到窗口代号）");
 });
 
 test("v34：协议 Window 行 build↔parse 往返无损", () => {

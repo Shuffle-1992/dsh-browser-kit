@@ -80,3 +80,10 @@ export async function clickAt(cdp, x, y) {
   await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
+
+/** ★v35：真实**右键**点击（批注的选择触发键；Chrome 会顺带派发 contextmenu）。 */
+export async function rightClickAt(cdp, x, y) {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "right", buttons: 2, clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "right", buttons: 0, clickCount: 1 });
+}

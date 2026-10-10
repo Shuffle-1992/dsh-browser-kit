@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.12\.0'/); // v34：批注带窗口信息
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.13\.0'/); // v34：批注带窗口信息
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.12\.0"/); // v34：面板行显示窗口代号
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.13\.0"/); // v34：面板行显示窗口代号
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);

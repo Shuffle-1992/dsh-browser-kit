@@ -470,7 +470,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.12.0"; // 1.12.0：窗口身份按变化下发 + stop 时清空（修"后加入窗口标错"）；1.11.0：批注**在创建地记住来源窗口**（setWindowTag + 记录带 _window），修"跨窗口张冠李戴"；1.10.0：批注带**窗口信息**（面板行显示窗口代号 A/B/C…，随同步/落盘传递）；1.9.0：面板重构（删提交/取消；头部 ✕ 关闭、底部展开收起）+ 发送即消费 + 草稿箱；1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.13.0"; // 1.13.0：**右键点击元素**才批注（左键仍拦截不采集）＋批注态屏蔽原生右键菜单；1.12.0：窗口身份按变化下发 + stop 时清空（修"后加入窗口标错"）；1.11.0：批注**在创建地记住来源窗口**（setWindowTag + 记录带 _window），修"跨窗口张冠李戴"；1.10.0：批注带**窗口信息**（面板行显示窗口代号 A/B/C…，随同步/落盘传递）；1.9.0：面板重构（删提交/取消；头部 ✕ 关闭、底部展开收起）+ 发送即消费 + 草稿箱；1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -1494,6 +1494,10 @@
 
   // ---------------------------------------------------------------- 批注态事件（capture 拦截）
 
+  /** ★R-OWN v35（用户要求，2026-10-10）：修改批注的**选择触发键** —— 原先左键点击元素即批注，
+   *  现改为**右键点击**才批注；**点击编号（徽标）/ 面板行重新编辑仍沿用左键**（那些是自有 UI，
+   *  在 `isUiTarget` 处提前返回，不受影响 ✓）。
+   *  其他行为不变：批注态下页面点击照旧被拦截（页面不可交互），只是左键**不再采集**。 */
   function handlePickClick(event) {
     if (!session) {
       return;
@@ -1503,13 +1507,13 @@
       return;
     }
     if (isUiTarget(target)) {
-      return; // 自有 UI（面板/意见框/徽标）自行处理
+      return; // 自有 UI（面板/意见框/徽标）自行处理 —— 徽标/面板行的**左键**点击仍能重编辑 ✓
     }
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (event.button !== 0) {
-      return; // 非左键只拦截不采集
+    if (event.button !== 2) {
+      return; // ★v35：非右键只拦截不采集（左键/中键都不再产生批注）
     }
     if (isRootTarget(target)) {
       updateOverlay(null); // R-OWN v21：点页面背景/根元素**不采集**（避免误记"整页"批注）
@@ -1541,6 +1545,41 @@
     renderBadge(record);
     openNoteInput(record, true);
     renderPanel();
+  }
+
+  /** ★R-OWN v35-b：`click` 的**纯拦截**（不采集）。
+   *  为什么还需要它：选择触发键改挂 `mousedown` 后，只拦 mousedown **不够** ✗ ——
+   *  浏览器随后仍会派发 `click`，会穿透到页面处理器 ⇒ 批注态下页面变可交互（违反"其他不变"，
+   *  冒烟测试当场抓到 ✗）。这里保留原有 capture 拦截语义，只是不再采集。 */
+  function handleBlockClick(event) {
+    if (!session) {
+      return;
+    }
+    var target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    if (isUiTarget(target)) {
+      return; // 自有 UI（徽标/面板行）的左键点击要照常工作 ✓
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+  }
+
+  /** ★R-OWN v35：批注态下屏蔽浏览器原生右键菜单（否则右键批注会先弹出上下文菜单 ✗）。
+   *  自有 UI（面板/意见框）内的右键不拦 —— 那里可能需要复制/粘贴。 */
+  function handleContextMenu(event) {
+    if (!session) {
+      return;
+    }
+    var target = event.target;
+    if (target instanceof Element && isUiTarget(target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
   }
 
   function handleMouseMove(event) {
@@ -1673,7 +1712,12 @@
       });
       document.documentElement.style.cursor = "crosshair";
       addSessionListener(document, "mousemove", handleMouseMove, true);
-      addSessionListener(document, "click", handlePickClick, true);
+      /* ★R-OWN v35（用户要求）：**右键点击元素**才批注（原先是左键）；其他行为不变 ——
+       * 左键仍照旧被拦截（批注态下页面不可交互），只是**不再采集**。
+       * 注意：右键不会触发 `click` ✗，必须挂 **mousedown**（并屏蔽 contextmenu，见下）。 */
+      addSessionListener(document, "mousedown", handlePickClick, true);
+      addSessionListener(document, "click", handleBlockClick, true); // v35-b：只拦截不采集（保持页面不可交互）
+      addSessionListener(document, "contextmenu", handleContextMenu, true);
       addSessionListener(document, "keydown", handleKeyDown, true);
       // R-OWN v21：指针移出网页区域（离开文档 / 离开窗口）→ 清高亮与提示，避免"残留选中"
       addSessionListener(document, "mouseleave", handlePointerLeave, false);

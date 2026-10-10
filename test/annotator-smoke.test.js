@@ -8,8 +8,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseAnnotationsMarkdown } from "../src/annotations-protocol.js";
 import * as drive from "../src/cdp/drive.mjs";
-import { clickAt, fixtureUrl, getFreePort, readSource, sleep, waitReady } from "./helpers/chrome.mjs";
+import { clickAt, fixtureUrl, getFreePort, readSource, rightClickAt, sleep, waitReady } from "./helpers/chrome.mjs";
 
+/** ★v35：批注的选择触发键已改为**右键**（mousedown + button 2）——页面元素的 `.click()`（左键）不再采集。
+ *  这里用合成 mousedown(button:2) 走同一条处理路径（annotator 不校验 isTrusted）。 */
+const pickJs = (selector) =>
+  `(function () { var el = document.querySelector('${selector}'); if (!el) return 'no-el'; var r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2, buttons: 2, clientX: r.left + 2, clientY: r.top + 2 })); return 'picked'; })()`;
 test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120000 }, async () => {
   const port = await getFreePort();
   await drive.launch({ port });
@@ -32,7 +36,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
       "hover 高亮层应存在",
     );
 
-    // 真实 CDP 鼠标点击 #btn-a —— capture 拦截应阻断页面 click 处理器
+    // ★v35（用户要求）：批注态下**左键点击不再采集**（但仍被 capture 拦截，页面处理器收不到）
     const rect = JSON.parse(
       await drive.evalJs(cdp, 'JSON.stringify(document.getElementById("btn-a").getBoundingClientRect())'),
     );
@@ -41,14 +45,38 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     assert.equal(
       await drive.evalJs(cdp, 'document.getElementById("click-log").childElementCount'),
       0,
-      "批注态点击应被 capture 拦截，页面处理器不得收到",
+      "批注态左键点击应被 capture 拦截，页面处理器不得收到",
     );
-    assert.equal(await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'), 1);
+    assert.equal(
+      await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'),
+      0,
+      "v35：左键点击**不应**产生批注（选择触发键已改为右键）",
+    );
+    assert.equal(
+      await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))'),
+      false,
+      "v35：左键点击不应打开意见框",
+    );
+
+    // ★v35：**右键点击**才批注（真实 CDP 右键事件 + contextmenu）
+    await rightClickAt(cdp, rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await sleep(120);
+    assert.equal(
+      await drive.evalJs(cdp, 'document.getElementById("click-log").childElementCount'),
+      0,
+      "右键同样不得穿透给页面",
+    );
+    assert.equal(await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'), 1, "右键应产生批注");
     assert.equal(
       await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-marker]").getAttribute("data-state")'),
       "pending",
     );
-    assert.ok(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))'));
+    assert.ok(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))'), "右键应打开意见框");
+
+    // ★v35：**左键点击编号徽标**仍能重新编辑（这条要求必须保持）
+    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-marker]").click(); 1');
+    await sleep(120);
+    assert.ok(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-note-input]"))'), "左键点徽标应能重编辑");
 
     // 就地输入意见并确认
     await drive.evalJs(
@@ -62,12 +90,12 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     );
 
     // 第二个元素：留空意见（等价 ZCode 快速引用形态）
-    await drive.evalJs(cdp, 'document.querySelectorAll(".card")[1].click()');
+    await drive.evalJs(cdp, pickJs('.card:nth-of-type(2)'));
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 2);
 
     // 密码框可批注（1.3.0：移除跳过逻辑；载荷白名单排除 value，无泄露）
-    await drive.evalJs(cdp, 'document.getElementById("pwd").click()');
+    await drive.evalJs(cdp, pickJs('#pwd'));
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 3, "密码框应正常入列");
 
@@ -128,7 +156,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
 
     // clearAll（1.4.0）：清空 + 全量 gid 写删除日志（共享会话跨窗口广播移除的依据）
     await drive.evalJs(cdp, "window.__p4 = window.__dshKitAnnotator.start(); 'ok'");
-    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, pickJs('#btn-a'));
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1);
     await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
@@ -146,7 +174,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
       '(function () { var c = document.querySelector("[data-dsh-kit-panel-clear]"); var v = document.querySelector("[data-dsh-kit-panel-close]"); if (!c || !v) return "missing"; return (c.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) ? "close-after-clear" : "wrong-order"; })()',
     );
     assert.equal(domOrder, "close-after-clear", "清除按钮应在关闭（✕）图标左侧（DOM 顺序）");
-    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, pickJs('#btn-a'));
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1);
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-panel-clear]").click()');
@@ -191,7 +219,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     // A3：startIndex 编号交接下限（P26 契约的 annotator 侧）：start({startIndex:5}) 后首条 = 6
     await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
     await drive.evalJs(cdp, "window.__p6 = window.__dshKitAnnotator.start({ startIndex: 5 }); 'ok'");
-    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, pickJs('#btn-a'));
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(
       await drive.evalJs(cdp, "window.__dshKitAnnotator.list()[0].index"),
@@ -204,7 +232,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     // Esc 无响应）。此处用真实事件传播路径验证修复：Enter=提交并关框、Esc=丢弃并关框。
     await drive.evalJs(cdp, "window.__dshKitAnnotator.clearAll()");
     await drive.evalJs(cdp, "window.__dshKitAnnotator.start(); 'ok'");
-    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, pickJs('#btn-a'));
     await drive.evalJs(
       cdp,
       'var f = document.querySelector("[data-dsh-kit-note-field]"); f.value = "键盘确认路径";'
@@ -221,7 +249,7 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     );
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list()[0].note"), "键盘确认路径", "R-01：Enter 提交应带上输入的意见");
     // Esc 丢弃：再开一条，输入后 Esc 应关闭意见框且不入列
-    await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
+    await drive.evalJs(cdp, pickJs('#btn-a'));
     await drive.evalJs(
       cdp,
       'var f2 = document.querySelector("[data-dsh-kit-note-field]"); f2.value = "应被丢弃";'

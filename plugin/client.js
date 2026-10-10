@@ -806,7 +806,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.12.0';
+          const EXPECTED_ANNOT_VERSION = '1.13.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -2227,7 +2227,7 @@ window.__ModuleLoader__.load({
               }
             } catch { /* 忽略 */ }
             runSessionLoop();
-            say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；点图标=总开关）');
+            say('info', '共享批注会话开始（所有浏览器窗口自动加入，编号实时同步；**右键点击元素**加批注、左键点编号重编辑；点图标=总开关）');
             return { ok: true, started: true, sessionActive: true, panes: stateRef.annot.panes.length };
           };
 
