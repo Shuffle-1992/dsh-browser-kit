@@ -200,3 +200,48 @@ dsh-browser-kit/
 - ⏭️ 下一步：**人工验收包**——① 业务 Vue 项目（localhost:5173）连续 3 轮「批注→修改→截图」；② 双窗口共享批注人工确认（窗口2 编号从窗口1 最大号+1 延续）；③ 真实表单走 snapshot→type→click→screenshot 组合；④ 明暗主题下胶囊/徽标视觉复核；⑤ 向 DSH 官方提浏览器工具条插槽需求。
 - 📋 队列中：MVP-5 = F4/F5（设备报文观测 + 控制台调试，调研文档 §5.5）——真实 Chrome 主路径已有 `cdp/drive.mjs` + `hid-observer.js` 全套资产；DSH 内置浏览器侧的注入走 client 插件（同 MVP-1 通道）。
 - 关键修正（推翻调研文档 §4.4 预判）：host plugin 无 main 进程能力；`browserUse`/`computerUse` 等自动化属 DSH 主进程自有服务，第三方插件无门（F3 远期需求届时再评估）。
+
+## 安装
+
+### 从 GitHub 安装（推荐，公开仓库）
+
+```bash
+dsh plugin --profile web add github:Shuffle-1992/dsh-browser-kit
+```
+
+> 把 `web` 换成你自己的 profile 名即可（`dsh plugin list` 可查当前 profile）。
+
+### 本地开发安装（源码就在本机时）
+
+```bash
+dsh plugin --profile web add "F:\My Code\dsh-browser-kit"
+```
+
+插件是 **Cordis bundle**：`package.json` 声明 `dsh.bundle.patch = plugin/cordis.patch.yml`，
+该 patch 会把插件插进 profile（`insert: [{ id: dsh-browser-kit, name: '@local/dsh-browser-kit' }]`）。
+
+### 安装后自检
+
+1. 打开任意浏览器面板 → 工具栏应出现 **尺寸 / 截图 / 批注 / 钥匙 / 自持** 五个图标；
+2. 点「批注」图标 → 面板出现在浏览器板块内居中；
+3. 点「钥匙」图标 → 账号与密码面板（数据仅存本机，不进 Agent 上下文）。
+
+## 发布到 DSH Plugin Hub（市场）清单
+
+| 要求 | 本仓库状态 |
+|---|---|
+| **公开 GitHub 仓库** | ✅ <https://github.com/Shuffle-1992/dsh-browser-kit>（公开） |
+| **Topic `dsh-plugin`** | ⬜ 需在仓库 About → Topics 添加（见下） |
+| **Topic `deepseek-harness`**（Cordis 插件） | ⬜ 同上 |
+| **README 含安装命令** | ✅ 见上文 `dsh plugin --profile web add …` |
+| **package.json 元数据** | ✅ `name` / `version` / `description` / `repository` / `keywords` |
+| **`dsh.bundle.patch`**（Bundle 分发） | ✅ `plugin/cordis.patch.yml` |
+
+**添加 Topics（两种方式）**
+
+1. 网页：仓库主页 → About 右侧齿轮 ⚙ → Topics 填 `dsh-plugin`、`deepseek-harness` → Save；
+2. 命令行（需已登录 `gh` 或提供 token）：
+   ```bash
+   gh api -X PUT repos/Shuffle-1992/dsh-browser-kit/topics \
+     -f names[]=dsh-plugin -f names[]=deepseek-harness -f names[]=cordis
+   ```
