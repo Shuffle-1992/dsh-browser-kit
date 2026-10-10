@@ -996,7 +996,11 @@ window.__ModuleLoader__.load({
           const ensureAnnotChip = () => {
             try {
               const st = stateRef.annot;
-              const saved = (stateRef.chip && stateRef.chip.mode === 'saved') ? stateRef.chip : null;
+              /* ★v33 纵深防御：**已挂到消息行上的** saved 模型（`attachedKey` 有值）不属于输入框 ——
+               * 它是"已发送"的装饰，渲染器一律忽略（否则发送后输入框里会残留"已保存"胶囊 ✗）。 */
+              const saved = (stateRef.chip && stateRef.chip.mode === 'saved' && !stateRef.chip.attachedKey)
+                ? stateRef.chip
+                : null;
               /* ★R-OWN v29（用户要求）：**有批注（草稿）时输入框就要显示批注信息 —— 与批注功能开关无关**。
                * 旧实现取 `st.active ? st.count : 0` ⇒ 关闭批注后胶囊消失、发送检测也拿不到草稿 ⇒ 不消费 ✗。
                * 现在以**草稿**为准（草稿真值在 client，与 guest 会话是否开启无关）。 */
@@ -1595,7 +1599,12 @@ window.__ModuleLoader__.load({
               // 挂到刚发出的那条消息上（不再往输入框塞文本——用户已经发出去了）
               if (r && r.ok) {
                 const n = Number(r.count);
-                stateRef.chip = {
+                /* ★v33（用户实测"批注已成功发送，但输入框的批注信息没消失"）：
+                 * 这里原来把 saved 模型写回 `stateRef.chip` ⇒ 渲染器 `saved || live` 会把它当成
+                 * **输入框里的"待发送"胶囊**又画一遍 ✗（那是旧流程的指示器；发送已经发生 ⇒ 必须撤掉）。
+                 * 现在：saved 模型**只进 `sentChips` 队列**（负责给**已发出的那条消息**挂装饰），
+                 * 用完即把 `stateRef.chip` 置空并撤掉输入框胶囊。 */
+                const sentModel = {
                   mode: 'saved',
                   count: Number.isFinite(n) && n > 0 ? n : items.length,
                   path: r.path,
@@ -1611,10 +1620,13 @@ window.__ModuleLoader__.load({
                   const target = idx >= 0 ? rows[idx] : null;
                   if (target) {
                     const holder = target.querySelector(BUBBLE_SEL) || target;
-                    if (!holder.querySelector(MSG_CHIP_MARK)) attachMsgChip(holder, stateRef.chip);
-                    (stateRef.sentChips = stateRef.sentChips || []).push(stateRef.chip);
+                    if (!holder.querySelector(MSG_CHIP_MARK)) attachMsgChip(holder, sentModel);
+                    (stateRef.sentChips = stateRef.sentChips || []).push(sentModel);
                   }
                 }
+                stateRef.chip = null; // 不留在输入框（发送已完成）
+                stateRef.draftBase = null;
+                removeAnnotChip();
               }
               say('info', `批注已随消息发送（${r && r.ok ? r.path : (r && r.error) || '落盘失败'}）；页面批注与草稿已清空`);
               return r;
