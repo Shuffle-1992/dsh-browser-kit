@@ -119,8 +119,9 @@
    **必须传 `reason`**，且用毕 `op=collapse` 收回。
    *落地*：工具 description 开头即本规范；`op=expand` 的工具结果带 `notice`（未传 reason ⇒ 明确标违规）；
    回归钉子 `test/tool-usage-rules.test.mjs`。
-2. **不往用户输入框写任何文字**（`primeSessionInput` 类操作不得用于自动化输出）—— 见 `pitfalls.md` P89。
-3. **操作前先核对落点**（多窗口/多面板场景）：报告"功能没生效"之前先证明操作确实落在目标对象上 —— 见 P95。
+2. **账号与密码等凭据不可被 Agent 读取、不得进入上下文**（「钥匙」图标面板，仅本机 localStorage；见 docs/tool-usage-rules.md 规范 2 与 	est/credential-manager.test.mjs）。
+3. **不往用户输入框写任何文字**（`primeSessionInput` 类操作不得用于自动化输出）—— 见 `pitfalls.md` P89。
+4. **操作前先核对落点**（多窗口/多面板场景）：报告"功能没生效"之前先证明操作确实落在目标对象上 —— 见 P95。
 
 ## 4. 目录结构
 

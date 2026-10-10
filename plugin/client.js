@@ -58,6 +58,9 @@ window.__ModuleLoader__.load({
     const SHOT_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5l1.3-2h4.4L15.5 5"/><rect x="2.5" y="5" width="19" height="14.5" rx="2.5"/><circle cx="12" cy="12.2" r="3.4"/></svg>';
     /** ↘ 箭头（与 DSH「系统浏览器打开」的 ↗ 图标镜像）：把当前页以**同登录态**开进自持浏览器。 */
     const OWN_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 8.5V18H8.5"/></svg>';
+    /** ★2026-10-10（用户要求："在批注图标右侧新增图标『钥匙』"）：账号与密码管理（参考 Chrome 密码/自动填充）。
+     *  数据只在 GUI 本机 localStorage，**不落工作区、不进任何工具返回值 / Agent 上下文** ✓（见 openCredMenu 头注）。 */
+    const KEY_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4.2"/><path d="M11 12l8.2-8.2"/><path d="M16.4 6.6l2.2 2.2"/><path d="M19 4l2 2"/></svg>';
     /** R-OWN v14：**激活态**批注图标 = 「原来那枚图标的白色描边整体改成蓝色」（用户要求：
      *  不是填充蓝块，只是把白色换成蓝色）。仍用"换图标"表达激活（背景色会被覆盖 → 闪烁，见 P60/P64）。 */
     const ANNOT_ICON_ACTIVE_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">'
@@ -5740,6 +5743,211 @@ window.__ModuleLoader__.load({
                 }
               } catch { /* 忽略 */ }
             };
+            /* ═══════ ★凭据管理（2026-10-10 用户要求：「钥匙」图标；参考 Chrome 的密码与自动填充）═══════
+             * ## 安全边界（**硬约束**：保存的密码与信息**不给 Agent 所读、不进入上下文**）
+             *  · 存储：**只在本 GUI 文档的 `localStorage`**（键 `dsh-kit-credentials`）——
+             *    **不落工作区、不落 `plugin/.data/`**（那些位置 Agent 用文件工具就能读 ✗）。
+             *  · 可达面：本模块**不调用任何 host 服务**、**不写任何文件**、**不参与 kit-status**、
+             *    **不进入批注/交付管线** ⇒ 凭据无法经任何工具返回值或注入消息到达模型 ✓。
+             *  · 采集：只做**手动添加**与**用户点击填充**；**不自动抓取页面密码**（避免静默采集 ✗）。
+             *  · 诚实声明：这不是强加密（本机其它程序仍可读 GUI 的 localStorage）；这里保证的是
+             *    「**不进 Agent 上下文 / 不进工具返回值**」，不要对外宣称"加密保险箱"。
+             * ## 能力（对齐 Chrome 密码管理的最小集）
+             *  列表（站点 / 用户名 / 密码掩码 + 点击显示）· 新增 · 删除 · **一键填充到当前页面**。 */
+            const CRED_STORE_KEY = 'dsh-kit-credentials';
+            const credLoad = () => {
+              try {
+                const raw = localStorage.getItem(CRED_STORE_KEY);
+                const arr = raw ? JSON.parse(raw) : [];
+                return Array.isArray(arr) ? arr.filter((e) => e && typeof e === 'object') : [];
+              } catch { return []; }
+            };
+            const credSave = (list) => {
+              try { localStorage.setItem(CRED_STORE_KEY, JSON.stringify(list.slice(0, 500))); return true; } catch { return false; }
+            };
+            const credOriginOf = (pane) => {
+              try { return pane && pane.getURL ? String(pane.getURL() || '') : ''; } catch { return ''; }
+            };
+            const credMatch = (list, origin) => {
+              const host = (() => { try { return new URL(origin).host; } catch { return ''; } })();
+              if (!host) return null;
+              return list.find((e) => { try { return new URL(e.origin || '').host === host; } catch { return false; } }) || null;
+            };
+            /** 把凭据填进页面登录表单（原生 setter + input/change，兼容受控组件）。 */
+            const fillCredential = async (pane, entry) => {
+              try {
+                if (!pane || !entry) return { ok: false, error: '无面板/无条目' };
+                const r = await pane.executeJavaScript(
+                  `(function () {
+                     var user = ${JSON.stringify(String(entry.username || ''))};
+                     var pass = ${JSON.stringify(String(entry.password || ''))};
+                     function setVal(el, v) {
+                       if (!el || !v) return false;
+                       var d = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
+                       if (d && d.set) d.set.call(el, v); else el.value = v;
+                       el.dispatchEvent(new Event('input', { bubbles: true }));
+                       el.dispatchEvent(new Event('change', { bubbles: true }));
+                       return true;
+                     }
+                     var pw = document.querySelector('input[type="password"]:not([disabled])');
+                     var scope = pw && pw.form ? pw.form : document;
+                     var cands = Array.prototype.slice.call(scope.querySelectorAll('input:not([type="password"]):not([type="hidden"])'));
+                     var uEl = cands.filter(function (e) {
+                       var t = (e.getAttribute('type') || 'text').toLowerCase();
+                       var hint = ((e.getAttribute('name') || '') + ' ' + (e.getAttribute('id') || '') + ' ' + (e.getAttribute('autocomplete') || '') + ' ' + (e.getAttribute('placeholder') || '')).toLowerCase();
+                       return t === 'email' || t === 'text' || t === 'tel' || /user|account|email|phone|login|name/.test(hint);
+                     })[0] || null;
+                     return JSON.stringify({ user: setVal(uEl, user), pass: setVal(pw, pass), hasUserField: !!uEl, hasPassField: !!pw });
+                   })()`,
+                  true,
+                );
+                let o = {};
+                try { o = typeof r === 'string' ? JSON.parse(r) : (r || {}); } catch { o = {}; }
+                if (!o.hasPassField) return { ok: false, error: '当前页面没找到密码输入框' };
+                return { ok: true, filled: o };
+              } catch (e) { return { ok: false, error: msgOf(e) }; }
+            };
+            let credMenu = null;
+            /** 打开「钥匙」面板（纯客户端弹层；数据不出本机、不进 Agent 上下文）。 */
+            const openCredMenu = (btn, pane) => {
+              try { if (credMenu) { credMenu.remove(); credMenu = null; return; } } catch { /* 忽略 */ }
+              try {
+                const dark = detectUiDark();
+                const menu = document.createElement('div');
+                menu.setAttribute('data-dsh-browser-kit-cred-menu', '');
+                menu.setAttribute('data-dsh-kit-ui', '');
+                menu.style.cssText = 'position:fixed;z-index:2147483647;width:330px;max-height:70vh;overflow:auto;padding:10px;box-sizing:border-box;'
+                  + 'border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.35);'
+                  + `font:${T.font};color-scheme:${dark ? 'dark' : 'light'};`
+                  + `background:${dark ? 'rgba(28,30,36,.99)' : 'rgba(252,252,254,.99)'};`
+                  + `color:${dark ? '#e5e7eb' : '#1f2937'};`
+                  + `border:1px solid ${dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.10)'};`;
+                const rb = btn.getBoundingClientRect();
+                menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 340, rb.left - 250))}px`;
+                menu.style.top = `${Math.min(window.innerHeight - 260, rb.bottom + 8)}px`;
+                const formEl = btn.closest('form') || document;
+                const curPane = pane || (formEl && formEl.querySelector ? formEl.querySelector('webview') : null);
+                const origin = credOriginOf(curPane);
+                const mkBtn = (label, fn, primary) => {
+                  const b = document.createElement('button');
+                  b.type = 'button';
+                  b.textContent = label;
+                  b.style.cssText = 'cursor:pointer;border-radius:6px;padding:4px 8px;font:11px/1.4 inherit;'
+                    + (primary
+                      ? 'background:#3b82f6;border:none;color:#fff;'
+                      : `background:transparent;border:1px solid ${dark ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.18)'};color:inherit;`);
+                  b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
+                  return b;
+                };
+                const mkInput = (placeholder, type) => {
+                  const i = document.createElement('input');
+                  i.type = type || 'text';
+                  i.placeholder = placeholder;
+                  i.setAttribute('data-dsh-kit-cred-field', placeholder);
+                  i.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px;padding:5px 7px;border-radius:6px;font:12px/1.4 inherit;'
+                    + `background:${dark ? 'rgba(255,255,255,.06)' : '#fff'};color:inherit;border:1px solid ${dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.15)'};`;
+                  return i;
+                };
+                const render = () => {
+                  const list = credLoad();
+                  const hit = credMatch(list, origin);
+                  menu.textContent = '';
+                  const h = document.createElement('div');
+                  h.style.cssText = 'display:flex;align-items:baseline;gap:6px;margin-bottom:6px;';
+                  const hb = document.createElement('b');
+                  hb.style.fontSize = '13px';
+                  hb.textContent = '账号与密码';
+                  const hs = document.createElement('span');
+                  hs.style.cssText = 'opacity:.65;font-size:11px;';
+                  hs.textContent = '仅本机 · 不进入 Agent 上下文';
+                  h.append(hb, hs);
+                  menu.append(h);
+                  const site = document.createElement('div');
+                  site.style.cssText = 'opacity:.7;font-size:11px;margin:0 0 8px;word-break:break-all;';
+                  site.textContent = origin ? `当前站点：${origin}` : '当前站点：未知';
+                  menu.append(site);
+                  if (!list.length) {
+                    const empty = document.createElement('div');
+                    empty.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
+                    empty.textContent = '还没有保存的账号。可在下面添加（站点默认取当前页面）。';
+                    menu.append(empty);
+                  }
+                  for (const e of list) {
+                    const row = document.createElement('div');
+                    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px;border-radius:8px;margin-bottom:4px;background:${dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.035)'};`;
+                    const info = document.createElement('div');
+                    info.style.cssText = 'flex:1;min-width:0;';
+                    const u = document.createElement('div');
+                    u.style.cssText = 'font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                    u.textContent = `${e.username || '(无用户名)'}  ·  ${String(e.origin || '').replace(/^https?:\/\//, '').slice(0, 30)}`;
+                    const p = document.createElement('div');
+                    p.style.cssText = 'font:11px ui-monospace, Menlo, Consolas, monospace;opacity:.75;cursor:pointer;';
+                    p.textContent = '••••••••';
+                    p.title = '点击显示 / 隐藏';
+                    let shown = false;
+                    p.addEventListener('click', (ev) => {
+                      ev.stopPropagation();
+                      shown = !shown;
+                      p.textContent = shown ? String(e.password || '') : '••••••••';
+                      p.style.opacity = shown ? '1' : '.75';
+                    });
+                    info.append(u, p);
+                    const fillBtn = mkBtn('填充', () => {
+                      fillCredential(curPane, e).then((res) => {
+                        say(res.ok ? 'info' : 'warn', res.ok ? `已填充账号：${e.username || '(无用户名)'}` : `填充失败：${res.error}`);
+                      });
+                    }, true);
+                    const delBtn = mkBtn('删除', () => {
+                      credSave(credLoad().filter((x) => x.id !== e.id));
+                      say('info', '已删除该账号（仅本机）');
+                      render();
+                    });
+                    row.append(info, fillBtn, delBtn);
+                    if (hit && hit.id === e.id) {
+                      const tag = document.createElement('span');
+                      tag.style.cssText = 'font-size:10px;opacity:.7;';
+                      tag.textContent = '本页';
+                      row.append(tag);
+                    }
+                    menu.append(row);
+                  }
+                  const box = document.createElement('div');
+                  box.style.cssText = `margin-top:8px;padding-top:8px;border-top:1px solid ${dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)'};`;
+                  const iSite = mkInput('站点（如 https://example.com）');
+                  iSite.value = origin || '';
+                  const iUser = mkInput('用户名 / 邮箱');
+                  const iPass = mkInput('密码', 'password');
+                  const actions = document.createElement('div');
+                  actions.style.cssText = 'display:flex;gap:6px;align-items:center;';
+                  actions.append(mkBtn('保存到本机', () => {
+                    const siteV = iSite.value.trim();
+                    const userV = iUser.value.trim();
+                    const passV = iPass.value;
+                    if (!siteV || !passV) { say('warn', '站点与密码必填'); return; }
+                    const next = credLoad().filter((x) => !(x.origin === siteV && x.username === userV));
+                    next.push({ id: 'c' + Date.now().toString(36), origin: siteV, username: userV, password: passV, updatedAt: new Date().toISOString() });
+                    credSave(next);
+                    say('info', '已保存到本机（不进入 Agent 上下文）');
+                    render();
+                  }, true));
+                  actions.append(mkBtn('关闭', () => { try { menu.remove(); } catch { /* 忽略 */ } credMenu = null; }));
+                  box.append(iSite, iUser, iPass, actions);
+                  const tip = document.createElement('div');
+                  tip.style.cssText = 'opacity:.6;font-size:10px;margin-top:6px;line-height:1.5;';
+                  tip.textContent = '数据只存在本机 DSH 界面存储中：不落工作区、不写文件、不返回给工具与 Agent。';
+                  box.append(tip);
+                  menu.append(box);
+                };
+                render();
+                const stop = (ev) => { ev.stopPropagation(); };
+                menu.addEventListener('mousedown', stop);
+                menu.addEventListener('click', stop);
+                menu.addEventListener('keydown', stop, true);
+                document.documentElement.append(menu);
+                credMenu = menu;
+              } catch (e) { say('warn', `账号面板打开失败：${msgOf(e)}`); }
+            };
+
             const ensureToolbarButtons = () => {
               let attached = 0;
               const specs = [
@@ -5747,6 +5955,8 @@ window.__ModuleLoader__.load({
                 { id: 'dsh-kit-toolbar-size-btn', title: '设备尺寸（选择分辨率；缩放按当前板块尺寸计算）', svg: SIZE_ICON_SVG, first: true },
                 { id: 'dsh-kit-toolbar-shot-btn', title: '截图当前浏览器并直接插入输入框', svg: SHOT_ICON_SVG, first: false },
                 { id: 'dsh-kit-toolbar-btn', title: '元素批注（点击开关共享批注：所有浏览器窗口同步）', svg: ANNOT_ICON_SVG, first: false },
+                // ★2026-10-10（用户要求）：批注**右侧**新增「钥匙」= 账号与密码管理（仅本机，不进 Agent 上下文）
+                { id: 'dsh-kit-toolbar-key-btn', title: '账号与密码（仅本机保存；不写入文件、不进入 Agent 上下文）', svg: KEY_ICON_SVG, first: false },
                 { id: 'dsh-kit-toolbar-own-btn', title: '在 Agent 自持浏览器中打开（同登录态）', svg: OWN_ICON_SVG, first: false, afterSystemBrowser: true },
               ];
               for (const form of toolbarForms()) {
@@ -5780,6 +5990,13 @@ window.__ModuleLoader__.load({
                       } catch (e) {
                         stateRef.lastToggleError = msgOf(e);
                       }
+                    });
+                  } else if (spec.id === 'dsh-kit-toolbar-key-btn') {
+                    // ★「钥匙」：打开账号与密码面板（纯客户端；不调用 host、不写文件 ⇒ 不进 Agent 上下文 ✓）
+                    btn.addEventListener('click', (ev) => {
+                      try { ev.stopPropagation(); } catch { /* 忽略 */ }
+                      const pane = webviewOfForm(form);
+                      openCredMenu(btn, pane);
                     });
                   } else if (spec.id === 'dsh-kit-toolbar-size-btn') {
                     btn.addEventListener('click', (ev) => {
