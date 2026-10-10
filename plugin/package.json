@@ -32,7 +32,7 @@
   "dependencies": {
     "node-hid": "^3.4.0"
   },
-  "license": "SEE LICENSE IN NOTICE.md",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Shuffle-1992/dsh-browser-kit.git"
