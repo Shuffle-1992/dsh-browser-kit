@@ -3727,10 +3727,25 @@ window.__ModuleLoader__.load({
                   lastAt: stateRef.mirrorDiag.lastAt,
                   idleTimerOn: !!agentView.idleTimer,
                 },
-                /* v26：草稿箱现场（"跳页后续号/列出旧批注"出问题时的第一手判据） */
-                annotDraft: (() => {
+                /* v26：草稿箱现场（"跳页后续号/列出旧批注"出问题时的第一手判据） */                annotDraft: (() => {
                   try {
                     return { key: draftKeyOf(), keyUsed: draftKeyUsed, loaded: draftLoaded, count: draftCount(), maxIndex: draftMaxIndex(), inPanes: (stateRef.annot && stateRef.annot.panes) ? stateRef.annot.panes.length : 0 };
+                  } catch (e) { return { error: msgOf(e) }; }
+                })(),
+                /* v32：设备尺寸跟随现场（拖分窗后"黑边/内容被裁"的第一手判据） */
+                deviceFit: (() => {
+                  try {
+                    return Array.from(document.querySelectorAll('webview')).map((p) => {
+                      const host = p.parentElement || p;
+                      const hr = host.getBoundingClientRect();
+                      return {
+                        preset: (p.dataset && p.dataset.kitDevicePreset) || null,
+                        fitScale: (p.dataset && p.dataset.kitFitScale) || null,
+                        hostW: Math.round(hr.width),
+                        hostH: Math.round(hr.height),
+                        // observed 字段需要跨作用域访问观察者表（会 ReferenceError）⇒ 只用 dataset/尺寸，二者足以定位问题
+                      };
+                    });
                   } catch (e) { return { error: msgOf(e) }; }
                 })(),
                 panelRootInDom: !!document.getElementById('dsh-kit-panel'),
@@ -5292,6 +5307,56 @@ window.__ModuleLoader__.load({
             };
             /* ── 会话面板「设备尺寸」（2026-10-10 用户要求）──
              * 把 guest 视口设成预设分辨率，显示缩放**按当前浏览器板块的尺寸计算**（fit 到板块内）。 */
+            /** ★v32（用户实测）：**面板尺寸变化必须重算缩放** —— 原实现只在"设置分辨率"那一刻算一次 k，
+             *  之后调整 DSH 分窗宽度（拖分隔条 / 改窗口大小）k 就过期 ⇒ 要么留黑边、要么右侧内容超出边界被裁 ✗。
+             *  这里给每个"已套预设"的面板挂 **ResizeObserver**（观察其宿主容器），尺寸一变即重算（rAF 去抖）。 */
+            const paneFitObservers = new WeakMap();
+            const refitPaneDeviceSize = (pane) => {
+              try {
+                const key = pane && pane.dataset ? pane.dataset.kitDevicePreset : null;
+                if (!key) return null; // 没套预设：不动它（用用户自己的宽度）
+                const res = agentViewResolvePreset(key);
+                const host = pane.parentElement || pane;
+                const hr = host.getBoundingClientRect();
+                const availW = Math.max(200, Math.round(hr.width) - 2);
+                const availH = Math.max(160, Math.round(hr.height) - 2);
+                const k = Math.min(1, availW / res.w, availH / res.h);
+                pane.style.setProperty('transform', `scale(${k})`, 'important');
+                try { pane.dataset.kitFitScale = String(Number(k.toFixed(4))); } catch { /* 忽略 */ }
+                syncAnnotMetrics(pane); // 批注面板锚点依赖可见带与缩放，refit 后同步
+                return k;
+              } catch { return null; }
+            };
+            const observePaneFit = (pane) => {
+              try {
+                if (typeof ResizeObserver !== 'function') return;
+                if (paneFitObservers.has(pane)) return;
+                let scheduled = false;
+                const refitSoon = () => {
+                  if (scheduled) return;
+                  scheduled = true;
+                  const run = () => { scheduled = false; refitPaneDeviceSize(pane); };
+                  try {
+                    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+                    else setTimeout(run, 80);
+                  } catch { scheduled = false; }
+                };
+                const ro = new ResizeObserver(refitSoon);
+                ro.observe(pane.parentElement || pane); // 宿主容器尺寸 = 可用空间
+                paneFitObservers.set(pane, ro);
+              } catch { /* 忽略 */ }
+            };
+            const unobservePaneFit = (pane) => {
+              try {
+                const ro = paneFitObservers.get(pane);
+                if (ro) { ro.disconnect(); paneFitObservers.delete(pane); }
+              } catch { /* 忽略 */ }
+            };
+            /* ★v32：把三个助手挂到 stateRef —— 周期 tick 要给**升级前就已套预设**的面板补挂观察者
+             *  （否则用户不重新选一次尺寸就永远不跟随 ✗：正是"改了分窗宽度不生效"的残留场景）。 */
+            try {
+              stateRef.paneFit = { observe: observePaneFit, unobserve: unobservePaneFit, refit: refitPaneDeviceSize };
+            } catch { /* 忽略 */ }
             const applyPaneDeviceSize = (pane, presetKey) => {
               if (!pane) return { ok: false, error: '无面板' };
               try {
@@ -5305,6 +5370,8 @@ window.__ModuleLoader__.load({
                   try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(1); } catch { /* 忽略 */ }
                   try { pane.dataset.kitZoomFactor = '1'; } catch { /* 忽略 */ }
                   syncAnnotMetrics(pane); // R-OWN v12/v13：重置后重新同步（回到按视口宽 + 缩放）
+                  unobservePaneFit(pane); // v32：不再套预设 ⇒ 停掉尺寸跟随，交还 DSH 自身布局
+                  try { delete pane.dataset.kitFitScale; } catch { /* 忽略 */ }
                   return { ok: true, reset: true };
                 }
                 const res = agentViewResolvePreset(presetKey);
@@ -5327,6 +5394,8 @@ window.__ModuleLoader__.load({
                 try { if (typeof pane.setZoomFactor === 'function') pane.setZoomFactor(Number(res.dpr) || 1); } catch { /* 忽略 */ }
                 try { pane.dataset.kitZoomFactor = String(Number(res.dpr) || 1); } catch { /* 忽略 */ } // v13：面板反缩放用（勿读 getZoomFactor，含显示器缩放）
                 pane.dataset.kitDevicePreset = res.key;
+                observePaneFit(pane); // v32：面板/宿主尺寸变化 ⇒ 自动重算缩放（拖分窗、改窗口大小都不再留黑边/被裁）
+                try { pane.dataset.kitFitScale = String(Number(k.toFixed(4))); } catch { /* 忽略 */ }
                 syncAnnotMetrics(pane); // R-OWN v12/v13：同步可见带 + 放大倍数（面板固定尺寸并落在可见区）
                 return { ok: true, preset: res.key, resolution: `${res.w}×${res.h}`, scale: Number(k.toFixed(3)), paneW: availW, paneH: availH };
               } catch (e) { return { ok: false, error: msgOf(e) }; }
@@ -5774,6 +5843,16 @@ window.__ModuleLoader__.load({
           const tickChipLifecycle = (webviews) => {
             /* v26：会话身份（id）变化 ⇒ 换草稿本（并首次加载：模块初始化时 sidebar 服务可能未就绪） */
             try { draftEnsure(); } catch { /* 忽略 */ } // v26：懒加载 + 会话切换即换草稿本
+            /* ★v32 自愈：给**已套预设**的面板补挂尺寸跟随（老会话里的面板是升级前套的，
+             *  不补挂就永远不跟随分窗宽度 ✗）。observe 幂等（WeakMap 去重），每轮跑很便宜。 */
+            try {
+              const pf = stateRef.paneFit;
+              if (pf && typeof pf.observe === 'function') {
+                for (const p of Array.from(document.querySelectorAll('webview'))) {
+                  if (p && p.dataset && p.dataset.kitDevicePreset) pf.observe(p);
+                }
+              }
+            } catch { /* 忽略 */ }
             refreshPanes(webviews);
             ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
             reapAnnTip(); // v25：提示条兜底回收（胶囊被移除/重建后不永久滞留）
