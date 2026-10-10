@@ -41,5 +41,5 @@ test("v25/v28：批注按 DSH 会话隔离（换会话即清空，编号从 1 �
   // 必须在主 tick 里被驱动
   assert.match(src, /enforceAnnotConvoScope\(\); \/\/ v25/, "主 tick 必须调用隔离守卫");
   // 会话开始时要记下所属对话（隔离判据的来源）
-  assert.match(src, /convo: convoTitle\(\)/, "会话开始必须记录 convo，否则无从判断切换");
+  assert.match(src, /convo: annotScopeId\(\)/, "v31：会话开始记录的是稳定会话键（会话 id）");
 });

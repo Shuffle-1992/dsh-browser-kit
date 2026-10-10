@@ -1003,7 +1003,7 @@ window.__ModuleLoader__.load({
               const draftN = draftCount();
               const liveCount = draftN > 0 ? draftN : ((st && st.active && typeof st.count === 'number') ? st.count : 0);
               const liveModel = (liveCount > 0)
-                ? { mode: 'live', count: liveCount, convo: convoTitle() || (st && st.convo) || null }
+                ? { mode: 'live', count: liveCount, convo: annotScopeId() }
                 : null;
               const model = saved || liveModel;
               const existing = document.getElementById(CHIP_ID);
@@ -1013,9 +1013,11 @@ window.__ModuleLoader__.load({
                 if (existing && iAmNewer(existing)) { existing.remove(); removeChipSpacer(); }
                 return;
               }
-              // P31 会话门控：胶囊只属于创建它的那个会话（标题指纹），切会话即隐藏
-              if (model.convo && model.convo !== convoTitle()) {
-                try { stateRef.chipGate = { at: new Date().toISOString(), titleNow: document.title, convoNow: convoTitle(), modelConvo: model.convo }; } catch { /* 诊断字段不影响主流程 */ }
+              // P31 会话门控：胶囊只属于**创建它的那个会话**，切会话即隐藏。
+              // ★v31 修（用户实测"卡会话显示"）：v29 让 live 模型的 convo 每轮现取当前标题 ⇒
+              //   门控两边永远相等 ⇒ 切会话也不隐藏 ✗。现在统一用**稳定会话键**（会话 id，取不到退标题）。
+              if (model.convo && model.convo !== annotScopeId()) {
+                try { stateRef.chipGate = { at: new Date().toISOString(), titleNow: document.title, scopeNow: annotScopeId(), modelConvo: model.convo }; } catch { /* 诊断字段不影响主流程 */ }
                 if (existing && iAmNewer(existing)) { existing.remove(); removeChipSpacer(); }
                 return;
               }
@@ -1061,7 +1063,18 @@ window.__ModuleLoader__.load({
                         p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.clearAll ? window.__dshKitAnnotator.clearAll() : undefined)', true).catch(() => {});
                       } catch { /* 死面板由同步循环自愈 */ }
                     }
+                    draftClear(); // ★v31：关闭批注后草稿才是胶囊的计数来源 ⇒ × 必须连草稿一起清，否则点不掉 ✗
                     say('info', '已清除全部批注（所有窗口同步移除）');
+                  } else {
+                    /* ★v31（用户实测"点击 X 无法清除"）：批注已关闭时旧实现**什么都不做** ✗，
+                     *  而胶囊此时按**草稿**计数渲染 ⇒ 点 × 无反应。这里补上草稿清除（并尝试清页面残留）。 */
+                    for (const p of Array.from(document.querySelectorAll('webview'))) {
+                      try {
+                        p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.clearAll) a.clearAll(); return 1; })()', true).catch(() => {});
+                      } catch { /* 忽略 */ }
+                    }
+                    draftClear();
+                    say('info', '已清除批注草稿');
                   }
                 });
                 // 悬浮富提示（saved 模型才有 items；live 模型只有计数提示）
@@ -1099,7 +1112,7 @@ window.__ModuleLoader__.load({
               /* P37 认领制（与胶囊同款，机制见共享助手处注释）：新者胜旧者让。 */
               const m = stateRef.chip;
               // 渲染条件（规格钉死，无需新状态）：saved 模型在场且当前不在归属会话
-              const away = m && m.mode === 'saved' && m.convo !== convoTitle();
+              const away = m && m.mode === 'saved' && m.convo !== annotScopeId(); // v31：身份统一（会话 id）
               if (!away) {
                 // 无待发胶囊 / 已回归属会话：移除（仅本实例或无主横条可移——P37）
                 if (existing && iAmNewer(existing)) existing.remove();
@@ -1446,7 +1459,7 @@ window.__ModuleLoader__.load({
               mode: 'saved',
               count: Number.isFinite(n) && n > 0 ? n : 0,
               path: r.path,
-              convo: convoTitle(),
+              convo: annotScopeId(), // v31：与门控同一身份（会话 id）
               items: Array.isArray(r.items) ? r.items : [], // 会话胶囊 hover 提示数据
               bornAt: new Date().toISOString(),
               base: { n: rowsNow.length, first: rowKey(rowsNow[0] || null), last: rowKey(rowsNow[rowsNow.length - 1] || null) },
@@ -1492,6 +1505,11 @@ window.__ModuleLoader__.load({
           let draftLoaded = false; // v26 修订：**首次访问时懒加载**（模块初始化时 sidebar 服务可能未就绪；
           //  且"key 相等就跳过加载"是个坑：key 相同但内存还是空的 ⇒ 草稿永远读不出来，实测踩过）
           let draftKeyUsed = '';
+          /** ★v31：**稳定的会话键**（会话 id，取不到退回标题）——胶囊门控与草稿 key 共用同一身份，
+           *  避免"一边用标题一边用 id"导致门控永远相等（用户实测：胶囊卡在所有会话上显示 ✗）。 */
+          const annotScopeId = () => {
+            try { return currentSurfaceSession() || convoTitle() || 'unknown'; } catch { return 'unknown'; }
+          };
           /** 懒加载 + 会话切换检测（所有读写入口都先过它）。 */
           const draftEnsure = () => {
             try {
@@ -1581,7 +1599,7 @@ window.__ModuleLoader__.load({
                   mode: 'saved',
                   count: Number.isFinite(n) && n > 0 ? n : items.length,
                   path: r.path,
-                  convo: convoTitle(),
+                  convo: annotScopeId(), // v31：与门控同一身份（会话 id）
                   items: Array.isArray(r.items) ? r.items : [],
                   bornAt: new Date().toISOString(),
                   attachedKey: sentRowKey || null,
@@ -2038,7 +2056,7 @@ window.__ModuleLoader__.load({
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
-            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: convoTitle(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: annotScopeId(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
             draftReload(); // v26：开会话时先加载本会话草稿（编号续用 + 面板列出旧批注）
             // R-OWN v23：会话一开就立刻拉一次镜像（不等 2s tick）——用户点开批注后要马上看到面板
             try { setTimeout(() => { syncAnnotMirror().catch(() => {}); }, 300); } catch { /* 忽略 */ }
@@ -5748,6 +5766,7 @@ window.__ModuleLoader__.load({
             resetAnnotState('end', true);
             draftReload(); // 换会话即换草稿本（key = 会话 id）
             removeAnnotMirror();
+            try { removeAnnotChip(); } catch { /* 忽略 */ } // v31：切会话立即撤胶囊（不等下一轮门控）
             hideAnnTip();
             say('info', '已切换会话：上一会话的批注已清理（批注按会话隔离）');
           };

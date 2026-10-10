@@ -103,8 +103,8 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /clearAll \? window\.__dshKitAnnotator\.clearAll\(\) : undefined/); // × 清除（会话中）
     // 会话指纹：document.title（去宿主后缀）建模时捕获、渲染前比对，切会话即隐藏
     assert.match(clientSource, /const convoTitle = \(\) => \(document\.title \|\| ''\)\.replace/);
-    assert.match(clientSource, /model\.convo !== convoTitle\(\)/);
-    assert.match(clientSource, /convo: convoTitle\(\)/);
+    assert.match(clientSource, /model\.convo !== annotScopeId\(\)/, 'v31：门控必须用稳定会话键（会话 id）——用当前标题比当前标题会永不隐藏');
+    assert.match(clientSource, /convo: annotScopeId\(\)/, 'v31：胶囊模型记录的会话键必须与门控同一身份（会话 id）');
     // 位置：ZCode 式独占一行——卡片内 data-inputScroll 前插 30px 占位行，胶囊悬于其上，正文不遮挡
     assert.match(clientSource, /dsh-kit-annot-spacer/);
     assert.match(clientSource, /ce\.closest\('\[data-inputScroll\]'\)/);
@@ -518,8 +518,8 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     // T1：ensureAwayBanner —— saved 模型在场且不在归属会话时渲染被动横条（与胶囊天然互斥）
     assert.match(clientSource, /dsh-kit-annot-away/);
     assert.match(clientSource, /const ensureAwayBanner = \(\) =>/);
-    // 渲染条件（规格钉死）：saved 模型 + 当前不在归属会话（无需新状态，直接读现有模型）
-    assert.match(clientSource, /m\.mode === 'saved' && m\.convo !== convoTitle\(\)/);
+    // 渲染条件（规格钉死）：saved 模型 + 当前不在归属会话（v31：身份统一为 annotScopeId()）
+    assert.match(clientSource, /m\.mode === 'saved' && m\.convo !== annotScopeId\(\)/);
     // 文案模板串（规格原文）：归属会话名 + 条数（count 容错取数）
     assert.match(clientSource, /⏸ 会话「\$\{stateRef\.chip\.convo\}」有 \$\{Number\(stateRef\.chip\.count\) \|\| 0\} 条批注待发送/);
     // 锚定复用：ensureChipSpacer + spacer rect（与胶囊同位不同时）；挂 body fixed
