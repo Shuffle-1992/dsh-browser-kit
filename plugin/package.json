@@ -1,6 +1,6 @@
 {
-  "name": "@local/dsh-browser-kit",
-  "version": "0.1.0",
+  "name": "dsh-browser-kit",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "icon": "./icon.svg",
@@ -31,5 +31,25 @@
   },
   "dependencies": {
     "node-hid": "^3.4.0"
-  }
+  },
+  "license": "SEE LICENSE IN NOTICE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shuffle-1992/dsh-browser-kit.git"
+  },
+  "homepage": "https://github.com/Shuffle-1992/dsh-browser-kit",
+  "bugs": {
+    "url": "https://github.com/Shuffle-1992/dsh-browser-kit/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "deepseek",
+    "harness",
+    "browser",
+    "annotation",
+    "playwright-alternative",
+    "plugin"
+  ]
 }

@@ -137,7 +137,7 @@ dsh-browser-kit/
 │   ├── docs/
 │   │   ├── delivery-01..12.md                          # 任务/交付记录（01 可移植层 → 12 胶囊+撤回 face）
 │   │   └── mvp0-probe-state.md / mvp3-loop-state.md    # 探测期/闭环期交接件（历史留档）
-├── plugin/                                            # DSH 插件 @local/dsh-browser-kit
+├── plugin/                                            # DSH 插件 dsh-browser-kit（2026-10-10 去掉 @local/ 前缀）
 │   ├── package.json / cordis.patch.yml                # bundle 声明（exports["."] → entry.mjs；junction+install_bundle 安装）
 │   ├── entry.mjs                                      # host 入口永久薄壳（?ts=mtime-seq 击穿 ESM 缓存，pitfalls P13）
 │   ├── host.impl.mjs                                  # host 业务（探测/face/落盘/_internals 测试导出；改后 toggle 即生效）
@@ -205,11 +205,15 @@ dsh-browser-kit/
 
 ### 从 GitHub 安装（推荐，公开仓库）
 
+本包**未发布到 npm**，请用 pnpm 的 git 规格：
+
 ```bash
 dsh plugin --profile web add github:Shuffle-1992/dsh-browser-kit
 ```
 
 > 把 `web` 换成你自己的 profile 名即可（`dsh plugin list` 可查当前 profile）。
+> 包名 2026-10-10 起为 `dsh-browser-kit`（去掉 `@local/` 前缀）；旧的 `@local/dsh-browser-kit`
+> junction 仍保留为兼容别名。
 
 ### 本地开发安装（源码就在本机时）
 
@@ -218,7 +222,8 @@ dsh plugin --profile web add "F:\My Code\dsh-browser-kit"
 ```
 
 插件是 **Cordis bundle**：`package.json` 声明 `dsh.bundle.patch = plugin/cordis.patch.yml`，
-该 patch 会把插件插进 profile（`insert: [{ id: dsh-browser-kit, name: '@local/dsh-browser-kit' }]`）。
+该 patch 会把插件插进 profile（`insert: [{ id: dsh-browser-kit, name: dsh-browser-kit }]`；
+包名 2026-10-10 起为 `dsh-browser-kit`，旧的 `@local/dsh-browser-kit` junction 仍保留为兼容别名）。
 
 ### 安装后自检
 
