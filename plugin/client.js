@@ -620,6 +620,10 @@ window.__ModuleLoader__.load({
             report: null,
             lastShot: null,
             annot: null, // { active, count, startedAt, lastSaved, error }
+  /* R-OWN v23：批注镜像面板的诊断计数（kit-status 暴露）。
+   * 起因：「批注开着但右下角没有面板」此前完全无从定位 —— 镜像同步里的失败被
+   * `catch{忽略}` 与单飞 busy 一起吞掉。现在每次调用都记账，卡死/未注入一眼可见。 */
+  mirrorDiag: { calls: 0, injected: 0, skippedBusy: 0, skippedNoPane: 0, skippedNoHtml: 0, resetForced: 0, lastError: null, lastAt: null },
             chip: null, // 批注胶囊 saved 模型 { mode:'saved', count, path, items, convo, bornAt, base, attachedKey?, retracted? }（live 模式由 annot 派生）
             sentChips: [], // 已随消息发出的胶囊模型 FIFO（发送检测后自 chip 迁入；tick 按归属行补挂）
             lastToggleError: null,
@@ -1550,9 +1554,12 @@ window.__ModuleLoader__.load({
             const winH = Math.max(1, num(o.winH, 768));
             const gap = Math.max(0, num(o.gap, 12));
             const panelH = Math.max(0, num(o.panelH, 82));
+            /* ★R-OWN v23（实测 bug）：锚点 rect **退化为 0** 时不能当有效锚点 ——
+             * 实测 `paneRight≈0`（面板此刻不可见/零面积）⇒ right = winW − 0 + gap = 2572
+             * ⇒ 面板被推到屏幕外（rect.left = −276）。非正数一律视为"无锚点"。 */
             const paneRight = num(o.paneRight, NaN);
             const barTop = num(o.barTop, NaN);
-            const right = Number.isFinite(paneRight) ? Math.max(gap, Math.round(winW - paneRight + gap)) : gap;
+            const right = (Number.isFinite(paneRight) && paneRight > 0) ? Math.max(gap, Math.round(winW - paneRight + gap)) : gap;
             const dockToBar = Number.isFinite(barTop) && barTop > winH * 0.5;
             let bottom = dockToBar ? Math.max(gap, Math.round(winH - barTop + gap)) : gap;
             const maxBottom = winH - panelH - gap;
@@ -1641,12 +1648,15 @@ window.__ModuleLoader__.load({
             } catch { /* 忽略 */ }
           };
           const syncAnnotMirror = async () => {
-            if (annotMirror.busy) return; // 单飞护栏：guest 若不 settle，也不累积悬挂 IPC
+            const dg = stateRef.mirrorDiag;
+            dg.calls += 1;
+            dg.lastAt = new Date().toISOString();
+            if (annotMirror.busy) { dg.skippedBusy += 1; return; } // 单飞护栏：guest 若不 settle，也不累积悬挂 IPC
             annotMirror.busy = true;
             try {
               if (!(stateRef.annot && stateRef.annot.active)) { removeAnnotMirror(); return; }
               const pane = annotAnchorPane();
-              if (!pane) { removeAnnotMirror(); return; }
+              if (!pane) { dg.skippedNoPane += 1; removeAnnotMirror(); return; }
               let host = document.getElementById(ANNOT_MIRROR_ID);
               if (!host) {
                 host = document.createElement('div');
@@ -1658,18 +1668,21 @@ window.__ModuleLoader__.load({
               const snap = await pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.mirrorSnapshot) ? window.__dshKitAnnotator.mirrorSnapshot() : null', true);
               // v22（审计）：guest 侧带回 rev；rev 未变时 html 为空字符串 ⇒ 每秒只搬一个小对象，
               //   不再无条件搬运整份面板 outerHTML（含全部内联样式）。
-              if (!snap) return;
+              if (!snap) { dg.skippedNoHtml += 1; return; }
               // ★v22（审计）：缓存要能自证有效——host 被外部移除/重建时，仅比较 html 会永远跳过填充
               //   （root 指向已脱离的旧节点）⇒ 校验 isConnected/归属，失联时调 mirrorReset() 取全量。
               if (!host.firstElementChild || !annotMirror.root || !annotMirror.root.isConnected || annotMirror.root.parentElement !== host) {
+                dg.resetForced += 1;
                 try { await pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.mirrorReset) ? window.__dshKitAnnotator.mirrorReset() : 0', true); } catch { /* 忽略 */ }
                 annotMirror.rev = null;
                 const again = await pane.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.mirrorSnapshot) ? window.__dshKitAnnotator.mirrorSnapshot() : null', true);
                 if (again && again.html) { snap.html = again.html; snap.rev = again.rev; }
               }
+              if (!snap.html) dg.skippedNoHtml += 1; // 内容未变（rev 未推进）——正常路径，非错误
               // ★注意：`snap.html === ''` 表示"内容未变"（rev 未推进），**不是**"没有面板"——
               //   若在此处无条件赋值会把镜像清空（自己踩过）。只有拿到非空 HTML 才替换。
               if (annotMirror.html !== snap.html && snap.html) {
+                dg.injected += 1;
                 annotMirror.html = snap.html;
                 if (snap.rev != null) annotMirror.rev = snap.rev;
                 host.innerHTML = snap.html;
@@ -1695,8 +1708,9 @@ window.__ModuleLoader__.load({
               }
               applyAnnotMirrorListState();
               positionAnnotMirror();
-            } catch { /* 忽略 */ }
-            finally { annotMirror.busy = false; }
+            } catch (e) {
+              dg.lastError = msgOf(e); // v23：不再静默——错误经 kit-status.annotMirror.lastError 可查
+            } finally { annotMirror.busy = false; }
           };
 
           const startPaneInSession = async (target, startIndex) => {
@@ -1862,6 +1876,8 @@ window.__ModuleLoader__.load({
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
             stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: convoTitle(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            // R-OWN v23：会话一开就立刻拉一次镜像（不等 2s tick）——用户点开批注后要马上看到面板
+            try { setTimeout(() => { syncAnnotMirror().catch(() => {}); }, 300); } catch { /* 忽略 */ }
             startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
             // R-OWN v11：立即拉齐其余窗口（不等 2s tick）——侧栏各面板 + 自持各标签，编号延续
             try {
@@ -2718,21 +2734,25 @@ window.__ModuleLoader__.load({
           };
           const agentViewIdleTick = () => {
             if (!isLiveInstance(stateRef.clientBootAt)) return; // 实例围栏（旧实例停止一切 DOM 操作）
-            if (!agentViewWebview()) return;
-            try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
-            // 批注图标 = 会话级总开关（属性驱动；两处浏览器同步亮/灭）
-            try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ }
-            // R-OWN v20：批注进行中——①宿主镜像面板同步 ②指标重推（可见带/缩放/让位）
+            /* ★R-OWN v23（实测 bug）：批注面板的宿主镜像**不能**放在自持窗口的门之后。
+             * `if (!agentViewWebview()) return;` 会在**没开自持窗口**时让整个 tick 直接返回 ⇒
+             * `syncAnnotMirror()` 永不执行；而页内面板又被 `mirror:true` 隐藏 ⇒ 两头都空
+             * = 用户点开批注**看不到任何面板**（2026-10-10 实测：ownedBar=false / mirrorNode=false）。
+             * 所以：批注相关（镜像节点 + 指标）先于该门执行，与自持窗口是否存在无关。 */
+            try { applyAnnotBtnState(stateRef); } catch { /* 忽略 */ } // 批注图标 = 会话级总开关（属性驱动）
             try {
               if (stateRef.annot && stateRef.annot.active) {
-                syncAnnotMirror().catch(() => {});
+                syncAnnotMirror().catch(() => {}); // ①宿主镜像面板（不依赖自持窗口）
                 for (const p of (stateRef.annot.panes || [])) {
-                  if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
+                  if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p); // ②可见带/缩放（提示条用）
                 }
               } else {
                 removeAnnotMirror();
               }
             } catch { /* 忽略 */ }
+            // ── 以下需要自持窗口存在 ──
+            if (!agentViewWebview()) return;
+            try { agentViewApplyTheme(); } catch { /* 主题自检失败不影响空闲逻辑 */ } // 主题切换后 1s 内跟上
             // v22：批注开关状态变化 → 重排停靠位置 + 重推指标（指标值可能因布局变化而变，缓存会自行判定是否发出）
             try {
               const on = !!(stateRef.annot && stateRef.annot.active);
@@ -3461,6 +3481,20 @@ window.__ModuleLoader__.load({
               styleTickWrite: stateRef.styleTickWrite || null,
               liveInstanceBootAt: (globalThis.__dshKitLiveInstance && globalThis.__dshKitLiveInstance.bootAt) || null,
               annotActive: !!(stateRef.annot && stateRef.annot.active),
+                /* R-OWN v23：镜像面板**可查诊断** —— 先前 `catch{忽略}` + 单飞 busy 让"面板不出现"
+                 * 完全无从定位（用户实测：批注开着但右下角什么都没有）。字段语义见 syncAnnotMirror。 */
+                annotMirror: {
+                  node: !!document.getElementById(ANNOT_MIRROR_ID),
+                  calls: stateRef.mirrorDiag.calls,
+                  injected: stateRef.mirrorDiag.injected,
+                  skippedBusy: stateRef.mirrorDiag.skippedBusy,
+                  skippedNoPane: stateRef.mirrorDiag.skippedNoPane,
+                  skippedNoHtml: stateRef.mirrorDiag.skippedNoHtml,
+                  resetForced: stateRef.mirrorDiag.resetForced,
+                  lastError: stateRef.mirrorDiag.lastError,
+                  lastAt: stateRef.mirrorDiag.lastAt,
+                  idleTimerOn: !!agentView.idleTimer,
+                },
                 panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                 panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
                 remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
@@ -4465,6 +4499,10 @@ window.__ModuleLoader__.load({
             }
           };
           trackInterval(setInterval(() => { pollCommands().catch(() => {}); }, 2500));
+          /* 注（R-OWN v23 实测）：不要在此处启动 1s 的 `startAgentViewIdleTick` —— 它定义在
+           * 「自持窗口 open 路径」的作用域里，此处**取不到**（`typeof` 为 undefined，静默无效）；
+           * 而批注镜像已改由**必定在跑**的 2s tick 驱动（见主 tick 内 syncAnnotMirror 注释），
+           * 因此不需要它也必须在。这里保留一行说明，避免后来者再走一次弯路。 */
           /* 看门狗：单条命令最长占用 30s（race 上限），45s 仍未释放视为卡死，强制复位
            * cmdBusy，避免一次挂起饿死整条命令队列（P20）。复位推进 cmdEpoch 代际，
            * 卡死轮询的 finally 只清自己那一代的 busy（C14）。 */
@@ -5505,6 +5543,21 @@ window.__ModuleLoader__.load({
               // 实例围栏：热重载后的旧实例不得再操作 DOM（否则与活实例互刷样式 → 图标闪烁）
               if (!isLiveInstance(stateRef.clientBootAt)) return;
               try { stateRef.tickAt = new Date().toISOString(); } catch { /* 诊断字段不影响主流程 */ }
+              /* ★R-OWN v23（实测 bug 的最终修法）：批注镜像面板必须由这个**必定在跑**的 2s tick 驱动。
+               * 教训：先前把 `syncAnnotMirror()` 放在 `agentViewIdleTick`（1s）里，而那个 tick **只在
+               * "打开自持窗口"时才启动**（`startAgentViewIdleTick` 位于 open 路径）⇒ 不开自持窗口的会话里
+               * 镜像永不创建，页内面板又被 `mirror:true` 隐藏 ⇒ 用户点开批注**看不到任何面板**。
+               * 定位证据：`kit-status.annotMirror.idleTimerOn=false` + `calls` 停更 ⇒ 当场指认"tick 没跑"。 */
+              try {
+                if (stateRef.annot && stateRef.annot.active) {
+                  syncAnnotMirror().catch(() => {});
+                  for (const p of (stateRef.annot.panes || [])) {
+                    if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
+                  }
+                } else if (document.getElementById(ANNOT_MIRROR_ID)) {
+                  removeAnnotMirror();
+                }
+              } catch { /* 忽略：镜像同步失败已在 mirrorDiag 记账 */ }
               const st = stateRef.annot;
               const webviews = Array.from(document.querySelectorAll('webview')); // R4.1：tick 内单次查询复用
               tickChipLifecycle(webviews);

@@ -65,3 +65,15 @@ test("mirrorPlacement：右缘始终等于 视口宽 − 板块右缘 + gap", ()
   const p = mirrorPlacement({ paneRight: 2000, barTop: 900, winW: 2560, winH: 1400, gap: 12 });
   assert.equal(p.right, 2560 - 2000 + 12);
 });
+
+test("mirrorPlacement：锚点 rect 退化为 0 时回退视口右下角（回归实测 bug）", () => {
+  // 实测：锚点面板此刻不可见 ⇒ paneRight≈0 ⇒ 旧算法 right = winW − 0 + gap = 2572 ⇒ 面板被推出屏幕（left −276）
+  const degenerate = mirrorPlacement({ paneRight: 0, barTop: 0, winW: 2560, winH: 1400, gap: 12, panelH: 82 });
+  assert.equal(degenerate.right, 12, "paneRight=0 不是有效锚点，应回退 gap");
+  assert.equal(degenerate.bottom, 12, "barTop=0 不是有效小窗，应回退 gap");
+  for (const bad of [-5, 0, NaN, null]) {
+    const p = mirrorPlacement({ paneRight: bad, barTop: bad, winW: 2560, winH: 1400, gap: 12, panelH: 82 });
+    assert.equal(p.right, 12, `paneRight=${bad} 应回退`);
+    assert.ok(p.right + 264 <= 2560 && p.bottom + 82 <= 1400, "回退后必须完全在屏幕内");
+  }
+});

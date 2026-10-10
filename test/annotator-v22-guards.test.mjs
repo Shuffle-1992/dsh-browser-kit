@@ -68,7 +68,7 @@ test("T6：1s 空闲 tick 的跨进程调用有预算（回潮即变红）", () 
   assert.match(body, /syncAnnotMetrics\(p\)/, "tick 应驱动指标同步（带缓存）");
   // helper 侧护栏：单飞 + 值未变不发
   const mirror = clientSource.slice(clientSource.indexOf("const syncAnnotMirror = async ()"), clientSource.indexOf("const startPaneInSession ="));
-  assert.match(mirror, /if \(annotMirror\.busy\) return;/, "镜像同步缺少单飞护栏");
+  assert.match(mirror, /if \(annotMirror\.busy\)/, "镜像同步缺少单飞护栏");
   const metrics = clientSource.slice(clientSource.indexOf("const syncAnnotMetrics = (pane)"));
   assert.match(metrics.slice(0, 900), /if \(annotMetricCache\.get\(pane\) === key\) return;/, "指标推送缺少「值未变则不推」的缓存");
 });

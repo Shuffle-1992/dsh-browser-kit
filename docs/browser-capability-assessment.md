@@ -596,6 +596,29 @@ sessionStorage 再写入自持窗口，同名键覆盖）。当前未实现，�
   但 `annotator-smoke`（需 Chrome）走的是非镜像路径 ⇒ **保留**，并在 §5 记为"镜像路径尚无自动化覆盖"。
 - `captureShot` 的"临时展开 320ms"对用户可见（P69 取舍）：保持，因为隐藏面 `capturePage` 高危。
 
+### 3.9.24 R-OWN v23：修「开批注但右下角没有面板」——镜像驱动被"自持窗口门"挡住（2026-10-10 用户实测）
+
+**现象**：点开批注，右下角**什么都没有**（页内面板已被 `mirror:true` 隐藏 ⇒ 两头都空）。
+
+**四路取证**（`probe-mirror-gone.cjs`）：
+
+| 证据 | 值 | 含义 |
+|---|---|---|
+| `kit-status.annotActive` | true | 会话是活的 |
+| `ownedBar` / `webviewKinds` | false / 全 `session` | **自持窗口没开** |
+| `#dsh-kit-annot-mirror` | 不存在 | 宿主镜像从未创建 |
+| guest 侧 | `panelDisplay:"none"`、`snapHtmlLen:10341` | 页内面板被隐藏、快照**有内容** |
+
+**根因（两层）**：①`agentViewIdleTick`（1s）开头的 `if (!agentViewWebview()) return;` 让**没开自持窗口**时会话直接返回 ⇒ 里面的 `syncAnnotMirror()` 永不执行；②该 tick 本身只由 `startAgentViewIdleTick()` 在**自持窗口 open 路径**里启动（诊断字段 `idleTimerOn:false` 当场指认）。
+
+**修法**：把批注镜像的驱动搬到**必定在跑**的主 2s tick（`tickAt` 心跳为证），并在批注会话开启后 300ms 立即拉一次（点开即见）；同时把 idle tick 里的批注块移到那道门**之前**（自持窗口开着时更快）。镜像失败不再静默：新增 `stateRef.mirrorDiag`（calls/injected/skippedBusy/skippedNoPane/skippedNoHtml/resetForced/lastError/lastAt/idleTimerOn），经 `kit-status.annotMirror` 暴露。
+
+**顺带修掉的第二个 bug**：`positionAnnotMirror` 在锚点面板 rect **退化为 0**（面板此刻不可见）时算出 `right = winW − 0 + gap = 2572` ⇒ 面板被推出屏幕（实测 `rect.left = −276`）。纯函数 `mirrorPlacement()` 现把 `paneRight <= 0` 视为"无锚点"⇒ 回退视口右下角（`annot-mirror-anchor.test.mjs` 增退化用例）。
+
+**实测（修后）**：无自持窗口 → `mirrorNode:true`、`264×82`、`left 2284 / onScreen:true`、文案含真实批注行 ✓；点 ▸ 展开 82→115 ✓；开自持窗口后自动贴到小窗上方（`hostBottom:72px`）✓；`mirrorDiag.calls` 每 2s 递增、`lastError:null` ✓。
+
+**★坑（P80）**：**"只在某条功能路径里启动的周期任务"不能承担另一个功能的驱动** —— `agentViewIdleTick` 只在"打开自持窗口"时启动，把它当作批注镜像的心跳，等于给批注功能绑了个"必须开着自持窗口"的隐形前置条件。判据：**任何周期任务都要先问"它在什么条件下才存在"**，跨功能复用前确认它在目标场景里真的在跑（`idleTimerOn` 这类心跳字段就是为此加的）。
+
 **收养（客户端重载后）**：把面板里**所有**自持 webview 收养为窗口（`name`=租约、`partition`），
 丢弃重复面板时释放其**全部**窗口租约（否则多窗口会泄漏租约）。实测重载后 `tab-adopt-1` 仍为 example.com、`shared:true` ✓。
 

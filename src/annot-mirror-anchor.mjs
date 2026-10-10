@@ -25,7 +25,9 @@ export function mirrorPlacement(o) {
   const paneRight = num(o.paneRight, NaN);
   const barTop = num(o.barTop, NaN);
 
-  const right = Number.isFinite(paneRight) ? Math.max(gap, Math.round(winW - paneRight + gap)) : gap;
+  // R-OWN v23：锚点 rect 退化为 0（面板此刻不可见/零面积）**不是**有效锚点 ——
+  // 实测 paneRight≈0 ⇒ right = winW − 0 + gap = 2572 ⇒ 面板被推出屏幕（rect.left = −276）。
+  const right = (Number.isFinite(paneRight) && paneRight > 0) ? Math.max(gap, Math.round(winW - paneRight + gap)) : gap;
   // 只有"小窗在视口下半"才贴它上沿；展开态/无小窗一律贴视口右下角
   const dockToBar = Number.isFinite(barTop) && barTop > winH * 0.5;
   let bottom = dockToBar ? Math.max(gap, Math.round(winH - barTop + gap)) : gap;
