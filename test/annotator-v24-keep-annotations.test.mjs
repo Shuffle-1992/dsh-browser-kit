@@ -11,8 +11,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8");
-const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
+const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 const finishSubmitBody = () => {
   const a = clientSource.indexOf("const finishSubmit = async () => {");
@@ -21,12 +21,12 @@ const finishSubmitBody = () => {
   return clientSource.slice(a, b);
 };
 
-test("v24：提交**不再清空**批注（不得再对 clearAll 下手）", () => {
+test("v26：提交/消费 = 清空页面批注与草稿（v24 的『保留』语义已被用户否决）", () => {
   const body = finishSubmitBody();
-  assert.doesNotMatch(body, /clearAll/, "finishSubmit 里不应再调用 clearAll（会丢掉用户要延续的批注）");
-  assert.match(body, /a\.stop\(\)/, "仍应 stop：撤掉批注图层（记录留在 guest 内存）");
-  assert.match(body, /a\.markSubmitted\(\)/, "提交成功后必须标记为已提交（徽标转绿 + 后续只提交变更）");
-  assert.doesNotMatch(body, /单次消耗/, "旧的「单次消耗」说法必须改掉（文案会误导后续维护者）");
+  assert.match(body, /if \(a\.clearAll\) a\.clearAll\(\)/, "提交/消费即清空（用户本轮明确要求）");
+  assert.match(body, /a\.stop\(\)/, "仍应 stop：先撤掉批注图层再清空");
+  assert.match(body, /draftClear\(\)/, "消费后必须清空草稿（否则重开会复活）");
+  assert.doesNotMatch(body, /批注保留在页面上/, "v24 的『保留』文案必须改掉");
 });
 
 test("v24：再次提交只发「新增/改过」的条目", () => {

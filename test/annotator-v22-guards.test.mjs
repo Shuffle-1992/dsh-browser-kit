@@ -12,8 +12,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8");
-const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
+const clientSource = readFileSync(new URL("../plugin/client.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 test("T1：批注器版本字面量自洽（client EXPECTED == annotator 声明）", () => {
   const expected = /const EXPECTED_ANNOT_VERSION = '([\d.]+)';/.exec(clientSource);
@@ -44,7 +44,8 @@ test("T2：面板定位历史包袱（死接口/死指标）不得复活", () =>
 });
 
 test("T3：宿主镜像绑定的稳定属性都在批注器里真实存在", () => {
-  const bound = ["data-dsh-kit-panel-chevron", "data-dsh-kit-panel-clear", "data-dsh-kit-panel-submit", "data-dsh-kit-panel-cancel"];
+  // v26（用户指定）：头部 ✕ 关闭、底部整宽「展开/收起」、清除；提交/取消按钮已删除
+  const bound = ["data-dsh-kit-panel-close", "data-dsh-kit-panel-toggle", "data-dsh-kit-panel-clear"];
   for (const attr of bound) {
     assert.match(clientSource, new RegExp(`hasAttribute\\('${attr}'\\)`), `client.js 未按 ${attr} 绑定`);
     assert.match(annotSource, new RegExp(`setAttribute\\("${attr}"`), `批注器没有创建带 ${attr} 的按钮 ⇒ 镜像按钮会静默失联`);

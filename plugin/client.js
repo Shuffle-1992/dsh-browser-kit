@@ -801,11 +801,12 @@ window.__ModuleLoader__.load({
                 if (Array.isArray(lst)) for (const n of lst) if (typeof n === 'number' && n > max) max = n;
               } catch { /* 面板已关闭等：跳过 */ }
             }
-            return max;
+            // v26：草稿里可能已有更高编号（页面跳转后 guest 记录为空）⇒ 取两者较大值，保证续号
+            return Math.max(max, draftMaxIndex());
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.8.0';
+          const EXPECTED_ANNOT_VERSION = '1.9.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1382,6 +1383,23 @@ window.__ModuleLoader__.load({
               const rowKeys = rows.map(rowKey); // R1-03：键数组单次计算——消耗判定与补挂共用，勿逐模型重算
               const sig = { n: rows.length, first: rowKeys[0] || '', last: rowKeys[rows.length - 1] || '' };
               // 1) 发送消耗检测（视图签名基线；判定纯函数见上方内嵌副本）
+              /* ★v26（用户指定）：**发送即消费** —— 草稿存在时，用户在会话输入框发出消息
+               * 即消费批注（落盘 + 挂胶囊 + 清空页面与草稿 + 会话结束，下一轮从 1 开始）。
+               * 基线与"已保存胶囊"那套分开记（`draftBase`），避免两条路径互相重置基线。 */
+              if (draftCount() > 0) {
+                if (!stateRef.draftBase) stateRef.draftBase = sig;
+                else {
+                  const act = planChipConsume(sig, stateRef.draftBase);
+                  if (act === 'consume') {
+                    stateRef.draftBase = null;
+                    consumeDraft(sig.last).catch(() => {});
+                  } else if (act === 'reset') {
+                    stateRef.draftBase = sig;
+                  }
+                }
+              } else if (stateRef.draftBase) {
+                stateRef.draftBase = null; // 草稿清空（清除/消费）：基线一并清
+              }
               const m = stateRef.chip;
               if (m && m.mode === 'saved' && m.convo === convo) {
                 const action = planChipConsume(sig, m.base || { n: rows.length, first: sig.first, last: sig.last });
@@ -1447,7 +1465,138 @@ window.__ModuleLoader__.load({
             annotMirrorSubmitBusy = false;
             removeAnnotMirror();
           };
-          /** R-OWN v20：提交收尾（guest「提交」与**宿主镜像面板**的「提交」共用）。
+          /* ── ★R-OWN v26：**批注草稿箱**（按 DSH 对话隔离 + localStorage 持久）──────────────
+           * 用户实测两问：①登录页批注→提交→**跳转内页**后，前面的批注不见了、编号从 1 重排 ✗；
+           * ②批注了但**没提交**→关闭批注→做别的事→再打开，批注应像**草稿箱**一样还在 ✗。
+           * 共同根因：批注只活在 **guest 文档内存**里 ⇒ 页面导航=新文档 ⇒ 记录全丢、编号归零。
+           * 因此把真值**上移到 client**：`gid → item`（含 `_originUrl` 供同页门控），
+           * 未提交的在关闭/跳转/热更新后都还在；**提交即消费清空**；换对话按 key 天然隔离。 */
+          const DRAFT_LS_PREFIX = 'dsh-kit-annot-draft:';
+          /** v26 修订：草稿 key 用**会话 id**（`currentSurfaceSession()`），而不是对话标题 ——
+           *  标题会变/会空（实测：按标题落盘的草稿在跳页后取不回来 ✗）；取不到 id 才退回标题。 */
+          const draftKeyOf = () => {
+            try {
+              const sid = currentSurfaceSession();
+              return DRAFT_LS_PREFIX + (sid || convoTitle() || 'unknown');
+            } catch { return DRAFT_LS_PREFIX + 'unknown'; }
+          };
+          let annotDraft = {}; // { gid: item } —— 本会话的草稿
+          let draftLoaded = false; // v26 修订：**首次访问时懒加载**（模块初始化时 sidebar 服务可能未就绪；
+          //  且"key 相等就跳过加载"是个坑：key 相同但内存还是空的 ⇒ 草稿永远读不出来，实测踩过）
+          let draftKeyUsed = '';
+          /** 懒加载 + 会话切换检测（所有读写入口都先过它）。 */
+          const draftEnsure = () => {
+            try {
+              const k = draftKeyOf();
+              if (!draftLoaded || k !== draftKeyUsed) {
+                draftLoaded = true;
+                draftKeyUsed = k;
+                annotDraft = draftLoad();
+              }
+            } catch { /* 忽略 */ }
+            return annotDraft;
+          };
+          const draftLoad = () => {
+            try {
+              const raw = localStorage.getItem(draftKeyOf());
+              const j = raw ? JSON.parse(raw) : null;
+              return (j && j.items && typeof j.items === 'object') ? j.items : {};
+            } catch { return {}; }
+          };
+          const draftSave = () => { try { localStorage.setItem(draftKeyOf(), JSON.stringify({ at: new Date().toISOString(), items: annotDraft })); } catch { /* 配额/隐私模式：忽略 */ } };
+          const draftList = () => { draftEnsure(); return Object.keys(annotDraft).map((g) => annotDraft[g]); };
+          const draftMerge = (list, url) => {
+            draftEnsure();
+            let changed = false;
+            for (const it of list || []) {
+              if (!it || !it.gid) continue;
+              const item = it._originUrl ? it : Object.assign({}, it, { _originUrl: url || null });
+              if (JSON.stringify(annotDraft[it.gid] || null) !== JSON.stringify(item)) { annotDraft[it.gid] = item; changed = true; }
+            }
+            if (changed) draftSave();
+            return changed;
+          };
+          const draftRemove = (gids) => {
+            let changed = false;
+            for (const g of gids || []) { if (annotDraft[g]) { delete annotDraft[g]; changed = true; } }
+            if (changed) draftSave();
+            return changed;
+          };
+          const draftClear = () => { annotDraft = {}; try { localStorage.removeItem(draftKeyOf()); } catch { /* 忽略 */ } };
+          const draftMaxIndex = () => draftList().reduce((m, it) => Math.max(m, Number(it.index) || 0), 0);
+          const draftCount = () => draftList().length;
+          const draftReload = () => { draftLoaded = false; draftEnsure(); return draftList().length; };
+          /** v26：关闭批注时调用 —— 保留草稿（localStorage 那份已是最新，这里只把内存视图与存储对齐）。 */
+          const draftReloadKeep = () => { draftLoaded = false; draftEnsure(); return draftList().length; };
+          /** v26：**把草稿补进面板**（页面跳转 / 重注入后 guest 记录为空时用）。
+           *  同页条目在 guest 里重新钉标；不同页条目只进列表（`pageOk=false` 防串窗）。 */
+          const hydrateDraftIntoPanes = async () => {
+            const st = stateRef.annot;
+            if (!st || !st.active) return;
+            const items = draftList();
+            if (items.length === 0) return;
+            for (const p of st.panes) {
+              try {
+                const have = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list().map(function (a) { return a.gid; }) : [])', true);
+                const set = new Set(Array.isArray(have) ? have : []);
+                const missing = items.filter((it) => it.gid && !set.has(it.gid));
+                if (missing.length === 0) continue;
+                await p.executeJavaScript('window.__dshKitAnnotator.addExternal(' + JSON.stringify(missing) + ')', true);
+              } catch { /* 面板不可达：下轮再试 */ }
+            }
+          };
+          /** ★R-OWN v26（用户指定）：**发送即消费** —— 面板不再有「提交」按钮；
+           *  用户把消息在会话输入框**发送出去**时，草稿被消费：落盘 → 挂到刚发出的那条消息上 →
+           *  **清空页面批注与草稿** → 会话结束（下一轮批注从 1 重新开始）。
+           *  `rowKeyOfSentRow` = 刚出现的用户行键（用于把胶囊补挂到该行）。 */
+          let annotConsumeBusy = false;
+          let hydrateBusy = false; // v26：草稿水合单飞（与镜像同步同款护栏）
+          const consumeDraft = async (sentRowKey) => {
+            const st = stateRef.annot;
+            const items = draftList();
+            if (annotConsumeBusy) return null;
+            annotConsumeBusy = true;
+            try {
+              const r = await mergeAndSave();
+              for (const p of ((st && st.panes) || [])) {
+                try {
+                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+                } catch { /* 面板已关闭等：忽略 */ }
+              }
+              draftClear(); // 消费草稿
+              if (st) { st.error = (r && r.ok === false) ? r.error : null; if (r && r.ok) st.lastSaved = r; }
+              resetAnnotState('submit', true);
+              // 挂到刚发出的那条消息上（不再往输入框塞文本——用户已经发出去了）
+              if (r && r.ok) {
+                const n = Number(r.count);
+                stateRef.chip = {
+                  mode: 'saved',
+                  count: Number.isFinite(n) && n > 0 ? n : items.length,
+                  path: r.path,
+                  convo: convoTitle(),
+                  items: Array.isArray(r.items) ? r.items : [],
+                  bornAt: new Date().toISOString(),
+                  attachedKey: sentRowKey || null,
+                  base: null,
+                };
+                if (sentRowKey) {
+                  const rows = userRows();
+                  const idx = rows.map(rowKey).indexOf(sentRowKey);
+                  const target = idx >= 0 ? rows[idx] : null;
+                  if (target) {
+                    const holder = target.querySelector(BUBBLE_SEL) || target;
+                    if (!holder.querySelector(MSG_CHIP_MARK)) attachMsgChip(holder, stateRef.chip);
+                    (stateRef.sentChips = stateRef.sentChips || []).push(stateRef.chip);
+                  }
+                }
+              }
+              say('info', `批注已随消息发送（${r && r.ok ? r.path : (r && r.error) || '落盘失败'}）；页面批注与草稿已清空`);
+              return r;
+            } finally {
+              annotConsumeBusy = false;
+            }
+          };
+          /** R-OWN v20：提交收尾（保留：命令/API 路径仍可显式提交；UI 已无「提交」按钮）。
            *  v22：加**重入护栏**（审计发现双击镜像「提交」会落盘两次 + 重复提示）。 */
           let annotMirrorSubmitBusy = false;
           const finishSubmit = async () => {
@@ -1457,21 +1606,19 @@ window.__ModuleLoader__.load({
             annotMirrorSubmitBusy = true;
             try {
               const r = await mergeAndSave();
-              /* ★R-OWN v24（用户要求）：提交后**不再清空批注** ——
-               * 「先提交 1 条 → 再打开批注 → 应该延续前面的批注（能看到、能改），新批注序号接着排」。
-               * 做法：只 `stop()`（撤掉批注图层，记录留在 guest 内存）；随后的会话重启会把旧批注
-               * **重新钉标**，`nextIndex()` 天然从 max+1 续号。已提交的条目标记为"已提交"（徽标转绿），
-               * 再次提交时只发**新增/改过**的条目（mergeAndSave 已按 dirty 过滤）——不会重复落盘。 */
+              /* v26：提交/消费语义统一为"发送即消费" ⇒ 这里也**清空**（页面 + 草稿），
+               * 与 consumeDraft 一致（旧 v24 的"保留"语义已被用户否决）。 */
               for (const p of st.panes) {
                 try {
-                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.markSubmitted) a.markSubmitted(); return 1; })()', true);
+                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
                 } catch { /* 面板已关闭等：死面板由后续刷新自愈 */ }
               }
+              draftClear();
               st.error = (r && r.ok === false) ? r.error : null;
               if (r && r.ok) st.lastSaved = r;
               announceSubmission(r);
               resetAnnotState('submit', true);
-              say('info', `共享批注会话提交完成（批注保留在页面上，可继续修改或新增）：${r && r.ok ? r.path : r.error}`);
+              say('info', `批注已消费（页面批注与草稿已清空，下一轮从 1 开始）：${r && r.ok ? r.path : r.error}`);
               return r;
             } finally {
               annotMirrorSubmitBusy = false;
@@ -1609,12 +1756,18 @@ window.__ModuleLoader__.load({
             try {
               Array.from(root.querySelectorAll('button')).forEach((b) => {
                 // 按**稳定属性**绑定（不再按按钮文案：文案改字就会静默失联）
-                if (b.hasAttribute('data-dsh-kit-panel-chevron')) {
+                if (b.hasAttribute('data-dsh-kit-panel-toggle')) {
+                  // v26（用户指定）：底部「展开列表 / 收起列表」
                   b.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     annotMirror.listOpen = !annotMirror.listOpen; // 宿主侧状态，重镜像后由 applyAnnotMirrorListState 恢复
                     applyAnnotMirrorListState();
                   });
+                  return;
+                }
+                if (b.hasAttribute('data-dsh-kit-panel-close')) {
+                  // v26（用户指定）：头部 ✕ = 关闭批注（**草稿保留**，下次打开还在）
+                  b.addEventListener('click', (ev) => { ev.stopPropagation(); endAnnotSession(pane).catch(() => {}); });
                   return;
                 }
                 if (b.hasAttribute('data-dsh-kit-panel-clear')) {
@@ -1623,16 +1776,9 @@ window.__ModuleLoader__.load({
                     for (const p of ((stateRef.annot && stateRef.annot.panes) || [])) {
                       p.executeJavaScript('(window.__dshKitAnnotator && window.__dshKitAnnotator.clearAll) ? window.__dshKitAnnotator.clearAll() : 0', true).catch(() => {});
                     }
+                    draftClear(); // v26：清除 = 真丢弃（连草稿一起清，否则重开会"复活"）
                     say('info', '已清除全部批注（所有窗口同步移除）');
                   });
-                  return;
-                }
-                if (b.hasAttribute('data-dsh-kit-panel-submit')) {
-                  b.addEventListener('click', (ev) => { ev.stopPropagation(); finishSubmit().catch(() => {}); });
-                  return;
-                }
-                if (b.hasAttribute('data-dsh-kit-panel-cancel')) {
-                  b.addEventListener('click', (ev) => { ev.stopPropagation(); endAnnotSession(pane).catch(() => {}); });
                   return;
                 }
               });
@@ -1647,8 +1793,9 @@ window.__ModuleLoader__.load({
               const body = root.children[1];
               if (!body) return;
               body.style.display = annotMirror.listOpen ? '' : 'none';
-              const chev = root.querySelector('[data-dsh-kit-panel-chevron]');
-              if (chev) chev.textContent = annotMirror.listOpen ? '▾' : '▸';
+              // v26：展开/收起状态由底部整宽按钮表达（头部已无 ▸ 图标）
+              const tg = root.querySelector('[data-dsh-kit-panel-toggle]');
+              if (tg) tg.textContent = annotMirror.listOpen ? '收起列表 ▴' : '展开列表 ▾';
             } catch { /* 忽略 */ }
           };
           const syncAnnotMirror = async () => {
@@ -1884,6 +2031,7 @@ window.__ModuleLoader__.load({
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             await ensureAnnotator(svc, target);
             stateRef.annot = { active: true, panes: [target], pending: [], origins: {}, originUrls: {}, leftIds: new Set(), count: 0, convo: convoTitle(), startedAt: new Date().toISOString(), lastSaved: null, error: null };
+            draftReload(); // v26：开会话时先加载本会话草稿（编号续用 + 面板列出旧批注）
             // R-OWN v23：会话一开就立刻拉一次镜像（不等 2s tick）——用户点开批注后要马上看到面板
             try { setTimeout(() => { syncAnnotMirror().catch(() => {}); }, 300); } catch { /* 忽略 */ }
             startPaneInSession(target, joinFloorIndex(0)); // 首个成员：编号从 1 起（下限 0，annotator +1）
@@ -1902,19 +2050,28 @@ window.__ModuleLoader__.load({
           };
 
           /** 结束共享批注会话（**所有窗口**一起停），并把状态复位。
-           *  ★R-OWN v24（用户要求）：**关闭不再清空批注** —— 「先提交 1 条，然后又打开批注，应该延续前面的批注」。
-           *  想丢弃请用面板的「清除」（`clearAll`，全窗口同步移除）；关闭只是退出批注模式。 */
+           *  ★R-OWN v26（用户指定）：关闭 = **保留为草稿**（重开/跳页/热更新后都还在）；
+           *  提交不再由面板发起 —— 用户把消息**发送出去**即消费并清空（见 consumeDraft）；
+           *  想丢弃请用面板的「清除」。 */
           const endAnnotSession = async (target) => {
             const st = stateRef.annot;
             const paneIds = (st && st.panes) ? st.panes.slice() : [];
             if (target) paneIds.push(target);
+            // v26：关闭**之前**先做一次最终草稿同步——否则"批注后立刻关闭再跳页"会丢掉最后几秒的批注
+            for (const p of paneIds) {
+              try {
+                const lst = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true);
+                if (Array.isArray(lst)) draftMerge(lst, null);
+              } catch { /* 草稿同步失败：下次会话仍可从 guest 取回 */ }
+            }
             for (const p of paneIds) {
               try {
                 await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); return 1; })()', true);
               } catch { /* 面板已关闭等：忽略 */ }
             }
             resetAnnotState('end', true); // v22：与提交共用同一复位逻辑（单一真值来源；保留 lastSaved）
-            say('info', '共享批注会话已关闭（批注保留在页面上；要丢弃请点「清除」）');
+            draftReloadKeep(); // v26：关闭 = 保留草稿（重开/跳页/热更新后都还在）
+            say('info', '批注已关闭（内容保留为草稿；要丢弃请点「清除」）');
             return { ok: true, ended: true, sessionActive: false };
           };
 
@@ -2029,6 +2186,12 @@ window.__ModuleLoader__.load({
                 st.originUrls || {},
               );
               st.origins = plan.nextOrigins;
+              /* v26：草稿箱 = 各面板列表的并集（按 gid），并带上来源页 URL 供同页门控。
+               * 这样**跳转页面**（新文档）后，草稿仍在；而删除日志命中的条目同时从草稿剔除。 */
+              try {
+                for (const s2 of states) if (!s2.dead) draftMerge(s2.list, s2.url);
+                draftRemove(Object.keys(plan.removedGids || {}));
+              } catch { /* 草稿合并失败不影响同步 */ }
               st.originUrls = plan.nextOriginUrls;
               // 执行推送（addExternal 按 gid 幂等；_originUrl 供同页门控防串窗）
               for (const push of plan.pushes) {
@@ -3504,6 +3667,12 @@ window.__ModuleLoader__.load({
                   lastAt: stateRef.mirrorDiag.lastAt,
                   idleTimerOn: !!agentView.idleTimer,
                 },
+                /* v26：草稿箱现场（"跳页后续号/列出旧批注"出问题时的第一手判据） */
+                annotDraft: (() => {
+                  try {
+                    return { key: draftKeyOf(), keyUsed: draftKeyUsed, loaded: draftLoaded, count: draftCount(), maxIndex: draftMaxIndex(), inPanes: (stateRef.annot && stateRef.annot.panes) ? stateRef.annot.panes.length : 0 };
+                  } catch (e) { return { error: msgOf(e) }; }
+                })(),
                 panelRootInDom: !!document.getElementById('dsh-kit-panel'),
                 panelError: typeof window.__dshKitPanelError === 'string' ? window.__dshKitPanelError : null,
                 remoteSvcReady: !!(stateRef.getRemote && stateRef.getRemote()),
@@ -5530,9 +5699,12 @@ window.__ModuleLoader__.load({
               } catch { /* 面板已关闭等：忽略 */ }
             }
             hideAnnTip(); // 胶囊/提示条是会话门控的，切换时一并收掉（避免孤儿浮窗）
+            draftReload(); // v26：草稿按会话隔离（key = 会话 id ⇒ 换会话即换草稿）
             say('info', '会话已切换：批注会话结束并清空（批注按 DSH 对话隔离）');
           };
           const tickChipLifecycle = (webviews) => {
+            /* v26：会话身份（id）变化 ⇒ 换草稿本（并首次加载：模块初始化时 sidebar 服务可能未就绪） */
+            try { draftEnsure(); } catch { /* 忽略 */ } // v26：懒加载 + 会话切换即换草稿本
             refreshPanes(webviews);
             ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
             reapAnnTip(); // v25：提示条兜底回收（胶囊被移除/重建后不永久滞留）
@@ -5600,6 +5772,11 @@ window.__ModuleLoader__.load({
                   syncAnnotMirror().catch(() => {});
                   for (const p of (stateRef.annot.panes || [])) {
                     if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
+                  }
+                  // v26：草稿补进面板（跳页/重注入后 guest 记录为空时恢复；同页条目会重新钉标）
+                  if (!hydrateBusy) {
+                    hydrateBusy = true;
+                    hydrateDraftIntoPanes().catch(() => {}).finally(() => { hydrateBusy = false; });
                   }
                 } else if (document.getElementById(ANNOT_MIRROR_ID)) {
                   removeAnnotMirror();

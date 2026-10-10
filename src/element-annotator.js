@@ -458,6 +458,8 @@
   var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
   var listExpanded = false; // 页内面板批注列表展开/收起（默认收起）
   var panelChevron = null;
+  var panelClose = null; // v26：头部 ✕ 关闭批注（原 ▸ 展开图标）
+  var panelToggle = null; // v26：底部「展开/收起列表」按钮
   var inputState = null; // { record, isNew, container, field }
 
   var overlay = null;
@@ -465,7 +467,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.8.0"; // 1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.9.0"; // 1.9.0：面板重构（删提交/取消；头部 ✕ 关闭、底部展开收起）+ 发送即消费 + 草稿箱；1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -927,9 +929,10 @@
     // v22 修复（审计发现）：**行数据必须始终渲染**，展开与否只控制显示。
     //  旧实现在 `!listExpanded` 时提前 return ⇒ 宿主镜像拿到的 panelList 永远是空的
     //  （guest 的 listExpanded 只有那个**隐藏的**页内 chevron 会写，镜像里的 ▸ 只能展开空容器）。
-    if (panelChevron) {
-      panelChevron.textContent = listExpanded ? "▾" : "▸";
-      panelChevron.title = listExpanded ? "收起批注列表" : "展开批注列表";
+    if (panelToggle) {
+      // v26（用户指定）：头部不再有展开/收起图标；状态由底部整宽按钮表达（文案 + 箭头）
+      panelToggle.textContent = listExpanded ? "收起列表 ▴" : "展开列表 ▾";
+      panelToggle.title = listExpanded ? "收起批注列表" : "展开批注列表";
     }
     if (!panelList) {
       return;
@@ -1090,23 +1093,26 @@
       textAlign: "center",
     });
     panelCount.textContent = "0";
-    panelChevron = makeElement("button", {
+    /* v26（用户指定）：**头部不再有 ▸ 展开图标**（原 panelChevron 创建块已删除；
+     * 展开/收起由底部整宽按钮承担，见 footer 的 toggleBtn）。 */
+    /* v26（用户指定）：左上角改为 **✕ 关闭批注**（▸ 展开图标不再出现在头部；展开/收起移到底部按钮）。
+     * 关闭 = 退出批注模式，**批注内容保留为草稿**（未提交的草稿在重开/跳页/热更新后都还在）。 */
+    panelClose = makeElement("button", {
       background: "transparent",
       border: "none",
       color: "rgba(255,255,255,0.72)",
       cursor: "pointer",
-      fontSize: "10px",
-      padding: "2px 4px",
+      font: "12px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+      padding: "2px 6px",
     });
-    panelChevron.type = "button";
-    panelChevron.textContent = "▸";
-    panelChevron.title = "展开批注列表";
-    panelChevron.setAttribute("data-dsh-kit-panel-chevron", "");
-    panelChevron.style.marginLeft = "auto";
-    panelChevron.addEventListener("click", function (event) {
+    panelClose.type = "button";
+    panelClose.textContent = "✕";
+    panelClose.title = "关闭批注（批注内容保留为草稿）";
+    panelClose.setAttribute("data-dsh-kit-panel-close", "");
+    panelClose.style.marginLeft = "auto";
+    panelClose.addEventListener("click", function (event) {
       event.stopPropagation();
-      listExpanded = !listExpanded;
-      renderPanel();
+      stopAnnotating();
     });
     // 「清除」按钮：位于展开/收起图标左侧（用户指定位置）；清空本面板全部批注，
     // gid 全量进删除日志 → 宿主广播 removeExternal，共享会话下所有窗口同步移除
@@ -1127,35 +1133,21 @@
       event.stopPropagation();
       clearAllAnnots();
     });
-    header.append(icon, title, panelCount, clearBtn, panelChevron);
+    header.append(icon, title, panelCount, clearBtn, panelClose);
     panel.append(header);
 
     panelList = makeElement("div", { overflowY: "auto", minHeight: "24px" });
     panel.append(panelList);
 
+    /* v26（用户指定）：**删除「提交」「取消」**；原位置改为一个整宽按钮「展开列表 / 收起列表」。
+     * 提交不再由面板发起 —— 用户把消息**发送出去**即消费批注并清空（client 的发送检测负责）；
+     * 关闭批注走头部 ✕（同样保留草稿）。 */
     var footer = makeElement("div", {
-      columnGap: "8px",
       display: "grid",
-      gridTemplateColumns: "1fr 1fr",
+      gridTemplateColumns: "1fr",
       marginTop: "8px",
     });
-    var submitBtn = makeElement("button", {
-      background: ACCENT,
-      border: "none",
-      borderRadius: "8px",
-      color: "#ffffff",
-      cursor: "pointer",
-      font: "600 12px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-      padding: "8px 0",
-    });
-    submitBtn.type = "button";
-    submitBtn.textContent = "提交";
-    submitBtn.setAttribute("data-dsh-kit-panel-submit", "");
-    submitBtn.addEventListener("click", function (event) {
-      event.stopPropagation();
-      handlePanelSubmit();
-    });
-    var cancelBtn = makeElement("button", {
+    var toggleBtn = makeElement("button", {
       background: "transparent",
       border: "1px solid rgba(255,255,255,0.24)",
       borderRadius: "8px",
@@ -1164,14 +1156,15 @@
       font: "12px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
       padding: "8px 0",
     });
-    cancelBtn.type = "button";
-    cancelBtn.textContent = "取消";
-    cancelBtn.setAttribute("data-dsh-kit-panel-cancel", "");
-    cancelBtn.addEventListener("click", function (event) {
+    toggleBtn.type = "button";
+    toggleBtn.setAttribute("data-dsh-kit-panel-toggle", "");
+    toggleBtn.addEventListener("click", function (event) {
       event.stopPropagation();
-      stopAnnotating();
+      listExpanded = !listExpanded;
+      renderPanel();
     });
-    footer.append(submitBtn, cancelBtn);
+    panelToggle = toggleBtn;
+    footer.append(toggleBtn);
     panel.append(footer);
 
     // 键盘/点击屏蔽：面板内的按键不透传给页面（capture 阶段 stopPropagation，
@@ -1195,6 +1188,8 @@
       panelList = null;
       panelCount = null;
       panelChevron = null; // B8：漏置空——重建时会被覆盖，但悬空引用属隐患
+    panelClose = null;
+    panelToggle = null;
     }
   }
 

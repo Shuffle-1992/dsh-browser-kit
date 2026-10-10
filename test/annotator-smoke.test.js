@@ -95,13 +95,20 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
     assert.equal(parsed.annotations[1].stale, true);
     assert.equal(parsed.annotations[1].element.rect.width, 120);
 
-    // 面板「提交」：onSubmit 回调 + 会话以 submitted 收束
-    await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-panel-submit]").click()');
-    assert.equal(await drive.evalJs(cdp, "window.__p"), "submitted");
+    // v26（用户指定）：面板已无「提交」按钮 —— 打包改由**宿主在"消息发送出去"时**发起。
+    // 冒烟里走同源的公开 API：submit() 取打包结果，再 stop() 收束会话。
+    await drive.evalJs(cdp, "window.__dshKitSubmitted = window.__dshKitAnnotator.submit(); 'ok'");
+    // v26：面板按钮集变化（✕ 关闭 / 清除 / 展开收起；不再有提交、取消）——**必须在 stop() 之前查**
+    assert.equal(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-panel-submit]"))'), false, "不应再有提交按钮");
+    assert.equal(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-panel-cancel]"))'), false, "不应再有取消按钮");
+    assert.equal(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-panel-close]"))'), true, "应有 ✕ 关闭按钮");
+    assert.equal(await drive.evalJs(cdp, 'Boolean(document.querySelector("[data-dsh-kit-panel-toggle]"))'), true, "应有展开/收起按钮");
+    await drive.evalJs(cdp, "window.__dshKitAnnotator.stop(); 'stopped'");
+    assert.equal(await drive.evalJs(cdp, "window.__p"), "cancelled", "stop() 收束会话（v26 不再有面板提交回调路径）");
     assert.equal(
       await drive.evalJs(cdp, "Boolean(window.__dshKitSubmitted && window.__dshKitSubmitted.markdown.length > 0)"),
       true,
-      "onSubmit 应收到协议块",
+      "submit() 应收到协议块",
     );
     assert.equal(
       await drive.evalJs(cdp, 'document.querySelectorAll("[data-dsh-kit-marker]").length'),
@@ -132,13 +139,13 @@ test("annotator 冒烟：批注流全链路 + 协议 round-trip", { timeout: 120
       "clearAll 应把该 gid 写入删除日志（否则其他窗口会被 addExternal 推回来）",
     );
 
-    // 面板「清除」按钮（1.4.0）：存在、位于展开/收起图标左侧、点击即 clearAll 语义
+    // 面板「清除」按钮：存在、位于**关闭图标左侧**（v26：头部顺序 = 图标/标题/计数/清除/✕）、点击即 clearAll 语义
     await drive.evalJs(cdp, "window.__p5 = window.__dshKitAnnotator.start(); 'ok'");
     const domOrder = await drive.evalJs(
       cdp,
-      '(function () { var c = document.querySelector("[data-dsh-kit-panel-clear]"); var v = document.querySelector("[data-dsh-kit-panel-chevron]"); if (!c || !v) return "missing"; return (c.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) ? "chevron-after-clear" : "wrong-order"; })()',
+      '(function () { var c = document.querySelector("[data-dsh-kit-panel-clear]"); var v = document.querySelector("[data-dsh-kit-panel-close]"); if (!c || !v) return "missing"; return (c.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) ? "close-after-clear" : "wrong-order"; })()',
     );
-    assert.equal(domOrder, "chevron-after-clear", "清除按钮应在展开/收起图标左侧（DOM 顺序）");
+    assert.equal(domOrder, "close-after-clear", "清除按钮应在关闭（✕）图标左侧（DOM 顺序）");
     await drive.evalJs(cdp, 'document.getElementById("btn-a").click()');
     await drive.evalJs(cdp, 'document.querySelector("[data-dsh-kit-confirm]").click()');
     assert.equal(await drive.evalJs(cdp, "window.__dshKitAnnotator.list().length"), 1);
