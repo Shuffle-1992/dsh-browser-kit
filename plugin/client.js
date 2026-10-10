@@ -2167,7 +2167,11 @@ window.__ModuleLoader__.load({
             };
             /* @annotations-summary-canonical-end */
             const items = summarizeSets(sets);
-            return Object.assign({}, unwrap(await svc.saveMerged(sets, null)), { items });
+            /* ★交付通道（2026-10-10）：把**调用方会话 id** 一并交给宿主 —— 宿主据此在 `agent/pre-step`
+             * 把批注摘要注入**该会话**的 Agent 上下文（不进用户输入框、不改用户消息）。
+             * 不带 sessionId ⇒ 宿主无法定位会话 ⇒ 只能落盘（正是"Agent 收不到批注内容"的成因 ✗）。 */
+            const meta = { sessionId: currentSurfaceSession() || null, at: new Date().toISOString() };
+            return Object.assign({}, unwrap(await svc.saveMerged(sets, meta)), { items });
           };
 
           /** 面板加入共享会话（编号交接：首个新批注 = 全局最大已用号 + 1，跨窗口延续）。 */
@@ -3775,6 +3779,23 @@ window.__ModuleLoader__.load({
                 if (stateRef.annot.panes.length === 0) stateRef.annot.active = false;
               }
               return { ok: true };
+            },
+            /* ★annot-consume（2026-10-10）：**立即把当前批注消费并发给 Agent** ——
+             * 与"用户发送消息"走同一条 `consumeDraft`（落盘 → 挂胶囊 → 清空页面与草稿 → 复位基线），
+             * 宿主随即经 `agent/pre-step` 把摘要 + 文件路径注入该会话的 Agent 上下文 ✓。
+             * 用途：①用户/agent 显式触发；②端到端验收交付通道（不必真的发一条消息）。 */
+            'annot-consume': async function () {
+              const before = draftCount();
+              if (before === 0) return { ok: false, error: '当前没有待发送的批注（草稿为空）' };
+              const r = await consumeDraft(null);
+              return {
+                ok: !!(r && r.ok),
+                consumed: before,
+                path: (r && r.path) || null,
+                count: (r && r.count) || before,
+                error: (r && r.error) || null,
+                delivery: '已交给宿主：将在该会话下一轮首步注入 Agent 上下文（agent/pre-step）',
+              };
             },
             'annotator-status': async function (svc, c) {
               const target = pickGuestEl();

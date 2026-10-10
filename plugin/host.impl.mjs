@@ -17,6 +17,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { dirname, join, resolve as pathResolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildAnnotationsMarkdown } from '../src/annotations-protocol.js';
+/* ★annot-delivery：批注 → Agent 上下文的交付通道（agent/pre-step 注入）。
+ * ⚠️ 必须带 `?ts=` 动态 import：本 impl 以 mtime+seq 动态加载，而相对/静态 import 会被进程级模块缓存
+ * （P13 变体），改了交付实现却不生效是最难查的一类"功能没生效"。 */
+let annotDelivery = null;
+const loadAnnotDelivery = async () => {
+  if (!annotDelivery) annotDelivery = await import(`./annot-delivery.host.mjs?ts=${wireCacheBust || Date.now()}`);
+  return annotDelivery;
+};
 // R-HID：hid-bridge 用 **?ts= 动态 import**——静态 import 会命中进程级模块缓存，
 // impl 重载后新加的导出（如 hidTraceImpl）永远不生效（P13 变体，同 wire 的缓存纪律）。
 let hidBridge = null;
@@ -270,6 +278,9 @@ function writeReport(reportPath, state, reason) {
           clientReceivedAt: state.clientReceivedAt,
           // R-TOOL：agent 工具注册诊断（defineTool 来源 / 已注册清单 / 失败原因）
           tools: state.tools || null,
+          /* ★annot-delivery 诊断（"批注发送了但 Agent 没收到内容"的第一手判据）：
+           * registered/reason/createUserMessageSource/pending/injected/skipped/lastError。 */
+          annotDelivery: state.annotDelivery || null,
         },
         null,
         2,
@@ -630,6 +641,15 @@ export async function apply(ctx, _config = {}, paths = {}) {
     probing: false,
     shots: [],
   };
+  /* ★annot-delivery：注册"批注 → Agent 上下文"的交付通道（`agent/pre-step` 注入）。
+   * 激活安全：注册失败只 warn（诊断见 kit-status.annotDelivery），绝不影响插件激活。 */
+  try {
+    const ad = await loadAnnotDelivery();
+    ad.registerAnnotDelivery(ctx, state, (level, line) => log(level === 'warn' ? 'warn' : 'info', line), () => writeReport(reportPath, state, 'annot-delivery changed'));
+    log('info', `annot-delivery 就绪：${state.annotDelivery && state.annotDelivery.reason ? state.annotDelivery.reason : '已登记待投递通道'}`);
+  } catch (e) {
+    log('warn', `annot-delivery 注册异常（不影响主流程）：${errOf(e)}`);
+  }
 
   /** 探测入口（激活时一次；client 上报到达时若 guest 已出现再补一轮）。 */
   const probe = async (trigger) => {
@@ -695,6 +715,18 @@ export async function apply(ctx, _config = {}, paths = {}) {
     onSaveMerged: (sets, meta) => {
       const r = saveMergedImpl(paths, sets, meta);
       log(r.ok ? 'info' : 'warn', `saveMerged → ${r.ok ? `${r.path} (${r.count} 条, ${groupsLen(sets)} 组)` : r.error}`);
+      /* ★annot-delivery（2026-10-10 用户实测「批注发送了但 Agent 没收到内容」）：
+       * 落盘成功 ⇒ 登记一次**待投递**，由 `agent/pre-step`（annot-delivery.host.mjs）在该会话下一轮
+       * 首步注入摘要 + 文件路径。为什么不写输入框：用户明确要求「不要带文字」；为什么不靠胶囊：
+       * 胶囊是 DOM 装饰，**模型看不到** ✗ —— 旧通道被删后就断在这里。 */
+      try {
+        if (r && r.ok && typeof state.recordAnnotDelivery === 'function') {
+          const sid = meta && typeof meta === 'object' ? meta.sessionId : null;
+          // ⚠️ 必须经动态加载的模块引用（同文件内的静态引用在动态 import 模型下会是 undefined ⇒ 静默不投递 ✗）
+          const brief = annotDelivery ? annotDelivery.summarizeSetsForDelivery(sets) : { items: [], windows: [] };
+          state.recordAnnotDelivery(sid, { count: r.count, path: r.path, items: brief.items, windows: brief.windows });
+        }
+      } catch (e) { log('warn', `annot-delivery 登记失败：${errOf(e)}`); }
       return Promise.resolve(r);
     },
     onGetInjectScript: () => getInjectScriptImpl(paths),
