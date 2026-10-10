@@ -966,6 +966,50 @@ window.__ModuleLoader__.load({
             const ces = visibleCEs();
             return ces[ces.length - 1] || null;
           };
+          /* ★2026-10-10（用户实测："发送出去后备注没带出去、还留在输入框；**终止后**批注才进对话"）：
+           * 根因 —— 消费原先只靠"**用户消息行**出现"来判定 ✗，而 DSH 在**流式进行中**并不把刚发出的消息
+           * 作为普通行渲染 ⇒ 检测要等回合结束（用户终止）才成立 ✗。
+           * 修法：在**发送当下**就消费 —— 监听输入框的 Enter（无 Shift）与发送按钮点击（capture 阶段，
+           * 不干扰 DSH 自身处理），命中即有草稿就 `consumeDraft()`；"用户行出现"仅作**兜底**保留 ✓。 */
+          let sendHookBound = false;
+          let lastSendHookAt = 0;
+          const looksLikeSendButton = (el) => {
+            try {
+              if (!el || el.tagName !== 'BUTTON') return false;
+              const ce = findComposer();
+              if (!ce) return false;
+              const box = ce.closest('form') || ce.parentElement || ce;
+              if (!box || !box.contains(el)) return false; // 必须在输入框同一容器内
+              if (el.disabled) return false;
+              const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.textContent || ''}`;
+              if (/停止|stop|暂停|pause/i.test(label)) return false; // 「停止」按钮 ≠ 发送
+              return true; // 容器内的可用按钮：DSH 的发送键
+            } catch { return false; }
+          };
+          const onSendIntent = (why) => {
+            try {
+              const now = Date.now();
+              if (now - lastSendHookAt < 800) return; // 抖动护栏（Enter 与点击可能同时触发）
+              lastSendHookAt = now;
+              if (draftCount() === 0) return; // 没有待发送批注：什么都不做（不动输入框、不动消息）
+              say('info', `检测到发送动作（${why}）：批注随本次发送消费`);
+              consumeDraft(null).catch(() => {});
+            } catch { /* 发送钩子异常绝不影响发送本身 */ }
+          };
+          const bindSendHook = () => {
+            if (sendHookBound) return;
+            const ce = findComposer();
+            if (!ce) return;
+            sendHookBound = true;
+            try {
+              ce.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) onSendIntent('Enter');
+              }, true);
+              document.addEventListener('click', (ev) => {
+                if (looksLikeSendButton(ev.target)) onSendIntent('发送按钮');
+              }, true);
+            } catch { /* 绑定失败：仍有"用户行出现"兜底 */ }
+          };
           const removeAnnotChip = () => {
             stateRef.chip = null;
             const old = document.getElementById(CHIP_ID);
@@ -6038,6 +6082,7 @@ window.__ModuleLoader__.load({
           const tickChipLifecycle = (webviews) => {
             /* v26：会话身份（id）变化 ⇒ 换草稿本（并首次加载：模块初始化时 sidebar 服务可能未就绪） */
             try { draftEnsure(); } catch { /* 忽略 */ } // v26：懒加载 + 会话切换即换草稿本
+            try { bindSendHook(); } catch { /* 忽略 */ } // ★发送当下即消费（输入框会被重建 ⇒ 每轮尝试绑定）
             /* ★v32 自愈：给**已套预设**的面板补挂尺寸跟随（老会话里的面板是升级前套的，
              *  不补挂就永远不跟随分窗宽度 ✗）。observe 幂等（WeakMap 去重），每轮跑很便宜。 */
             try {

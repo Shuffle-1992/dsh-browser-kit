@@ -79,7 +79,11 @@ test("宿主：saveMerged 成功后登记待投递，并把 sessionId 带进 met
 
 test("注入点：agent/pre-step，只在 step===1，投递后清除，异常不影响主流程", () => {
   assert.match(deliverySrc, /ctx\.on\('agent\/pre-step'/, "必须注册 agent/pre-step");
-  assert.match(deliverySrc, /if \(Number\(payload && payload\.step\) !== 1\)/, "只在轮首注入（避免拆开 tool_use/结果对）");
+  // ★2026-10-10 修：**不再限定 step===1**（用户实测"终止后批注才进对话"= 交付要等下一轮才生效 ✗）。
+  // 安全性依据（与 dsh-context-pilot 的 mid-step 注入同款）：在**步首**追加 user 消息时上一步的
+  // tool/result 已落在 surface 里 ⇒ 不会把 tool_use 与 tool_result 分开；且只追加、不改动既有消息 ✓。
+  assert.doesNotMatch(deliverySrc, /payload\.step\) !== 1/, "不得再限定轮首（否则回合内消费要等下一轮才被读到 ✗）");
+  assert.match(deliverySrc, /不会把 tool_use 与它的 tool_result 分开/, "必须写明放开时机的安全依据");
   assert.match(deliverySrc, /pending\.delete\(String\(sid\)\);/, "投递后必须清除（一次性，不刷屏）");
   assert.match(deliverySrc, /return \{ \.\.\.decision, messages: \[\.\.\.\(\(decision && decision\.messages\) \|\| \[\]\), message\] \};/, "以追加消息方式注入（不改用户消息）");
   assert.match(deliverySrc, /source: \{ kind: SOURCE_KIND, form: 'snapshot', sections: \[\{ name: SOURCE_KIND, text \}\] \}/, "注入消息要带 source 归属标记");

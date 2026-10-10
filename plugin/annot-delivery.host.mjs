@@ -17,6 +17,9 @@
  *  · **一次性** ✓（投递后清除，不刷屏）
  *  · **只在 step===1 注入** ✓（非首步插入可能把 tool_use 与 tool_result 拆开 ⇒ INVALID_REQUEST；
  *    而"用户发送批注"必然开启新的一轮，其首步即 step 1）
+ *  ⚠️ 上述"只在 step===1"**已于 2026-10-10 放开**（用户实测：「发送出去后备注没带出去…**终止后**批注才加到
+ *    对话里」⇒ 交付等到下一轮才生效 = 体感"Agent 没读到" ✗）。现在**任一步的步首**都可投递，安全性依据：
+ *    步首追加时上一步的 tool/result 已落 surface ⇒ 不会把 tool_use 与它的 tool_result 分开；且只追加不改动 ✓。
  *
  * ## 激活安全
  * `ctx.on` 不可用 / `createUserMessage` 解析不到 ⇒ 只 warn 并记入诊断（`kit-status.annotDelivery`），
@@ -236,8 +239,11 @@ export function registerAnnotDelivery(ctx, state, log, onChange) {
         const decision = await next();
         try {
           if (!decision || decision.kind === 'reject') return decision;
-          // 只在**轮首**注入：非首步插入 user 消息可能把 tool_use 与 tool_result 拆开
-          if (Number(payload && payload.step) !== 1) { diag.skipped.notFirstStep = (diag.skipped.notFirstStep || 0) + 1; return decision; }
+          /* ★2026-10-10（用户实测："Agent 也没读到；终止后批注才进对话"）：**不再限定 step===1**。
+           * 原先只在轮首注入 ✗ ⇒ 消费发生在回合进行中时，交付要等到**下一轮**才生效（体感=没读到 ✗）。
+           * 安全性依据（与 dsh-context-pilot 的 mid-step 注入同款）：在**步首**追加一条 user 消息时，
+           * 上一步的 tool/result 已落在 surface 里 ⇒ 不会把 tool_use 与它的 tool_result 分开
+           * （那才是 INVALID_REQUEST 的成因）；且我们是**追加到末尾**，不改动既有消息 ✓。 */
           const sid = (payload && payload.agent && payload.agent.session && (payload.agent.session.id || payload.agent.session.sessionId)) || null;
           if (!sid || !pending.has(String(sid))) return decision;
           const d = pending.get(String(sid));
