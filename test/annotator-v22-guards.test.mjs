@@ -73,10 +73,13 @@ test("T6：1s 空闲 tick 的跨进程调用有预算（回潮即变红）", () 
   assert.match(metrics.slice(0, 900), /if \(annotMetricCache\.get\(pane\) === key\) return;/, "指标推送缺少「值未变则不推」的缓存");
 });
 
-test("T7：会话复位单一来源（两条收尾路径都走 resetAnnotState）", () => {
+test("T7：会话复位单一来源（各收尾路径都走 resetAnnotState）", () => {
   assert.match(clientSource, /const resetAnnotState = \(reason, keepLastSaved\) => \{/);
   const calls = [...clientSource.matchAll(/resetAnnotState\('(submit|end)'/g)].map((m) => m[1]);
-  assert.deepEqual(calls.sort(), ["end", "submit"], "提交/结束两条路径都必须复用 resetAnnotState");
+  // v25 起三条收尾路径：提交 / 关闭 / 换 DSH 对话 —— 都复用同一助手，不再各自手写字面量
+  assert.ok(calls.includes("submit"), "提交路径必须复用 resetAnnotState");
+  assert.ok(calls.includes("end"), "结束路径必须复用 resetAnnotState");
+  assert.ok(calls.length >= 2, `复位调用点应 >= 2（实际 ${calls.length}）`);
   // 复位字段集只在一处出现（count/startedAt/convo 必须一起复位，否则诊断报旧值）
   const literals = clientSource.match(/leftIds: new Set\(\), count: 0, convo: null, startedAt: null,/g) || [];
   assert.equal(literals.length, 1, `会话状态字面量应只有 1 处（实际 ${literals.length}）`);

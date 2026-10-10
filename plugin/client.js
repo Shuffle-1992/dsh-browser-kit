@@ -5495,12 +5495,50 @@ window.__ModuleLoader__.load({
               };
               setTimeout(loop, 400);
             };
-            const tickChipLifecycle = (webviews) => {
-              refreshPanes(webviews);
-              ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
-              ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
-              ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
-            };
+          /** R-OWN v25（用户实测：这个浮窗一直不消失）：提示条的**兜底回收**。
+           *  根因：提示条只在胶囊自身的 mouseenter/mouseleave 上开关，而胶囊会被 2s tick、
+           *  提交（live→saved 模型切换）、会话门控等**移除或重建** ⇒ mouseleave 永不触发
+           *  ⇒ 提示条永久滞留（且它是 pointer-events:none，鼠标划过去也关不掉）。
+           *  兜底判据（每轮 tick 跑一次）：**胶囊不在 DOM，或指针已不在胶囊上** ⇒ 收掉。 */
+          const reapAnnTip = () => {
+            try {
+              const tip = document.getElementById(ANN_TIP_ID);
+              if (!tip || tip.style.display === 'none') return;
+              const chip = document.getElementById(CHIP_ID);
+              let hovered = false;
+              if (chip) {
+                try { hovered = chip.matches(':hover'); } catch { hovered = false; }
+              }
+              if (!chip || !hovered) hideAnnTip();
+            } catch { /* 忽略 */ }
+          };
+          /** R-OWN v25（用户要求：批注是单会话的，避免跨会话）：**批注会话按 DSH 对话隔离**。
+           *  现有实现里 `stateRef.annot` 是实例级全局 ⇒ 换对话后批注会话与编号会**跨会话续用**
+           *  （新对话里新批注接着 4、5、6 排 ✗，页面还留着上个对话的徽标 ✗）。
+           *  判据：会话开始时记录的 `convo` 与当前 `convoTitle()` 不一致 ⇒ 结束并**清空**，
+           *  使新对话从 1 开始编号（页面标记一并清掉，避免与旧编号混在一起）。 */
+          const enforceAnnotConvoScope = () => {
+            const st = stateRef.annot;
+            if (!st || !st.active) return;
+            const now = convoTitle();
+            if (!st.convo || !now || st.convo === now) return;
+            const panes = (st.panes || []).slice();
+            resetAnnotState('end', true);
+            for (const p of panes) {
+              try {
+                p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true).catch(() => {});
+              } catch { /* 面板已关闭等：忽略 */ }
+            }
+            hideAnnTip(); // 胶囊/提示条是会话门控的，切换时一并收掉（避免孤儿浮窗）
+            say('info', '会话已切换：批注会话结束并清空（批注按 DSH 对话隔离）');
+          };
+          const tickChipLifecycle = (webviews) => {
+            refreshPanes(webviews);
+            ensureAnnotChip(); // 胶囊：实时计数 / saved 模型 / 重定位（不依赖会话活跃）
+            reapAnnTip(); // v25：提示条兜底回收（胶囊被移除/重建后不永久滞留）
+            ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
+            ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
+          };
             const tickToolbarStyles = (activeIds) => {
               // R-OWN v11：图标点亮 = **会话是否活跃**（会话级总开关，两处浏览器同步）
               //  —— 不再按"本面板是否在成员表里"判定：成员表会因 settle/自愈重注入而变动，
@@ -5569,6 +5607,7 @@ window.__ModuleLoader__.load({
               } catch { /* 忽略：镜像同步失败已在 mirrorDiag 记账 */ }
               const st = stateRef.annot;
               const webviews = Array.from(document.querySelectorAll('webview')); // R4.1：tick 内单次查询复用
+              enforceAnnotConvoScope(); // v25：批注按 DSH 对话隔离（换对话即结束+清空，编号从 1 起）
               tickChipLifecycle(webviews);
               const activeIds = (st && st.active && Array.isArray(st.panes))
                 ? new Set(st.panes.map(paneIdOf))
