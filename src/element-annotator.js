@@ -456,6 +456,9 @@
   var mirrorRev = 0; // v22：面板内容版本（renderPanel 每次自增）
   var mirrorRevSent = -1; // v22：上一次已把 HTML 交给宿主的版本 ⇒ 未变时只回 rev（不再搬整份 outerHTML）
   var indexBase = 0; // 跨窗口共享编号：start({ startIndex }) 设置下限（多面板会话由宿主计算传入）
+  /** ★R-OWN v34：本窗口身份（宿主经 `setWindowTag` 告知）——新建批注时随记录一起带走，
+   *  让 Agent 一眼知道这条批注属于哪个浏览器窗口。存**稳定 key**，代号由宿主映射。 */
+  var sessionWindowTag = null;
   var listExpanded = false; // 页内面板批注列表展开/收起（默认收起）
   var panelChevron = null;
   var panelClose = null; // v26：头部 ✕ 关闭批注（原 ▸ 展开图标）
@@ -467,7 +470,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.9.0"; // 1.9.0：面板重构（删提交/取消；头部 ✕ 关闭、底部展开收起）+ 发送即消费 + 草稿箱；1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.12.0"; // 1.12.0：窗口身份按变化下发 + stop 时清空（修"后加入窗口标错"）；1.11.0：批注**在创建地记住来源窗口**（setWindowTag + 记录带 _window），修"跨窗口张冠李戴"；1.10.0：批注带**窗口信息**（面板行显示窗口代号 A/B/C…，随同步/落盘传递）；1.9.0：面板重构（删提交/取消；头部 ✕ 关闭、底部展开收起）+ 发送即消费 + 草稿箱；1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -548,6 +551,8 @@
     // 避免"提交后保留批注"（用户要求：重开批注要延续前面的批注）导致下一次全量重提。
     out.dirty = record.dirty !== false;
     if (record.submitted) out.submitted = true;
+    // ★R-OWN v34：**窗口归属**随记录一起下发给宿主（落盘 markdown 的 `Window:` 行 + 面板徽章都用它）
+    if (record._window) out._window = record._window;
     return out;
   }
 
@@ -974,6 +979,23 @@
       });
       noteNode.textContent = record.note || "(未填写意见)";
       row.append(indexNode, tagNode, noteNode);
+      /* ★R-OWN v34（用户要求"批注信息要包含所在的窗口信息"）：面板每行加**窗口代号**徽章
+       * （A/B/C… 由宿主按"会话窗口在前、自持窗口在后"统一编号；悬停显示完整窗口行）。 */
+      if (record._window && (record._window.code || record._window.label)) {
+        var winNode = makeElement("span", {
+          background: "rgba(56,132,255,0.22)",
+          border: "1px solid rgba(56,132,255,0.5)",
+          borderRadius: "5px",
+          color: "#dbeafe",
+          font: "600 10px/1 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+          padding: "2px 4px",
+          flex: "0 0 auto",
+        });
+        winNode.textContent = record._window.code ? `窗口 ${record._window.code}` : "窗口";
+        winNode.title = record._window.label || "";
+        winNode.setAttribute("data-dsh-kit-window-tag", record._window.code || "");
+        row.append(winNode);
+      }
       row.addEventListener("click", function (event) {
         event.stopPropagation();
         openNoteInput(record, false);
@@ -1509,6 +1531,11 @@
        * 用户要求：**提交后不丢批注**——重开批注要能看到、能改，新批注序号接着往下排。 */
       dirty: true,
       submitted: false,
+      /* ★R-OWN v34（用户要求"批注信息要包含所在的窗口信息"）：**在创建地记下来源窗口**。
+       * 为什么必须记在创建地：跨窗口同步会把同一条批注复制到所有窗口 ⇒ 若由宿主按"哪个窗口先同步到"
+       * 打标，就会出现"在自持窗口批注、却标成会话窗口"✗（实测踩到）。这里存**稳定窗口 key**
+       * （`session:1` / `owned:tab-xxx`），宿主渲染/落盘时再映射成当前字母代号 A/B/C…。 */
+      _window: sessionWindowTag ? JSON.parse(JSON.stringify(sessionWindowTag)) : null,
     };
     annotations.push(record);
     renderBadge(record);
@@ -1669,6 +1696,9 @@
     });
   }
 
+  /* v34：停止批发注时**清掉窗口身份** —— 否则旧 tag 会跨会话残留，新会话里后加入的窗口
+   * 若没被及时下发，记录就会标成上一个窗口 ✗（宿主每轮 tick 会按变化重新下发）。 */
+  function clearWindowTag() { sessionWindowTag = null; }
   function removeAllLayers() {
     closeNoteInput(false);
     removeHoverLayers();
@@ -1725,6 +1755,7 @@
     /** 结束当前会话并清理图层（已收集的批注保留在内存，clear() 才清空）。 */
     stop: function () {
       stopAnnotating();
+      clearWindowTag(); // v34：会话结束即清窗口身份（避免旧 tag 跨会话残留 ⇒ 新记录标错窗口 ✗）
     },
     /** v22 收敛：唯一的指标入口。只保留**提示条**真正需要的两项：
      *  `visibleWidth`（可见带宽度，guest px）与 `uiScale`（guest→屏幕放大倍数，用于反向缩放）。
@@ -1758,6 +1789,20 @@
     /** 当前批注列表（stale 实时判定）。 */
     list: function () {
       return annotations.map(publicAnnotation);
+    },
+    /** ★R-OWN v34：宿主在会话开始（以及窗口集合变化）时告知**本窗口身份** ——
+     *  以稳定 key 为准（`session:1` / `owned:tab-xxx`），此后新建的批注都带上它；
+     *  **已存在的条目不回改**（创建地即真相：窗口增减不应篡改历史归属 ✓）。 */
+    setWindowTag: function (tag) {
+      try {
+        sessionWindowTag = (tag && typeof tag === 'object')
+          ? { code: String(tag.code || ""), kind: String(tag.kind || ""), ordinal: Number(tag.ordinal) || 0, key: String(tag.key || ""), line: String(tag.line || "") }
+          : null;
+        renderPanel();
+        return { ok: true, tag: sessionWindowTag };
+      } catch (_) {
+        return { ok: false };
+      }
     },
     /** R-OWN v20：宿主镜像渲染用——把 guest 面板的 DOM 快照与计数交给宿主。
      *  宿主据此在自己的坐标系里画面板（页面可以顶部对齐，面板不再被 guest 视口夹住）。 */
@@ -1853,6 +1898,9 @@
            * 已提交的条目会被当成"待提交"（下次提交重复落盘，徽标也由绿回蓝）。 */
           dirty: item.dirty !== false,
           submitted: item.submitted === true,
+          /* ★R-OWN v34：**窗口信息随同步一起传**（宿主为每条批注标注来源窗口代号 A/B/C…）
+           * —— 面板行显示它，落盘 markdown 的 `Window:` 行也用它，让 Agent 一眼知道批注属于哪个窗口。 */
+          _window: item._window || (item.window ? { code: "", kind: "", ordinal: 0, key: "", label: String(item.window) } : null),
         };
         annotations.push(record);
         if (pageOk) {

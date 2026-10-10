@@ -806,7 +806,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.9.0';
+          const EXPECTED_ANNOT_VERSION = '1.12.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1535,12 +1535,15 @@ window.__ModuleLoader__.load({
           };
           const draftSave = () => { try { localStorage.setItem(draftKeyOf(), JSON.stringify({ at: new Date().toISOString(), items: annotDraft })); } catch { /* 配额/隐私模式：忽略 */ } };
           const draftList = () => { draftEnsure(); return Object.keys(annotDraft).map((g) => annotDraft[g]); };
-          const draftMerge = (list, url) => {
+          const draftMerge = (list, url, win) => {
             draftEnsure();
             let changed = false;
             for (const it of list || []) {
               if (!it || !it.gid) continue;
-              const item = it._originUrl ? it : Object.assign({}, it, { _originUrl: url || null });
+              const item = Object.assign({}, it);
+              if (!item._originUrl) item._originUrl = url || null;
+              // ★v34：草稿也带**窗口信息**（面板行/提示要显示；跳页、水合后仍在）
+              if (win && !item._window) item._window = { code: win.code, kind: win.kind, ordinal: win.ordinal, key: win.key, label: win.line };
               if (JSON.stringify(annotDraft[it.gid] || null) !== JSON.stringify(item)) { annotDraft[it.gid] = item; changed = true; }
             }
             if (changed) draftSave();
@@ -1908,6 +1911,15 @@ window.__ModuleLoader__.load({
               try {
                 const vw = paneVisibleWidth(target);
                 const us = Number(paneUiScale(target).toFixed(4));
+                /* ★R-OWN v34：**先把本窗口身份告诉 guest**（批注要带窗口信息，且必须记在**创建地**：
+                 * 跨窗口同步会把同一条批注复制到所有窗口，"谁先同步到就标谁"会张冠李戴 ✗ 实测踩到）。 */
+                try {
+                  const wtag = annotWindowTag(target);
+                  await target.executeJavaScript(
+                    '(window.__dshKitAnnotator && window.__dshKitAnnotator.setWindowTag) ? window.__dshKitAnnotator.setWindowTag(' + JSON.stringify(wtag) + ') : 0',
+                    true,
+                  );
+                } catch { /* 旧版本 annotator 无此 API：不影响主流程 */ }
                 // v22 简化：start 只带 mirror/startIndex + 提示条需要的两个指标
                 // （面板本体由宿主镜像渲染；宿主提交走 finishSubmit → mergeAndSave，直接拉 list()，
                 //   所以不再需要 onSubmit 回写 window.__dshKitLastSubmit）
@@ -1967,8 +1979,125 @@ window.__ModuleLoader__.load({
             return { kind: 'unknown', label: '未知窗口' };
           };
 
-          /** 收集全部成员批注 → host saveMerged 合并落盘。 */
-          const mergeAndSave = async () => {
+          /** ★R-OWN v34（用户要求）：**批注必须带窗口信息** —— 让 Agent 一眼知道这条批注属于哪个窗口，
+           *  并能直达该窗口找对应元素的代码。
+           *  规则：**DSH 会话窗口在前、自持浏览器窗口在后**，各类别内按稳定顺序（会话=DOM 顺序，
+           *  自持=标签顺序）统一编字母代号 **A、B、C、D…**（对齐用户的心智模型"会话窗口 A/B、自持窗口 C/D"）。
+           *  返回的 `line` 是写进协议 `Window:` 行的**自足一行**（代号 · 类别 #序号 · 标题 · URL）。 */
+          const annotWindowTag = (pane) => {
+            try {
+              const owner = paneOwnerLabel(pane);
+              const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+              /* ★v34 修（实测"在自持窗口批注却标成 DSH 会话浏览器"）：自持窗口的 webview 可能挂在
+               * **会话作用域容器内**（overlay 挂载点）⇒ 只按 closest('[data-sidebar-right-session]') 判断
+               * 会误判成会话窗口 ✗。这里改用**身份比对**：元素命中 tabs，或 webContentsId 命中 tabs。 */
+              const isOwnedPane = (p) => {
+                try {
+                  const tabs = (typeof agentView !== 'undefined' && agentView && agentView.tabs) ? agentView.tabs : [];
+                  if (!p || !tabs.length) return false;
+                  if (tabs.some((t) => t && t.el === p)) return true;
+                  const id = paneIdOf(p);
+                  if (id == null) return false;
+                  return tabs.some((t) => {
+                    if (!t || !t.el) return false;
+                    try { return String(t.el.getWebContentsId()) === String(id); } catch { return false; }
+                  });
+                } catch { return false; }
+              };
+              const owned = isOwnedPane(pane);
+              const ordered = [];
+              try {
+                const sid = currentSurfaceSession();
+                const sess = sid ? Array.from(document.querySelectorAll(`[data-sidebar-right-session="${sid}"] webview`)) : [];
+                // 自持窗口**不参与**会话窗口编号（否则会话窗口的序号/字母会被它顶掉 ✗）
+                sess.filter((p2) => !isOwnedPane(p2)).forEach((p2, i) => ordered.push({ p: p2, kind: 'session', n: i + 1 }));
+              } catch { /* 忽略 */ }
+              try {
+                const tabs = (typeof agentView !== 'undefined' && agentView && agentView.tabs) ? agentView.tabs : [];
+                let n = 0;
+                tabs.forEach((t) => { if (t && t.el) { n += 1; ordered.push({ p: t.el, kind: 'owned', n }); } });
+              } catch { /* 忽略 */ }
+              let idx = ordered.findIndex((o) => o.p === pane);
+              let extraConvo = null; // 退化分支：该面板不属于当前对话时，把会话 id 带进标签（别让 agent 误判 ✗）
+              if (idx < 0 && owned) { // 元素比对失败（overlay 重建过）：按类别追加一个自持槽位
+                ordered.push({ p: pane, kind: 'owned', n: ordered.filter((o) => o.kind === 'owned').length + 1 });
+                idx = ordered.length - 1;
+              }
+              if (idx < 0) {
+                const slotKind = owner.kind === 'owned' ? 'owned' : 'session';
+                if (slotKind === 'session') {
+                  try {
+                    const sid = owner.sessionId || (pane.closest && pane.closest('[data-sidebar-right-session]') && pane.closest('[data-sidebar-right-session]').getAttribute('data-sidebar-right-session'));
+                    if (sid && sid !== currentSurfaceSession()) extraConvo = String(sid);
+                  } catch { /* 忽略 */ }
+                }
+                ordered.push({ p: pane, kind: slotKind, n: ordered.length + 1 });
+                idx = ordered.length - 1;
+              }
+              const slot = ordered[idx];
+              const code = letters[idx] || String(idx + 1);
+              const kind = (owned || slot.kind === 'owned') ? 'owned' : (owner.kind === 'unknown' ? 'session' : owner.kind);
+              const kindZh = kind === 'owned' ? '自持浏览器' : 'DSH 会话浏览器';
+              const url = owner.url || null;
+              const title = owner.title || null;
+              return {
+                code,
+                kind,
+                ordinal: slot.n,
+                key: kind === 'owned' ? `owned:${owner.tabId || slot.n}` : `session:${slot.n}${extraConvo ? `@${extraConvo.slice(-6)}` : ''}`,
+                label: owner.label,
+                url,
+                title,
+                line: `${code} · ${kindZh} #${slot.n}${extraConvo ? `（其它会话 ${extraConvo.slice(-6)}）` : ''}${title ? ` · ${String(title).slice(0, 40)}` : ''}${url ? ` · ${url}` : ''}`,
+              };
+            } catch {
+              return { code: '?', kind: 'unknown', ordinal: 0, key: 'unknown', label: '未知窗口', url: null, title: null, line: '未知窗口' };
+            }
+          };
+          /** v34：**按稳定 key 把条目归属窗口映射成当前代号**（窗口增减后建者仍指向同一个窗口 ✓）。
+           *  key 已不在当前窗口集合时返回 null（调用方退回条目自带的历史标签 ∪ 当前面板标签）。 */
+          const annotWindowTagForKey = (key) => {
+            if (!key) return null;
+            try {
+              const sid = currentSurfaceSession();
+              if (sid) {
+                const sess = Array.from(document.querySelectorAll(`[data-sidebar-right-session="${sid}"] webview`));
+                for (let i = 0; i < sess.length; i += 1) {
+                  const t = annotWindowTag(sess[i]);
+                  if (t.key === key) return t;
+                }
+              }
+              const tabs = (typeof agentView !== 'undefined' && agentView && agentView.tabs) ? agentView.tabs : [];
+              for (const t of tabs) {
+                if (!t || !t.el) continue;
+                const tag = annotWindowTag(t.el);
+                if (tag.key === key) return tag;
+              }
+            } catch { /* 忽略 */ }
+            return null;
+          };
+          /** ★v34：**按变化给每个成员窗口下发身份**（`dataset.kitWindowTagSent` 记忆上次下发值，
+           *  只在变化时才发 ⇒ 每轮 tick 调用也很便宜）。为什么必须在 tick 里做：成员可能在会话开始
+           *  **之后**加入（自持窗口/新开的侧栏面板）——它们不经过 startPaneInSession ⇒ 拿不到 tag ✗。 */
+          const pushWindowTags = () => {
+            try {
+              const st = stateRef.annot;
+              if (!st || !st.active) return;
+              for (const p of (st.panes || [])) {
+                try {
+                  const tag = annotWindowTag(p);
+                  const sig = `${tag.key}|${tag.code}`;
+                  if (p.dataset && p.dataset.kitWindowTagSent === sig) continue;
+                  if (p.dataset) p.dataset.kitWindowTagSent = sig;
+                  p.executeJavaScript(
+                    '(window.__dshKitAnnotator && window.__dshKitAnnotator.setWindowTag) ? window.__dshKitAnnotator.setWindowTag(' + JSON.stringify(tag) + ') : 0',
+                    true,
+                  ).catch(() => {});
+                } catch { /* 单个面板失败不影响其余 */ }
+              }
+            } catch { /* 忽略 */ }
+          };
+          /** 收集全部成员批注 → host saveMerged 合并落盘。 */          const mergeAndSave = async () => {
             const svc = await waitSvc();
             if (!svc) return { ok: false, error: 'host 远端面未就绪' };
             refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
@@ -1986,14 +2115,25 @@ window.__ModuleLoader__.load({
                   meta = metaOf(await p.executeJavaScript(GUEST_META_JS, true));
                 } catch { /* 元数据失败不拦合并 */ }
                 {
-                  // R-OWN v11：逐条标注**来源窗口**（Agent 据此分辨是哪个浏览器窗口的元素）
-                  const owner = paneOwnerLabel(p);
+                  // R-OWN v11/v34：逐条标注**来源窗口** —— **以创建地真相为准**：
+                  // 跨窗口同步会把同一条批注复制到所有窗口，若按"当前面板"打标就会出现
+                  // "在自持窗口批注却标成会话窗口"✗（实测踩到）。条目自带 `_window.key` 时按 key 映射当前代号。
+                  const win = annotWindowTag(p);
                   sets.push({
                     url: (meta && meta.url) || null,
                     title: (meta && meta.title) || null,
-                    owner: owner.label,
-                    ownerKind: owner.kind,
-                    annotations: lst.map((a) => Object.assign({}, a, { window: owner.label, windowKind: owner.kind })),
+                    owner: win.line,
+                    ownerKind: win.kind,
+                    annotations: lst.map((a) => {
+                      const own = annotWindowTagForKey(a && a._window && a._window.key);
+                      const eff = own || ((a && a._window && a._window.line) ? a._window : win);
+                      return Object.assign({}, a, {
+                        window: eff.line,
+                        windowCode: eff.code,
+                        windowKind: eff.kind || win.kind,
+                        windowKey: eff.key || null,
+                      });
+                    }),
                   });
                 }
               } catch { /* 成员不可达：跳过 */ }
@@ -2099,7 +2239,7 @@ window.__ModuleLoader__.load({
             for (const p of paneIds) {
               try {
                 const lst = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true);
-                if (Array.isArray(lst)) draftMerge(lst, null);
+                if (Array.isArray(lst)) draftMerge(lst, null, annotWindowTag(p)); // v34：草稿带窗口信息
               } catch { /* 草稿同步失败：下次会话仍可从 guest 取回 */ }
             }
             for (const p of paneIds) {
@@ -2214,7 +2354,7 @@ window.__ModuleLoader__.load({
               try {
                 const snap = await p.executeJavaScript('({ href: location.href, list: (window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : []) })', true);
                 const o = (snap && typeof snap === 'object') ? snap : {};
-                if (Array.isArray(o.list) && o.list.length > 0) draftMerge(o.list, String(o.href || ''));
+                if (Array.isArray(o.list) && o.list.length > 0) draftMerge(o.list, String(o.href || ''), annotWindowTag(p)); // v34
               } catch { /* 面板不可达：下轮再试 */ }
             }
           };
@@ -2260,7 +2400,7 @@ window.__ModuleLoader__.load({
                     try { inScope = !!s2.pane.closest(`[data-sidebar-right-session="${String(sidNow)}"]`); } catch { inScope = true; }
                     if (!inScope) continue;
                   }
-                  draftMerge(s2.list, s2.url);
+                  draftMerge(s2.list, s2.url, annotWindowTag(s2.pane)); // v34：逐窗口打标
                 }
                 draftRemove(Object.keys(plan.removedGids || {}));
               } catch { /* 草稿合并失败不影响同步 */ }
@@ -3739,7 +3879,29 @@ window.__ModuleLoader__.load({
                   lastAt: stateRef.mirrorDiag.lastAt,
                   idleTimerOn: !!agentView.idleTimer,
                 },
-                /* v26：草稿箱现场（"跳页后续号/列出旧批注"出问题时的第一手判据） */                annotDraft: (() => {
+                /* ★v34：**窗口图例**（"哪条批注属于哪个窗口"的第一手判据，也是给 agent 的窗口清单） */
+                annotWindows: (() => {
+                  try {
+                    const seen = new Map();
+                    const push = (p) => {
+                      if (!p || seen.has(p)) return;
+                      const t = annotWindowTag(p);
+                      seen.set(p, { code: t.code, kind: t.kind, ordinal: t.ordinal, key: t.key, line: t.line });
+                    };
+                    try {
+                      const sid = currentSurfaceSession();
+                      if (sid) document.querySelectorAll(`[data-sidebar-right-session="${sid}"] webview`).forEach(push);
+                    } catch { /* 忽略 */ }
+                    try { ((agentView && agentView.tabs) || []).forEach((t) => push(t.el)); } catch { /* 忽略 */ }
+                    return Array.from(seen.values());
+                  } catch (e) { return { error: msgOf(e) }; }
+                })(),
+                /* v34：草稿里每条批注的窗口代号（验证"批注带窗口信息"确实落到数据上） */
+                annotDraftWindows: (() => {
+                  try { return draftList().map((it) => ({ index: it.index, code: (it._window && it._window.code) || null, kind: (it._window && it._window.kind) || null })); } catch { return []; }
+                })(),
+                /* v26：草稿箱现场（"跳页后续号/列出旧批注"出问题时的第一手判据） */
+                annotDraft: (() => {
                   try {
                     return { key: draftKeyOf(), keyUsed: draftKeyUsed, loaded: draftLoaded, count: draftCount(), maxIndex: draftMaxIndex(), inPanes: (stateRef.annot && stateRef.annot.panes) ? stateRef.annot.panes.length : 0 };
                   } catch (e) { return { error: msgOf(e) }; }
@@ -5933,6 +6095,10 @@ window.__ModuleLoader__.load({
                   for (const p of (stateRef.annot.panes || [])) {
                     if (paneOwnerLabel(p).kind === 'session') syncAnnotMetrics(p);
                   }
+                  /* ★v34：**按变化下发窗口身份**（不能只在 startPaneInSession 里下发 ✗）——
+                   * 自持窗口/侧栏面板可能在会话开始**之后**才加入（后加入者永远拿不到 tag ⇒ 记录标错窗口 ✗，
+                   * 实测踩到）；窗口集合变化（新开/关闭窗口）时字母代号也会变，需要跟着更新 ✓。 */
+                  pushWindowTags();
                   // v26：草稿补进面板（跳页/重注入后 guest 记录为空时恢复；同页条目会重新钉标）
                   if (!hydrateBusy) {
                     hydrateBusy = true;

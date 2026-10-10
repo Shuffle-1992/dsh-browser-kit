@@ -232,6 +232,9 @@ function parseAnnotationItem(rawItem, position) {
   const note = readField(header, "Note") || undefined;
   const status = readField(header, "Status");
   const stale = status.trim() === STALE_MARKER || undefined;
+  /* ★R-OWN v34：回读 `Window:`（宿主在落盘时写入的来源窗口行：`A · DSH 会话浏览器 #1 · 标题 · URL`）
+   * —— 让 build/parse 往返无损，下游（agent 读取、工具链）也能拿到窗口归属。 */
+  const window = readField(header, "Window") || undefined;
 
   const element = {
     pageUrl: readField(header, "URL") || undefined,
@@ -250,7 +253,13 @@ function parseAnnotationItem(rawItem, position) {
     capturedAt: 0,
   };
 
-  return { index, ...(note ? { note } : {}), element, ...(stale ? { stale } : {}) };
+  return {
+    index,
+    ...(note ? { note } : {}),
+    ...(window ? { window } : {}),
+    element,
+    ...(stale ? { stale } : {}),
+  };
 }
 
 /**
