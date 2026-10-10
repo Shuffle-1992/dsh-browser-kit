@@ -108,6 +108,20 @@
 
 **纪律**：踩坑即记 `pitfalls.md`（本项目根，自建）；DSH 升级后回归 MVP-0 清单；移植 ZCode 代码保留 Apache-2.0 版权与 NOTICE；改动落在本项目目录内，勿散落。
 
+## 3.1 工具使用规范（**硬性**，Agent 必读）
+
+> 完整规范见 [`docs/tool-usage-rules.md`](docs/tool-usage-rules.md)（含自检清单与变更方式）。
+
+1. **自持浏览器默认「小窗静默操作」，非必要不开大窗**（用户硬性要求，2026-10-10）：
+   所有自动化（open / navigate / 点击 / 取文本 / 表单 / 批注）都在 **collapsed 小窗**完成；
+   **要看全貌用 `browser_agent_window op=screenshot`**（内部临时展开、截完自动收回）。
+   **仅当**①用户明确要求看大窗，或②必须交互式操作小窗装不下的内容时才 `op=expand`，
+   **必须传 `reason`**，且用毕 `op=collapse` 收回。
+   *落地*：工具 description 开头即本规范；`op=expand` 的工具结果带 `notice`（未传 reason ⇒ 明确标违规）；
+   回归钉子 `test/tool-usage-rules.test.mjs`。
+2. **不往用户输入框写任何文字**（`primeSessionInput` 类操作不得用于自动化输出）—— 见 `pitfalls.md` P89。
+3. **操作前先核对落点**（多窗口/多面板场景）：报告"功能没生效"之前先证明操作确实落在目标对象上 —— 见 P95。
+
 ## 4. 目录结构
 
 ```

@@ -207,6 +207,19 @@ export function workspacePathOf(exec) {
 }
 
 /**
+ * ★工具使用规范（**硬性**，2026-10-10 用户要求）——README「工具使用规范」与 docs/tool-usage-rules.md 为准。
+ * 规范 1：Agent 调用自持浏览器时**默认小窗静默操作**，非必要不开大窗。
+ *   · 所有自动化（open/navigate/点击/取文本/截图）都在 collapsed 小窗完成；
+ *   · 要看全貌用 `op=screenshot`（内部临时展开、截完自动收回小窗）；
+ *   · 仅当①用户明确要求看大窗 或 ②必须交互式操作小窗装不下的内容时才 `op=expand`，**必须传 `reason`**；
+ *   · 用毕 `op=collapse` 收回。
+ * 落地：写进工具 description（模型可见）+ 展开时把规范回显在**工具结果**里（可检查、可回归）。
+ */
+export const TOOL_RULE_OWNED_SMALL_WINDOW =
+  '工具规范（硬性）：自持浏览器**默认小窗静默操作**，非必要不展开（op=expand）；看全貌请用 op=screenshot'
+  + '（内部临时展开并自动收回）。如确需展开，必须传 reason 说明，且用毕 op=collapse 收回小窗。';
+
+/**
  * 规格表：`action` 必须与 client.js 的 commandHandlers 键逐字一致（漂移 = 工具静默失败）。
  * 参数名**不得使用 `action` / `id`**（命令信封已占用，P47-D）。
  */
@@ -361,9 +374,11 @@ export const BROWSER_TOOL_SPECS = [
     name: 'browser_agent_window',
     action: 'agent-view',
     timeoutMs: 60000,
-    description: '**Agent 自己的浏览器窗口**（不占会话、不碰用户侧栏，租约由插件自己持有；右下角小窗，点头部标题或 op=expand 展开）：op=open 建/复用、navigate 导航（活动窗口）、expand/collapse/toggle 展开收起、resolution 改分辨率、zoom 改页面缩放（等同 Chrome 缩放 25%–500%）、fit 切换显示尺度、screenshot **截图当前窗口**（cli: insertToComposer 直接插进输入框）、idle 读/设空闲释放、**多窗口** tabs/tab-new/tab-close/tab-select、**批注** annotate（与会话浏览器共用同一批注）、close 关闭并释放租约、status 查状态、cleanup 清残留。默认 **100% 显示不缩放且页面缩放 100%**（装不下可在窗口内滚动），分辨率预设默认 **1920×1080**（Desktop 档；另有 2K/4K）（另有 4K/1080p/1440x900/1280x720/iPad/iPhone/Pixel/Galaxy 与自定义 WxH、dpr）。面板内自带**标签条（＋新建/×关闭）**与**地址栏（回车导航当前窗口）**。**空闲（默认 10 分钟无 Agent 操作）自动释放窗口让用户使用**（op=idle + idleReleaseMs 可调，0=不释放）；Agent 操作中才亮青色边框，空闲时是中性边框 ⇒ **用户可随时手动操作该窗口协作**。展开时窗口贴标题栏下方并置顶（不遮挡 DSH 右上角窗口按钮）。storageIdentity 缺省自动探测侧栏身份 ⇒ **共享其登录态**；多个窗口各自持租约但同一身份 ⇒ 登录态一致。',
+    description: '**【硬性工具规范】默认小窗静默操作**：所有自动化（open/navigate/点击/取文本/截图）都在 **collapsed 小窗**完成，**非必要不得 expand**；要看全貌请用 op=screenshot（内部临时展开、截完自动收回小窗）。**仅当**①用户明确要求看大窗，或②必须交互式操作小窗装不下的内容时才 expand，且必须传 `reason` 说明原因，用毕 `op=collapse` 收回。违反此规范的展开会被工具结果回显提醒。' +
+      '**Agent 自己的浏览器窗口**（不占会话、不碰用户侧栏，租约由插件自己持有；右下角小窗，点头部标题或 op=expand 展开）：op=open 建/复用、navigate 导航（活动窗口）、expand/collapse/toggle 展开收起（**expand 属例外动作，见上方硬性规范**）、resolution 改分辨率、zoom 改页面缩放（等同 Chrome 缩放 25%–500%）、fit 切换显示尺度、screenshot **截图当前窗口**（cli: insertToComposer 直接插进输入框）、idle 读/设空闲释放、**多窗口** tabs/tab-new/tab-close/tab-select、**批注** annotate（与会话浏览器共用同一批注）、close 关闭并释放租约、status 查状态、cleanup 清残留。默认 **100% 显示不缩放且页面缩放 100%**（装不下可在窗口内滚动），分辨率预设默认 **1920×1080**（Desktop 档；另有 2K/4K）（另有 4K/1080p/1440x900/1280x720/iPad/iPhone/Pixel/Galaxy 与自定义 WxH、dpr）。面板内自带**标签条（＋新建/×关闭）**与**地址栏（回车导航当前窗口）**。**空闲（默认 10 分钟无 Agent 操作）自动释放窗口让用户使用**（op=idle + idleReleaseMs 可调，0=不释放）；Agent 操作中才亮青色边框，空闲时是中性边框 ⇒ **用户可随时手动操作该窗口协作**。展开时窗口贴标题栏下方并置顶（不遮挡 DSH 右上角窗口按钮）。storageIdentity 缺省自动探测侧栏身份 ⇒ **共享其登录态**；多个窗口各自持租约但同一身份 ⇒ 登录态一致。',
     parameters: {
       op: { type: 'string', required: true, description: 'open | navigate | expand | collapse | toggle | resolution | zoom | fit | screenshot | idle | tabs | tab-new | tab-close | tab-select | annotate | close | status | cleanup' },
+      reason: { type: 'string', description: '**op=expand 必填（硬性规范）**：为什么小窗不行、必须展开。缺省时 tool 结果会回显规范提醒；用毕请 op=collapse 收回小窗' },
       tabId: { type: 'string', description: 'op=tab-select/tab-close：目标窗口 id（来自 tabs/status 的 tabs[].id；缺省=活动窗口）' },
       on: { type: 'boolean', description: 'op=annotate：true=加入共享批注、false=退出；缺省=toggle。批注与会话浏览器**共用同一批注**' },
       url: { type: 'string', description: 'op=open/navigate 时的目标地址（http/https）' },
@@ -582,9 +597,20 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
               }
             }
             const r = await runBrowserCommand(pluginDir, spec.action, params, spec.timeoutMs || 25000);
+            /* ★工具规范回显（硬性规定，2026-10-10 用户要求）：**每次展开自持窗口**都把规范写进工具结果，
+             *  让"非必要不开大窗"成为模型每次都能看到、且可回归检查的约束 ✓。
+             *  · 未带 reason ⇒ 明确提示违规并给出补救动作（collapse）；
+             *  · 带了 reason ⇒ 确认合规，并提醒用毕收回小窗。 */
+            let notice = null;
+            if (spec.action === 'agent-view' && String(params.op || '') === 'expand' && r && r.ok !== false) {
+              const reason = typeof params.reason === 'string' ? params.reason.trim() : '';
+              notice = reason
+                ? `${TOOL_RULE_OWNED_SMALL_WINDOW}（已按 reason「${reason.slice(0, 60)}」展开，用毕请 op=collapse）`
+                : `⚠️ 违反工具规范：本次 op=expand **未提供 reason**。${TOOL_RULE_OWNED_SMALL_WINDOW}`;
+            }
             // 结果统一带工具名与客户端 action，便于排障（工具名 ≠ action 名，别让模型混淆）；
             // sessionId 回显用于核对「到底作用在哪个会话」（R-SCOPE 的可见性保证）
-            return { tool: spec.name, action: spec.action, ...(sessionId ? { requestedSession: sessionId } : {}), ...(r && typeof r === 'object' ? r : { value: r }) };
+            return { tool: spec.name, action: spec.action, ...(sessionId ? { requestedSession: sessionId } : {}), ...(r && typeof r === 'object' ? r : { value: r }), ...(notice ? { notice } : {}) };
           },
         });
         const dispose = ctx.tools.register(def);
