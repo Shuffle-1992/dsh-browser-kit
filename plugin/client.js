@@ -997,8 +997,14 @@ window.__ModuleLoader__.load({
             try {
               const st = stateRef.annot;
               const saved = (stateRef.chip && stateRef.chip.mode === 'saved') ? stateRef.chip : null;
-              const liveCount = (st && st.active && typeof st.count === 'number') ? st.count : 0;
-              const liveModel = (liveCount > 0 && st.convo) ? { mode: 'live', count: liveCount, convo: st.convo } : null;
+              /* ★R-OWN v29（用户要求）：**有批注（草稿）时输入框就要显示批注信息 —— 与批注功能开关无关**。
+               * 旧实现取 `st.active ? st.count : 0` ⇒ 关闭批注后胶囊消失、发送检测也拿不到草稿 ⇒ 不消费 ✗。
+               * 现在以**草稿**为准（草稿真值在 client，与 guest 会话是否开启无关）。 */
+              const draftN = draftCount();
+              const liveCount = draftN > 0 ? draftN : ((st && st.active && typeof st.count === 'number') ? st.count : 0);
+              const liveModel = (liveCount > 0)
+                ? { mode: 'live', count: liveCount, convo: convoTitle() || (st && st.convo) || null }
+                : null;
               const model = saved || liveModel;
               const existing = document.getElementById(CHIP_ID);
               /* P37 多实例共存（机制详见共享助手 ownerBootOf 处注释）：认领制，
@@ -1383,18 +1389,21 @@ window.__ModuleLoader__.load({
               const rowKeys = rows.map(rowKey); // R1-03：键数组单次计算——消耗判定与补挂共用，勿逐模型重算
               const sig = { n: rows.length, first: rowKeys[0] || '', last: rowKeys[rows.length - 1] || '' };
               // 1) 发送消耗检测（视图签名基线；判定纯函数见上方内嵌副本）
-              /* ★v26（用户指定）：**发送即消费** —— 草稿存在时，用户在会话输入框发出消息
+              /* ★v26/v29（用户指定）：**发送即消费** —— 草稿存在时，用户在会话输入框发出消息
                * 即消费批注（落盘 + 挂胶囊 + 清空页面与草稿 + 会话结束，下一轮从 1 开始）。
-               * 基线与"已保存胶囊"那套分开记（`draftBase`），避免两条路径互相重置基线。 */
+               * 与批注功能开关**无关**（草稿真值在 client）。
+               * 基线策略：**每轮都用上一轮的签名刷新**（只在"本轮出现新用户行"时判定消费）——
+               * 旧实现只在首次设置基线，若批注与发送落在同一 tick 窗口内就永远判不出变化 ✗。 */
               if (draftCount() > 0) {
-                if (!stateRef.draftBase) stateRef.draftBase = sig;
-                else {
-                  const act = planChipConsume(sig, stateRef.draftBase);
+                const prev = stateRef.draftBase;
+                if (!prev) {
+                  stateRef.draftBase = sig; // 首次看到草稿：登记基线
+                } else {
+                  const act = planChipConsume(sig, prev);
+                  stateRef.draftBase = sig; // 无论如何都推进基线（下一轮再比）
                   if (act === 'consume') {
                     stateRef.draftBase = null;
                     consumeDraft(sig.last).catch(() => {});
-                  } else if (act === 'reset') {
-                    stateRef.draftBase = sig;
                   }
                 }
               } else if (stateRef.draftBase) {
@@ -2157,9 +2166,48 @@ window.__ModuleLoader__.load({
           /* @annotator-sync-canonical-end */
 
           let syncBusy = false;
+          /** ★R-OWN v29（用户要求"发送信息要带批注出去"）：把批注引用写进**输入框** ——
+           *  这是消息里唯一能被 agent 读到的通道（胶囊是 DOM 装饰，agent 看不到）。
+           *  ⚠️ 两条硬约束：①**输入框有内容时绝不写入**（曾因此抹掉用户正在打的字）；
+           *  ②每个草稿版本只写一次（`n:maxIndex` 签名去重），避免重复追加。 */
+          let primedDraftSig = null;
+          const maybePrimeDraft = () => {
+            try {
+              const n = draftCount();
+              if (n === 0) { primedDraftSig = null; return; }
+              const sig = `${n}:${draftMaxIndex()}`;
+              if (sig === primedDraftSig) return;
+              const ce = findComposer();
+              if (!ce) return;
+              let cur = '';
+              try { cur = (typeof ce.value === 'string' ? ce.value : (ce.innerText || ce.textContent || '')).trim(); } catch { cur = ''; }
+              if (cur) return; // 有内容：让用户自己发（胶囊仍会挂到发出的消息上）
+              primeSessionInput(`[附元素批注 ${n} 条：发送本条消息即提交]`);
+              primedDraftSig = sig;
+            } catch { /* 忽略：写不进去不影响消费链路 */ }
+          };
+          /** ★R-OWN v29（用户实测两个症状的**共同根因**）：**批注功能关闭时草稿也要继续采集**。
+           *  旧实现只在批注会话活跃时从 `st.panes` 取列表 ⇒ 关闭批注后草稿恒空 ⇒
+           *  ①输入框不显示批注信息 ✗ ②发送检测 `draftCount()===0` ⇒ 不消费 ✗。
+           *  这里在会话未活跃时也扫**本会话作用域内的 webview**，把它们的列表并进草稿。
+           *  仅在"本会话草稿已非空或面板上有记录"时才有实际写入（空列表无副作用）。 */
+          const captureDraftIdle = async () => {            if (syncBusy) return;
+            let sid = null;
+            try { sid = currentSurfaceSession(); } catch { sid = null; }
+            let panes = [];
+            try { panes = scopedWebviews(sid); } catch { panes = []; }
+            if (!panes.length) return;
+            for (const p of panes) {
+              try {
+                const snap = await p.executeJavaScript('({ href: location.href, list: (window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : []) })', true);
+                const o = (snap && typeof snap === 'object') ? snap : {};
+                if (Array.isArray(o.list) && o.list.length > 0) draftMerge(o.list, String(o.href || ''));
+              } catch { /* 面板不可达：下轮再试 */ }
+            }
+          };
           const syncPanes = async () => {
             const st = stateRef.annot;
-            if (!st || !st.active || syncBusy) return;
+            if (!st || !st.active || syncBusy) { await captureDraftIdle(); return; }
             refreshPanes(); // 重渲染换节点后按 webContentsId 映射回活节点
             if (st.panes.length < 1) return;
             // 单面板也走完整同步：count/union 需要更新（C3——旧守卫 <2 使单窗口会话
@@ -5729,6 +5777,7 @@ window.__ModuleLoader__.load({
             reapAnnTip(); // v25：提示条兜底回收（胶囊被移除/重建后不永久滞留）
             ensureConvoChips(); // 消息胶囊：发送消耗检测 + 会话内配对挂载（幂等）
             ensureAwayBanner(); // 发送前防呆：待发胶囊不在归属会话时的被动横条（.local/feature-send-guard.md）
+            maybePrimeDraft(); // v29：草稿存在时把批注引用写进空输入框（agent 唯一可读通道）
           };
             const tickToolbarStyles = (activeIds) => {
               // R-OWN v11：图标点亮 = **会话是否活跃**（会话级总开关，两处浏览器同步）
