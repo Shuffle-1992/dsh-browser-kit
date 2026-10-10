@@ -5907,6 +5907,8 @@ window.__ModuleLoader__.load({
                   b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
                   return b;
                 };
+                /** ★编辑态（跨 render 保持）：正在编辑的条目 id（null=新增模式） */
+                let editingId = null;
                 const mkInput = (placeholder, type) => {
                   const i = document.createElement('input');
                   i.type = type || 'text';
@@ -5965,12 +5967,30 @@ window.__ModuleLoader__.load({
                         say(res.ok ? 'info' : 'warn', res.ok ? `已填充账号：${e.username || '(无用户名)'}` : `填充失败：${res.error}`);
                       });
                     }, true);
+                    /* ★2026-10-10（用户要求："应该要可以管理已经保存的账号和密码，可以编辑或删除"）：
+                     * 「编辑」把该条读进下面的表单（保存键变「保存修改」，多出「取消编辑」）✓。 */
+                    const editBtn = mkBtn('编辑', () => {
+                      editingId = e.id;
+                      render(); // 重渲染后由 syncFormForEditing 回填（表单是重建的，必须回填 ✗）
+                    });
+                    /* 「删除」两段式确认（误删已保存密码很烦 ✗）：首次点击变「确认删除」，3 秒内再点才真删。 */
                     const delBtn = mkBtn('删除', () => {
+                      if (delBtn.dataset.armed !== '1') {
+                        delBtn.dataset.armed = '1';
+                        delBtn.textContent = '确认删除';
+                        delBtn.style.borderColor = '#ef4444';
+                        delBtn.style.color = '#ef4444';
+                        setTimeout(() => {
+                          try { delBtn.dataset.armed = '0'; delBtn.textContent = '删除'; delBtn.style.borderColor = ''; delBtn.style.color = ''; } catch { /* 节点已重建 */ }
+                        }, 3000);
+                        return;
+                      }
                       credSave(credLoad().filter((x) => x.id !== e.id));
+                      if (editingId === e.id) editingId = null;
                       say('info', '已删除该账号（仅本机）');
                       render();
                     });
-                    row.append(info, fillBtn, delBtn);
+                    row.append(info, fillBtn, editBtn, delBtn);
                     if (hit && hit.id === e.id) {
                       const tag = document.createElement('span');
                       tag.style.cssText = 'font-size:10px;opacity:.7;';
@@ -5996,27 +6016,55 @@ window.__ModuleLoader__.load({
                   afRow.append(afBox, afTxt);
                   box.append(afRow);
                   const iSite = mkInput('站点（如 https://example.com）');
-                  iSite.value = origin || '';
                   const iUser = mkInput('用户名 / 邮箱');
                   const iPass = mkInput('密码', 'password');
+                  /** ★编辑态回填：表单是每次 render 重建的 ⇒ 必须在这里恢复（否则编辑时字段是空的 ✗）。 */
+                  const syncFormForEditing = () => {
+                    const cur = editingId ? credLoad().find((x) => x.id === editingId) : null;
+                    if (!cur) { editingId = null; iSite.value = origin || ''; return null; }
+                    iSite.value = cur.origin || '';
+                    iUser.value = cur.username || '';
+                    iPass.value = cur.password || '';
+                    return cur;
+                  };
+                  const editing = syncFormForEditing();
                   const actions = document.createElement('div');
-                  actions.style.cssText = 'display:flex;gap:6px;align-items:center;';
-                  actions.append(mkBtn('保存到本机', () => {
+                  actions.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;';
+                  actions.append(mkBtn(editing ? '保存修改' : '保存到本机', () => {
                     const siteV = iSite.value.trim();
                     const userV = iUser.value.trim();
                     const passV = iPass.value;
                     if (!siteV || !passV) { say('warn', '站点与密码必填'); return; }
-                    const next = credLoad().filter((x) => !(x.origin === siteV && x.username === userV));
+                    const all = credLoad();
+                    if (editingId) {
+                      /* 编辑：按 id 就地更新（保留 id，便于列表稳定与"本页"标记继续匹配 ✓） */
+                      const hitIdx = all.findIndex((x) => x.id === editingId);
+                      if (hitIdx >= 0) {
+                        all[hitIdx] = Object.assign({}, all[hitIdx], { origin: siteV, username: userV, password: passV, updatedAt: new Date().toISOString() });
+                        credSave(all);
+                        say('info', '已保存修改（仅本机，不进入 Agent 上下文）');
+                        editingId = null;
+                        render();
+                        return;
+                      }
+                      editingId = null; // 目标已不存在：退化为新增
+                    }
+                    const next = all.filter((x) => !(x.origin === siteV && x.username === userV));
                     next.push({ id: 'c' + Date.now().toString(36), origin: siteV, username: userV, password: passV, updatedAt: new Date().toISOString() });
                     credSave(next);
                     say('info', '已保存到本机（不进入 Agent 上下文）');
                     render();
                   }, true));
+                  if (editing) {
+                    actions.append(mkBtn('取消编辑', () => { editingId = null; render(); }));
+                  }
                   actions.append(mkBtn('关闭', () => { try { menu.remove(); } catch { /* 忽略 */ } credMenu = null; }));
                   box.append(iSite, iUser, iPass, actions);
                   const tip = document.createElement('div');
                   tip.style.cssText = 'opacity:.6;font-size:10px;margin-top:6px;line-height:1.5;';
-                  tip.textContent = '数据只存在本机 DSH 界面存储中：不落工作区、不写文件、不返回给工具与 Agent。';
+                  tip.textContent = editing
+                    ? '正在编辑已保存的账号：改完点「保存修改」，或点「取消编辑」放弃。'
+                    : '数据只存在本机 DSH 界面存储中：不落工作区、不写文件、不返回给工具与 Agent。';
                   box.append(tip);
                   menu.append(box);
                 };

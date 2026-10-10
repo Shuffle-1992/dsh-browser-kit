@@ -95,3 +95,22 @@ test("居中定位 + 同源自动填充的安全边界（本轮新增）", () =>
   assert.match(block, /'识别到相同域名时自动填充（仅空字段，不自动提交）'/, "面板要有开关与说明");
   assert.match(clientSrc, /tryAutofillPanes\(\)\.catch\(\(\) => \{\}\); \/\/ ★同源自动填充/, "tick 必须驱动自动填充");
 });
+test("可管理已保存账号：编辑（就地更新，保留 id）与删除（二次确认防误触）", () => {
+  const block = credBlock();
+  // 编辑：按 id 就地更新；表单是重建的 ⇒ 必须回填
+  assert.match(block, /mkBtn\('编辑', \(\) => \{/, "每行要有「编辑」");
+  assert.match(block, /let editingId = null;/, "必须有跨 render 保持的编辑态");
+  assert.match(block, /const syncFormForEditing = \(\) => \{/, "重渲染后必须回填编辑中的条目");
+  assert.match(block, /const hitIdx = all\.findIndex\(\(x\) => x\.id === editingId\);/, "编辑必须按 id 就地更新（不是新增一条）");
+  assert.match(block, /all\[hitIdx\] = Object\.assign\(\{\}, all\[hitIdx\], \{ origin: siteV, username: userV, password: passV/, "更新字段齐全");
+  assert.match(block, /editing \? '保存修改' : '保存到本机'/, "保存键在编辑态变「保存修改」");
+  assert.match(block, /mkBtn\('取消编辑', \(\) => \{ editingId = null; render\(\); \}\)/, "要有「取消编辑」");
+  // 删除：两段式确认 + 删掉正在编辑的条目时退出编辑态
+  assert.match(block, /delBtn\.dataset\.armed !== '1'/, "删除必须二次确认");
+  assert.match(block, /delBtn\.textContent = '确认删除';/, "首次点击变为确认文案");
+  assert.match(block, /credSave\(credLoad\(\)\.filter\(\(x\) => x\.id !== e\.id\)\);/, "确认后按 id 删除");
+  assert.match(block, /if \(editingId === e\.id\) editingId = null;/, "删除正在编辑的条目要退出编辑态");
+  // 边界不变：仍然不落盘 / 不调 host / 不自动提交
+  assert.doesNotMatch(block, /writeFileSync|\bsvc\b|getRemote|saveMerged/);
+  assert.doesNotMatch(block, /\.submit\(\)|requestSubmit/);
+});
