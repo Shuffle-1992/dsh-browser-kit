@@ -1,0 +1,46 @@
+{
+  "name": "dsh-browser-kit",
+  "version": "0.2.0",
+  "description": "DSH 内置浏览器增强插件（Cordis/DSH Plugin）：元素批注（右键选元素，批注随消息交付给 Agent）、截图回传、设备尺寸模拟、账号与密码管理（仅本机，不进 Agent 上下文）、共享登录态窗口与 Agent 浏览器自动化。零 npm 依赖。",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shuffle-1992/dsh-browser-kit.git"
+  },
+  "homepage": "https://github.com/Shuffle-1992/dsh-browser-kit",
+  "bugs": {
+    "url": "https://github.com/Shuffle-1992/dsh-browser-kit/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "deepseek",
+    "harness",
+    "browser",
+    "annotation",
+    "playwright-alternative",
+    "plugin"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "plugin/cordis.patch.yml"
+    }
+  },
+  "files": [
+    "plugin/",
+    "src/",
+    "docs/",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE",
+    "pitfalls.md"
+  ]
+}
