@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— Host 半边入口（薄壳，勿放业务逻辑）。
+ * dsh-browser-kit —— Host 半边入口（薄壳，勿放业务逻辑）。
  *
  * 为什么要薄壳 + impl 分离：cordis loader 经 Node ESM 缓存加载本文件——插件 disable/enable
  * 会重跑 apply() 但**模块实例不换新**（实测 2026-10-04：toggle 后报告时间戳更新但代码仍旧版），

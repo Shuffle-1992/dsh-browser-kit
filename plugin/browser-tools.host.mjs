@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— R-TOOL：把「内置浏览器命令通道」包装成 **agent 一等工具**。
+ * dsh-browser-kit —— R-TOOL：把「内置浏览器命令通道」包装成 **agent 一等工具**。
  *
  * 链路：agent 工具调用 → `ctx.tools.register(defineTool({execute}))` → 写 `.data/command.json`
  *       → client 半边（2.5s tick 取走即删）执行 → 追加 `.data/command-results.jsonl` 回执

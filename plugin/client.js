@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— Client 半边（GUI 文档侧）。分区导航（按出现顺序）：
+ * dsh-browser-kit —— Client 半边（GUI 文档侧）。分区导航（按出现顺序）：
  *
  *  ① 常量与主题令牌 T / 探测核心（webview 能力实测）/ host 上报（remote face 拆包）
  *  ② stateRef 运行期状态（字段总览见声明处注释块）
@@ -21,11 +21,11 @@
  *  - 纯逻辑抽取走 A1 模式（src 正典 + 内嵌副本 canonical 标记 + parity 对拍）——
  *    client 侧不支持相对 import（评审报告研究项 A 已证）。
  *
- * 形态照抄 @local/zcode-dispatch/client.js（本机已验证）：window.__ModuleLoader__.load +
+ * 形态照抄 dsh-zcode-dispatch/client.js（本机已验证）：window.__ModuleLoader__.load +
  * React.createElement + inject ['slots','remote','typert']（typert 是 $mount 的硬依赖）。
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-browser-kit',
+  id: 'dsh-browser-kit',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
     const TOOLBAR_ACCENT = '#2563eb';
     const TOOLBAR_ACCENT_TEXT = '#ffffff';
     const REMOTE_CONTRIBUTION = {
-      package: '@local/dsh-browser-kit',
+      package: 'dsh-browser-kit',
       descriptors: [
         ['reportClient', ['findings'], 'reportClient(findings): Promise<{ok:true, savedAt}|{ok:false, error}>', []],
         ['saveShot', ['meta', 'dataUrl'], 'saveShot(meta, dataUrl): Promise<{ok:true, path, bytes}|{ok:false, error}>', []],
@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
         ['getHidShim', [], 'getHidShim(): Promise<{ok:true, source, mtime, bytes}|{ok:false, error}>（WebHID shim 注入源）', []],
         ['hidTrace', [], 'hidTrace(): Promise<{ok:true, trace:[{at,dir,handleId,hex}]}|{ok:false, error}>（桥收发 trace）', []],
       ].map(([method, parameters, , optionals]) => ({
-        id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
+        id: `dsh-browser-kit#${FACE_NAME}/${method}`,
         service: FACE_NAME,
         namespace: FACE_NAME,
         method,
@@ -105,13 +105,13 @@ window.__ModuleLoader__.load({
           ...(optionals.includes(name) ? { acceptsUndefined: true } : {}),
           codec: {
             mode: 'strict',
-            typeSymbol: `@local/dsh-browser-kit#${FACE_NAME}/${method}:${name}`,
+            typeSymbol: `dsh-browser-kit#${FACE_NAME}/${method}:${name}`,
             create: () => ({ parse: (value) => value }),
           },
         })),
         result: {
           mode: 'strict',
-          typeSymbol: `@local/dsh-browser-kit#${FACE_NAME}/${method}:result`,
+          typeSymbol: `dsh-browser-kit#${FACE_NAME}/${method}:result`,
           create: () => ({ parse: (value) => value }),
         },
       })),
@@ -5399,7 +5399,7 @@ window.__ModuleLoader__.load({
            *  插槽契约（Cordis Inspect 取证）：ownerProps = { view: 'summary'|'page' }，
            *  仅 view==='page' 时在 bundle 详情页渲染；无参组件曾致占用未被采用（active:false）。 ---- */
           try {
-            const BUNDLE_KEY = '@local/dsh-browser-kit';
+            const BUNDLE_KEY = 'dsh-browser-kit';
             const fmtBytes = (n) => {
               const v = Number(n) || 0;
               if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`;

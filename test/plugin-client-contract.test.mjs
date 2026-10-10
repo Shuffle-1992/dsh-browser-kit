@@ -202,7 +202,7 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
       const params = m[2].split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean);
       const optionals = m[3].split(",").map((s) => s.trim().replace(/'/g, "")).filter(Boolean);
       clientMethods.push({
-        id: `@local/dsh-browser-kit#dshBrowserKit/${m[1]}`,
+        id: `dsh-browser-kit#dshBrowserKit/${m[1]}`,
         params: params.map((name) => ({ name, acceptsUndefined: optionals.includes(name) })),
       });
     }

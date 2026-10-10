@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— 宿主 face 描述符（exports["./typert"]）。
+ * dsh-browser-kit —— 宿主 face 描述符（exports["./typert"]）。
  *
  * face 契约共 8 方法（W1：与 client.js REMOTE_CONTRIBUTION.descriptors 逐字对账，
  * 静态契约见 test/plugin-impl.test.mjs——P29 教训：两端清单漂移 = 调用静默失败）：
@@ -13,7 +13,7 @@
  *  - getInjectScript()：批注层注入源（src/element-annotator.js）；
  *  - takeCommand() / commandResult(id, result)：命令通道（取走即删 / 结果回传）。
  *
- * 形态完全照抄 @local/zcode-dispatch 的 wire.host.mjs（本机 DSH 上已验证可用的两条并存路径）：
+ * 形态完全照抄 dsh-zcode-dispatch 的 wire.host.mjs（本机 DSH 上已验证可用的两条并存路径）：
  * A) dsh-typert-loader 自动发现：读包 exports["./typert"] → ctx.typert.register(TYPERT)；
  * B) typertGateway SRC 兜底：ctx.provide(FACE_NAME, face) 注册带 typertRemote 绑定 +
  *    原型方法标记的 cordis 服务，网关据此派发端点。
@@ -135,16 +135,16 @@ export function createRemoteFace({ onReport, onSaveShot, onSaveAnnotations, onSa
 
 /**
  * 宿主 face 模型描述符（dsh-typert-loader 自动发现并 ctx.typert.register）。
- * 字段形态对齐 @local/zcode-dispatch 的 TYPERT（本机已验证）。
+ * 字段形态对齐 dsh-zcode-dispatch 的 TYPERT（本机已验证）。
  */
 export const TYPERT = {
-  package: '@local/dsh-browser-kit',
+  package: 'dsh-browser-kit',
   face: 'host',
   generator: 'hand-written (MVP-0 probe)：无 zod/schemastery 依赖；strict codec 用透传校验器',
   service: FACE_NAME,
   schemas: [],
   invocations: FACE_METHOD_TABLE.map(([method, parameters, , optionals]) => ({
-    id: `@local/dsh-browser-kit#${FACE_NAME}/${method}`,
+    id: `dsh-browser-kit#${FACE_NAME}/${method}`,
     service: FACE_NAME,
     namespace: FACE_NAME,
     method,
@@ -156,13 +156,13 @@ export const TYPERT = {
       ...(optionals.includes(name) ? { acceptsUndefined: true } : {}),
       codec: {
         mode: 'strict',
-        typeSymbol: `@local/dsh-browser-kit#${FACE_NAME}/${method}:${name}`,
+        typeSymbol: `dsh-browser-kit#${FACE_NAME}/${method}:${name}`,
         create: () => JSON_ANY,
       },
     })),
     result: {
       mode: 'strict',
-      typeSymbol: `@local/dsh-browser-kit#${FACE_NAME}/${method}:result`,
+      typeSymbol: `dsh-browser-kit#${FACE_NAME}/${method}:result`,
       create: () => JSON_ANY,
     },
   })),

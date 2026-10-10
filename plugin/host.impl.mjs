@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— Host 业务实现（由 index.js 薄壳按 mtime+seq 动态 import，见其头注）。
+ * dsh-browser-kit —— Host 业务实现（由 index.js 薄壳按 mtime+seq 动态 import，见其头注）。
  *
  * MVP-0 探测 + MVP-1 截图管线（调研文档 §5.3 / docs/delivery-02-mvp0.md 定论的混合架构）：
  *  - face `reportClient`：client 探测结果上报 → 落 .data/probe-report.json（诊断）；
@@ -266,7 +266,7 @@ function writeReport(reportPath, state, reason) {
       reportPath,
       `${JSON.stringify(
         {
-          plugin: '@local/dsh-browser-kit',
+          plugin: 'dsh-browser-kit',
           probe: 'mvp-0',
           implLoadedAt: state.implLoadedAt,
           updatedAt: new Date().toISOString(),
@@ -688,7 +688,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
   try {
     const clientModules = ctx && typeof ctx.get === 'function' ? ctx.get('clientModules') : null;
     if (clientModules && typeof clientModules.rebuilt === 'function') {
-      clientModules.rebuilt('@local/dsh-browser-kit');
+      clientModules.rebuilt('dsh-browser-kit');
       log('info', 'clientModules.rebuilt 已推送（client 模块热换通知）');
     } else {
       log('warn', 'clientModules.rebuilt 不可用（client 模块可能不热换，需页面刷新）');

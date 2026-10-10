@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- @local/dsh-browser-kit 插件图标（家族风格：与 dsh-connect-zcode 同规范）
+  <!-- dsh-browser-kit 插件图标（家族风格：与 dsh-connect-zcode 同规范）
        语义：浏览器窗口 = 内置浏览器增强；黄色标注点 = 元素批注/截图回传；
              底部三点 = ZCode 生态家族视觉记忆（connect-zcode / zcode-dispatch 同构）。
        约定：64x64 / rx14 / 深底 #1e293b / 扁平无渐变，16px 下主形状仍可辨认。 -->

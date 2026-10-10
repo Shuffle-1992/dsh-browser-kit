@@ -1,5 +1,5 @@
 /**
- * @local/dsh-browser-kit —— Host 入口薄壳（业务逻辑全在 host.impl.mjs，勿在此放逻辑）。
+ * dsh-browser-kit —— Host 入口薄壳（业务逻辑全在 host.impl.mjs，勿在此放逻辑）。
  *
  * 双层缓存规避（实测 2026-10-04）：
  *  1. cordis loader 经 Node ESM 缓存加载入口——插件 disable/enable 重跑 apply() 但模块实例不换新，
@@ -16,7 +16,7 @@
  *   DSH 插件详情页只在 bundle **声明了 config schema** 时才渲染「配置区」，而配置区正是
  *   `plugins.bundle.config` 卡片（与详情页说明）的宿主——无 schema 的 bundle 在 Config
  *   provider 里 status="absent"，卡片虽注册成功（active:true）但页面上无内容。
- *   实测对照：dsh-connect-trae / @local/dsh-connect-zcode 均 status="schema" 且卡片可见。
+ *   实测对照：dsh-connect-trae / dsh-connect-zcode 均 status="schema" 且卡片可见。
  *   cordis loader 读的是**入口模块的静态导出** Config（动态 import 的 impl 导出不被识别），
  *   故此处静态 re-export schema；schema 本体住 plugin-config.schema.mjs——它必须是
  *   schemastery 实例（JSON 字面量会被判 status="unsupported" 并使 fiberPhase=failed，

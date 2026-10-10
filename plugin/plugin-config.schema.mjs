@@ -5,7 +5,7 @@
  * **声明了 config schema** 时才渲染配置区，而配置区正是 `plugins.bundle.config` 卡片
  * （与详情页说明）的宿主。无 schema 时 Config provider 报 status="absent"，
  * 卡片虽注册成功（active:true）但页面上没有落点。
- * 实测对照：dsh-connect-trae / @local/dsh-connect-zcode 均 status="schema" → 卡片可见。
+ * 实测对照：dsh-connect-trae / dsh-connect-zcode 均 status="schema" → 卡片可见。
  *
  * ⚠️ schema 必须是 **schemastery 实例**（`z.object({...})`）：
  *   JSON Schema 对象字面量会被判 status="unsupported" 并让插件条目 fiberPhase="failed"

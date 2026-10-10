@@ -371,13 +371,13 @@ test("dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩
 test("wire TYPERT 清单形状（不触网）", async (t) => {
   await t.test("package/service 固定，invocations 恰 17 个（10 face + 5 HID 桥 + shim 供给 + trace）且 id 形如 pkg#face/method", () => {
     assert.equal(FACE_NAME, "dshBrowserKit");
-    assert.equal(TYPERT.package, "@local/dsh-browser-kit");
+    assert.equal(TYPERT.package, "dsh-browser-kit");
     assert.equal(TYPERT.service, FACE_NAME);
     assert.equal(TYPERT.invocations.length, 17);
     assert.deepEqual(
       TYPERT.invocations.map((i) => i.id),
       ["reportClient", "saveShot", "saveAnnotations", "saveMerged", "deleteAnnotations", "getStats", "clearArtifacts", "getInjectScript", "takeCommand", "commandResult", "hidList", "hidOpen", "hidRead", "hidWrite", "hidClose", "getHidShim", "hidTrace"].map(
-        (m) => `@local/dsh-browser-kit#dshBrowserKit/${m}`,
+        (m) => `dsh-browser-kit#dshBrowserKit/${m}`,
       ),
     );
   });
