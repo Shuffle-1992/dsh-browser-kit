@@ -122,3 +122,21 @@ test("可管理已保存账号：编辑（就地更新，保留 id）与删除�
   assert.doesNotMatch(block, /writeFileSync|\bsvc\b|getRemote|saveMerged/);
   assert.doesNotMatch(block, /\.submit\(\)|requestSubmit/);
 });
+test("面板是全量管理器：列出**所有**已保存条目（不止当前站点）+ 计数 + 搜索 + 本页仅标记", () => {
+  const block = credBlock();
+  // 全部条目都要渲染（不得按当前站点过滤 ✗）
+  assert.match(block, /for \(const e of shown\) \{/, "必须遍历（过滤后的）全部条目");
+  assert.match(block, /const shown = kw\s*\n?\s*\?\s*list\.filter/, "搜索只影响显示，不影响数据");
+  assert.match(block, /const list = credLoad\(\);/, "列表来源是全部已保存条目");
+  assert.doesNotMatch(block, /for \(const e of list\) \{[\s\S]{0,200}credMatch\(\[e\], origin\) \? continue/, "不得把非当前站点的条目跳过 ✗");
+  // 计数 + 搜索框 + 空结果提示
+  assert.match(block, /cnt\.textContent = `已保存 \$\{list\.length\} 条`;/, "要有总条数");
+  assert.match(block, /filter\.placeholder = '搜索站点 \/ 用户名';/, "要有搜索框");
+  assert.match(block, /filter\.setAttribute\('data-dsh-kit-cred-filter', ''\);/, "搜索框要有稳定属性（供重渲染后恢复焦点）");
+  assert.match(block, /let credFilter = '';/, "搜索词要跨 render 保持");
+  assert.match(block, /没有匹配「\$\{credFilter\.trim\(\)\}」的条目（共 \$\{list\.length\} 条）/, "无匹配要有明确提示");
+  // 站点名不截断
+  assert.doesNotMatch(block, /replace\(\/\^https\?:\\\/\\\/\/, ''\)\.slice\(0, 30\)/, "全量视图不得截断站点名 ✗");
+  // 「本页」只是标记
+  assert.match(block, /tag\.textContent = '本页';/, "当前站点的行要有「本页」标记");
+});

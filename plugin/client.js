@@ -5926,6 +5926,8 @@ window.__ModuleLoader__.load({
                 };
                 /** ★编辑态（跨 render 保持）：正在编辑的条目 id（null=新增模式） */
                 let editingId = null;
+                /** ★全量管理器的搜索词（跨 render 保持） */
+                let credFilter = '';
                 const mkInput = (placeholder, type) => {
                   const i = document.createElement('input');
                   i.type = type || 'text';
@@ -5953,20 +5955,60 @@ window.__ModuleLoader__.load({
                   site.style.cssText = 'opacity:.7;font-size:11px;margin:0 0 8px;word-break:break-all;';
                   site.textContent = origin ? `当前站点：${origin}` : '当前站点：未知';
                   menu.append(site);
+                  /* ★2026-10-10（用户要求："要可以查看**所有**已保存的信息，进行编辑删除，而不是当前页面的"）：
+                   * 面板是**全量管理器** —— 列出所有已保存条目（不止当前站点 ✓），带计数、搜索与完整站点名；
+                   * 属于当前站点的行加「本页」标记（只是标记，**不是过滤** ✗）。 */
+                  const bar = document.createElement('div');
+                  bar.style.cssText = 'display:flex;align-items:center;gap:6px;margin:0 0 6px;';
+                  const cnt = document.createElement('span');
+                  cnt.style.cssText = 'font-size:11px;opacity:.75;flex:0 0 auto;';
+                  cnt.textContent = `已保存 ${list.length} 条`;
+                  bar.append(cnt);
+                  if (list.length) {
+                    const filter = document.createElement('input');
+                    filter.type = 'text';
+                    filter.placeholder = '搜索站点 / 用户名';
+                    filter.setAttribute('data-dsh-kit-cred-filter', '');
+                    filter.value = credFilter;
+                    filter.style.cssText = 'flex:1;min-width:0;padding:3px 6px;border-radius:6px;font:11px/1.4 inherit;'
+                      + `background:${dark ? 'rgba(255,255,255,.06)' : '#fff'};color:inherit;border:1px solid ${dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.15)'};`;
+                    filter.addEventListener('input', () => {
+                      credFilter = filter.value;
+                      const pos = filter.selectionStart;
+                      render();
+                      // 重渲染后把焦点与光标放回搜索框（否则每敲一个字就失焦 ✗）
+                      try {
+                        const nf = menu.querySelector('[data-dsh-kit-cred-filter]');
+                        if (nf) { nf.focus(); nf.setSelectionRange(pos, pos); }
+                      } catch { /* 忽略 */ }
+                    });
+                    bar.append(filter);
+                  }
+                  menu.append(bar);
+                  const kw = credFilter.trim().toLowerCase();
+                  const shown = kw
+                    ? list.filter((e) => `${e.origin || ''} ${e.username || ''}`.toLowerCase().indexOf(kw) >= 0)
+                    : list;
                   if (!list.length) {
                     const empty = document.createElement('div');
                     empty.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
                     empty.textContent = '还没有保存的账号。可在下面添加（站点默认取当前页面）。';
                     menu.append(empty);
+                  } else if (!shown.length) {
+                    const none = document.createElement('div');
+                    none.style.cssText = 'opacity:.7;font-size:12px;padding:2px 0 8px;';
+                    none.textContent = `没有匹配「${credFilter.trim()}」的条目（共 ${list.length} 条）。`;
+                    menu.append(none);
                   }
-                  for (const e of list) {
+                  for (const e of shown) {
                     const row = document.createElement('div');
                     row.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px;border-radius:8px;margin-bottom:4px;background:${dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.035)'};`;
                     const info = document.createElement('div');
                     info.style.cssText = 'flex:1;min-width:0;';
                     const u = document.createElement('div');
-                    u.style.cssText = 'font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-                    u.textContent = `${e.username || '(无用户名)'}  ·  ${String(e.origin || '').replace(/^https?:\/\//, '').slice(0, 30)}`;
+                    u.style.cssText = 'font-size:12px;word-break:break-all;';
+                    /* 全量管理视图：**站点名不截断**（否则分不清是哪个站点 ✗） */
+                    u.textContent = `${e.username || '(无用户名)'}  ·  ${String(e.origin || '').replace(/^https?:\/\//, '')}`;
                     const p = document.createElement('div');
                     p.style.cssText = 'font:11px ui-monospace, Menlo, Consolas, monospace;opacity:.75;cursor:pointer;';
                     p.textContent = '••••••••';
