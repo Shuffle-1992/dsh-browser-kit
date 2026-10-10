@@ -805,7 +805,7 @@ window.__ModuleLoader__.load({
           };
 
           /** 确保批注层已注入目标面板（版本不匹配自动重注入，旧实例由注入头 stop 清理）。 */
-          const EXPECTED_ANNOT_VERSION = '1.7.3';
+          const EXPECTED_ANNOT_VERSION = '1.8.0';
           const ensureAnnotator = async (svc, targetEl) => {
             const target = targetEl || pickGuestEl();
             const has = await target.executeJavaScript('typeof window.__dshKitAnnotator !== "undefined" && typeof window.__dshKitAnnotator.start === "function"', true);
@@ -1457,17 +1457,21 @@ window.__ModuleLoader__.load({
             annotMirrorSubmitBusy = true;
             try {
               const r = await mergeAndSave();
+              /* ★R-OWN v24（用户要求）：提交后**不再清空批注** ——
+               * 「先提交 1 条 → 再打开批注 → 应该延续前面的批注（能看到、能改），新批注序号接着排」。
+               * 做法：只 `stop()`（撤掉批注图层，记录留在 guest 内存）；随后的会话重启会把旧批注
+               * **重新钉标**，`nextIndex()` 天然从 max+1 续号。已提交的条目标记为"已提交"（徽标转绿），
+               * 再次提交时只发**新增/改过**的条目（mergeAndSave 已按 dirty 过滤）——不会重复落盘。 */
               for (const p of st.panes) {
                 try {
-                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+                  await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.markSubmitted) a.markSubmitted(); return 1; })()', true);
                 } catch { /* 面板已关闭等：死面板由后续刷新自愈 */ }
               }
-              try { await syncPanes(); } catch { /* 广播失败：删除日志仍在，后续自愈 */ }
               st.error = (r && r.ok === false) ? r.error : null;
               if (r && r.ok) st.lastSaved = r;
               announceSubmission(r);
               resetAnnotState('submit', true);
-              say('info', `共享批注会话提交完成（单次消耗，批注已全窗口清空）：${r && r.ok ? r.path : r.error}`);
+              say('info', `共享批注会话提交完成（批注保留在页面上，可继续修改或新增）：${r && r.ok ? r.path : r.error}`);
               return r;
             } finally {
               annotMirrorSubmitBusy = false;
@@ -1786,13 +1790,17 @@ window.__ModuleLoader__.load({
             const sets = [];
             for (const p of stateRef.annot.panes) {
               try {
-                const lst = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true);
-                if (!Array.isArray(lst)) continue;
+                const lstAll = await p.executeJavaScript('(window.__dshKitAnnotator ? window.__dshKitAnnotator.list() : [])', true);
+                if (!Array.isArray(lstAll)) continue;
+                /* ★R-OWN v24：v24 起提交后**保留**批注 ⇒ 再次提交只发**新增/改过**的条目
+                 * （`dirty !== false`；老版本 annotator 不带该字段 ⇒ 视为 dirty，行为不变）。 */
+                const lst = lstAll.filter((a) => !a || a.dirty !== false);
+                if (lst.length === 0) continue;
                 let meta = null;
                 try {
                   meta = metaOf(await p.executeJavaScript(GUEST_META_JS, true));
                 } catch { /* 元数据失败不拦合并 */ }
-                if (lst.length > 0) {
+                {
                   // R-OWN v11：逐条标注**来源窗口**（Agent 据此分辨是哪个浏览器窗口的元素）
                   const owner = paneOwnerLabel(p);
                   sets.push({
@@ -1893,19 +1901,20 @@ window.__ModuleLoader__.load({
             return { ok: true, started: true, sessionActive: true, panes: stateRef.annot.panes.length };
           };
 
-          /** 结束共享批注会话（**所有窗口**一起停并清空），并把状态复位。 */
+          /** 结束共享批注会话（**所有窗口**一起停），并把状态复位。
+           *  ★R-OWN v24（用户要求）：**关闭不再清空批注** —— 「先提交 1 条，然后又打开批注，应该延续前面的批注」。
+           *  想丢弃请用面板的「清除」（`clearAll`，全窗口同步移除）；关闭只是退出批注模式。 */
           const endAnnotSession = async (target) => {
             const st = stateRef.annot;
             const paneIds = (st && st.panes) ? st.panes.slice() : [];
             if (target) paneIds.push(target);
             for (const p of paneIds) {
               try {
-                await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); if (a.clearAll) a.clearAll(); return 1; })()', true);
+                await p.executeJavaScript('(function(){ var a = window.__dshKitAnnotator; if (!a) return 0; if (a.stop) a.stop(); return 1; })()', true);
               } catch { /* 面板已关闭等：忽略 */ }
             }
-            try { await syncPanes(); } catch { /* 广播删除日志失败：后续自愈 */ }
             resetAnnotState('end', true); // v22：与提交共用同一复位逻辑（单一真值来源；保留 lastSaved）
-            say('info', '共享批注会话已关闭（所有窗口同步停止）');
+            say('info', '共享批注会话已关闭（批注保留在页面上；要丢弃请点「清除」）');
             return { ok: true, ended: true, sessionActive: false };
           };
 

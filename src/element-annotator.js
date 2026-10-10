@@ -37,6 +37,7 @@
   var LIMITS = { maxTextChars: 4000, maxHtmlChars: 6000, maxAttributeChars: 500 };
   var ACCENT = "#2563eb";
   var STALE_COLOR = "#9ca3af";
+  var SUBMITTED_COLOR = "#16a34a"; // R-OWN v24：已提交徽标（绿色）——与"待提交"蓝、失联灰区分
 
   // 重注入护栏：先干净结束旧实例的会话
   var existing = window[STATE_KEY];
@@ -464,7 +465,7 @@
   var panel = null;
   var panelList = null;
   var panelCount = null;
-  window.__dshKitAnnotatorVersion = "1.7.3"; // 1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
+  window.__dshKitAnnotatorVersion = "1.8.0"; // 1.8.0：提交后**保留批注**（重开批注可续用/修改，序号延续）+ 只提交变更（dirty/markSubmitted）；1.7.3：审查收敛（删除面板定位的死指标/死接口，setPaneMetrics 只剩提示条需要的两项）；1.7.2：背景层不选中（根元素/整页容器）+ 指针离开网页即清除高亮；1.7.1：镜像模式下 guest 面板**一律隐藏**（新建路径也要隐藏，否则出现两个面板）；1.7.0：镜像模式（面板由宿主渲染，页面可顶部对齐且面板不被 guest 视口夹住）；1.6.6：屏幕锚点（按宿主给的右缘/下缘定位，改分辨率不漂移）；1.6.5：bottomExtra 抬升（给宿主右下角浮层让位，二者都可见）；1.6.4：面板固定尺寸（1/uiScale 反向缩放）+ 右下角定位 + 提示条同款（R-05）、resize rAF 合帧（R-06）、popover 尺寸缓存（R-07）；1.6.1：B5 hover rAF 合帧
   var toastEl = null;
   var toastTimer = null;
   var sessionListeners = []; // { target, type, handler, capture }
@@ -541,11 +542,18 @@
     if (isStale(record)) {
       out.stale = true;
     }
+    // R-OWN v24：**提交状态**下发给宿主——宿主据此只提交"新增/修改过"的条目，
+    // 避免"提交后保留批注"（用户要求：重开批注要延续前面的批注）导致下一次全量重提。
+    out.dirty = record.dirty !== false;
+    if (record.submitted) out.submitted = true;
     return out;
   }
 
-  function packageAnnotations() {
-    var list = annotations.map(publicAnnotation);
+  /** R-OWN v24：打包当前批注；`{ dirtyOnly:true }` 只打包**新增或修改过**的条目。 */
+  function packageAnnotations(opts) {
+    var o = opts || {};
+    var records = o.dirtyOnly ? annotations.filter(function (r) { return r.dirty !== false; }) : annotations;
+    var list = records.map(publicAnnotation);
     return { markdown: buildAnnotationsMarkdown(list), annotations: list };
   }
 
@@ -878,13 +886,24 @@
     var doc = docCoordsOf(record.el);
     record.badge.style.left = Math.max(0, doc.x - 10) + "px";
     record.badge.style.top = Math.max(0, doc.y - 10) + "px";
-    record.badge.setAttribute("data-state", pending ? "pending" : "confirmed");
-    record.badge.style.background = pending ? "rgba(37, 99, 235, 0.25)" : ACCENT;
-    record.badge.style.borderColor = ACCENT;
+    /* R-OWN v24：三态 —— pending（正在写意见）/ 待提交（新建或改过）/ **已提交**（绿色，一眼可辨）。
+     * 用户要求：提交后重开批注要能看到前面的批注，所以要能区分"已提交过"和"还没提交"。 */
+    var submittedClean = !pending && record.dirty === false && record.submitted === true;
+    record.badge.setAttribute("data-state", pending ? "pending" : (submittedClean ? "submitted" : "confirmed"));
+    record.badge.style.background = pending ? "rgba(37, 99, 235, 0.25)" : badgeColor(record); // 底色单一来源
+    record.badge.style.borderColor = pending ? ACCENT : badgeColor(record);
   }
 
   function inputStateRecordIs(record) {
     return inputState && inputState.record === record;
+  }
+
+  /** R-OWN v24：徽标/列表序号底色 —— 灰=元素失联，绿=**已提交**（dirty=false 且 submitted），蓝=待提交。
+   *  单一来源，徽标与面板列表共用（先前列表行自己写了一份三目）。 */
+  function badgeColor(record) {
+    if (isStale(record)) return STALE_COLOR;
+    if (record.dirty === false && record.submitted === true) return SUBMITTED_COLOR;
+    return ACCENT;
   }
 
   function repositionAllBadges() {
@@ -929,7 +948,7 @@
         padding: "6px 2px",
       });
       var indexNode = makeElement("span", {
-        background: isStale(record) ? STALE_COLOR : ACCENT,
+        background: badgeColor(record),
         borderRadius: "8px",
         color: "#ffffff",
         flexShrink: "0",
@@ -1305,7 +1324,12 @@
     }
     var record = inputState.record;
     var value = String(inputState.field.value || "").trim();
-    record.note = value || "";
+    var next = value || "";
+    // R-OWN v24：修改过意见的条目要重新进入"待提交"（用户要求：重开批注能**看到并修改**前面的批注）
+    if (next !== (record.note || "")) {
+      record.dirty = true;
+    }
+    record.note = next;
     closeNoteInput(false);
     positionBadge(record);
     renderPanel();
@@ -1486,6 +1510,10 @@
       element: collectElement(target),
       el: target,
       badge: null,
+      /* R-OWN v24：`dirty` = 需（重新）提交（新建/改过意见）；`submitted` = 曾提交过。
+       * 用户要求：**提交后不丢批注**——重开批注要能看到、能改，新批注序号接着往下排。 */
+      dirty: true,
+      submitted: false,
     };
     annotations.push(record);
     renderBadge(record);
@@ -1714,9 +1742,23 @@
       if (!mirrorMode) positionPanel(); // 镜像模式下面板不上屏，无需定位
       return { visibleWidth: visibleWidth, band: visibleBand(), uiScale: uiScale };
     },
-    /** 打包当前批注（纯函数式：不结束会话、不清空）。 */
-    submit: function () {
-      return packageAnnotations();
+    /** 打包当前批注（纯函数式：不结束会话、不清空）。
+     *  `submit({ dirtyOnly:true })` 只打包**新增或改过**的条目（v24：提交后保留批注 ⇒ 再次提交不能全量重提）。 */
+    submit: function (opts) {
+      return packageAnnotations(opts);
+    },
+    /** R-OWN v24：宿主提交成功后调用 —— 把当前全部条目标记为"已提交"（清 dirty、置 submitted），
+     *  徽标随之转为绿色。**不清空**：用户要求重开批注仍能看到/修改前面的批注。 */
+    markSubmitted: function () {
+      var marked = 0;
+      annotations.forEach(function (record) {
+        if (record.dirty !== false || record.submitted !== true) marked += 1;
+        record.dirty = false;
+        record.submitted = true;
+        positionBadge(record);
+      });
+      renderPanel();
+      return { marked: marked, total: annotations.length, dirtyLeft: 0 };
     },
     /** 当前批注列表（stale 实时判定）。 */
     list: function () {
@@ -1812,6 +1854,10 @@
           el: pageOk ? el : null, // 非同页不留 el（selector 在别的页面可能误命中同类元素）
           badge: null,
           pageOk: pageOk,
+          /* R-OWN v24：**提交标记必须随同步一起传** —— 否则重注入/跨面板同步后
+           * 已提交的条目会被当成"待提交"（下次提交重复落盘，徽标也由绿回蓝）。 */
+          dirty: item.dirty !== false,
+          submitted: item.submitted === true,
         };
         annotations.push(record);
         if (pageOk) {

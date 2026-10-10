@@ -40,12 +40,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
   });
 
   await t.test("1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉", () => {
-    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.7\.3'/);
+    assert.match(clientSource, /EXPECTED_ANNOT_VERSION = '1\.8\.0'/);
     // 提交提示：primeSessionInput（textarea/contenteditable 双兜底）+ 提交链接入
     assert.match(clientSource, /const primeSessionInput = \(text\) =>/);
     assert.match(clientSource, /announceSubmission\(r\)/);
     const annotSource = readFileSync(new URL("../src/element-annotator.js", import.meta.url), "utf8");
-    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.7\.3"/);
+    assert.match(annotSource, /__dshKitAnnotatorVersion = "1\.8\.0"/);
     // B5 增强（1.6.1）：rAF 合帧——mousemove 每帧最多一次 updateOverlay
     assert.match(annotSource, /hoverRaf = requestAnimationFrame\(function \(\) \{/);
     assert.match(annotSource, /cancelAnimationFrame\(hoverRaf\)/);
@@ -120,11 +120,12 @@ test("client.js 共享会话静态契约（P25 成员先入册 / P26 编号下�
     assert.match(clientSource, /PANEL_TOGGLE_EVENT/);
   });
 
-  await t.test("单次消耗 + 会话内消息胶囊（2026-10-05 用户需求钉）：提交即清空（删除日志+广播）、发送检测、hover 提示", () => {
-    // 1) 提交 = 单次消耗：逐面板 stop + clearAll（全量 gid 进删除日志），趁 active 跑一轮
-    //    syncPanes 广播删除（旧 clear() 不写日志，清空中段会被其他窗口 union 推回）
-    assert.match(clientSource, /if \(a\.stop\) a\.stop\(\); if \(a\.clearAll\) a\.clearAll\(\)/);
-    assert.match(clientSource, /try \{ await syncPanes\(\); \} catch/);
+  await t.test("会话内消息胶囊（2026-10-05 用户需求钉）：提交记账、发送检测、hover 提示（v24：提交不再清空）", () => {
+    // v24（2026-10-10 用户要求）：提交**不再** clearAll —— 只 stop + markSubmitted，
+    // 批注保留在页面上以便"继续批注"；丢弃改由面板「清除」承担（见 annotator-v24 测试）。
+    assert.match(clientSource, /if \(a\.stop\) a\.stop\(\); if \(a\.markSubmitted\) a\.markSubmitted\(\)/);
+    // v24：提交路径不再需要"广播删除"（没删东西）；跨面板 union 同步仍由 1.5s 循环负责
+    assert.match(clientSource, /setInterval\(\(\) => \{ syncPanes\(\)\.catch\(\(\) => \{\}\); \}, 1500\)/);
     // 2) 发送检测：常规流协议块只进剪贴板、消息不含标记 → 信号用 userRow 结构（行数/末行指纹，
     //    CSS-module 哈希前缀 + 稳定后缀 `_userRow`）；基线在提交时点快照（P36：输入框写入另有修复）
     assert.match(clientSource, /const userRows = \(\) => Array\.from\(document\.querySelectorAll\('\[class\*="_userRow"\]'\)\)/);
