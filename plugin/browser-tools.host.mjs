@@ -18,7 +18,7 @@
  * 缓存纪律：本模块由 host.impl.mjs 以 `?ts=<mtime-seq>` 动态 import（静态 import 会命中进程级
  * 模块缓存，改了不生效——P13 家族）。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -161,7 +161,87 @@ export async function loadDefineTool() {
   return { defineTool: null, source: null };
 }
 
-/* ─────────────── 工具规格表（工具名 → 客户端 action） ─────────────── */
+/* ─────────────── 本地工具（不经 client 命令通道，直接在宿主读写文件） ─────────────── */
+
+/** `browser_annotations`：读取批注内容 —— 用户要求"Agent 能直接获取批注内容，不必去搜索存放位置"。
+ *  latest 优先读稳定的 `annotations/latest.md`（每次落盘都会同步写一份），回退到最新的时间戳文件。
+ *  ⚠️ 软上限 `ANNOT_TOOL_LIMIT`：实测一份 22 条批注的 markdown 约 70KB ✗ —— 直接全量回给 Agent
+ *  会把上下文一次吃满（本会话实测被挤掉一大截 ✗）⇒ 超限时截断并明确给出文件路径。
+ *  要全文可 `op=read`（同样受上限）或直接在文件系统读该路径。 */
+export const ANNOT_TOOL_LIMIT = 32000;
+
+const withLimit = (markdown, path) => {
+  if (typeof markdown !== 'string') return { markdown: '', truncated: false };
+  if (markdown.length <= ANNOT_TOOL_LIMIT) return { markdown, truncated: false };
+  return {
+    markdown: `${markdown.slice(0, ANNOT_TOOL_LIMIT)}\n\n…（内容超过 ${ANNOT_TOOL_LIMIT} 字符已截断；完整内容请读取文件：${path}）`,
+    truncated: true,
+  };
+};
+
+/** 对外入口：**统一加软上限**（理由见上）。所有 op 分支都经这里 ⇒ 不会漏。
+ *  超限时截断并给出文件路径（要全文按路径读文件即可，仍无需"搜索" ✓）。 */
+export function annotationsLocal(params, opts) {
+  const raw = annotationsLocalRaw(params, opts);
+  if (raw && typeof raw.markdown === 'string' && raw.markdown.length > ANNOT_TOOL_LIMIT) {
+    return Object.assign({}, raw, {
+      markdown: `${raw.markdown.slice(0, ANNOT_TOOL_LIMIT)}\n\n…（内容超过 ${ANNOT_TOOL_LIMIT} 字符已截断；完整内容请读取文件：${raw.path}）`,
+      truncated: true,
+    });
+  }
+  return raw;
+}
+
+function annotationsLocalRaw(params, opts) {
+  const p = params && typeof params === 'object' ? params : {};
+  let dir = null;
+  try { dir = join(opts && opts.paths && opts.paths.pluginDir ? join(opts.paths.pluginDir, '..') : '.', 'annotations'); } catch { dir = null; }
+  if (!dir) return { ok: false, error: '无法定位 annotations 目录' };
+  const op = String(p.op || 'latest');
+  const safeName = (name) => {
+    const base = String(name || '').replace(/[\\/]/g, '').trim(); // 只允许纯文件名（防目录穿越）
+    return base && base.endsWith('.md') ? base : null;
+  };
+  try {
+    if (op === 'list') {
+      const limit = Math.min(50, Math.max(1, Number(p.limit) || 10));
+      const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort().reverse().slice(0, limit);
+      return {
+        ok: true, op, dir,
+        files: files.map((f) => {
+          let count = null;
+          try {
+            const body = readFileSync(join(dir, f), 'utf8');
+            count = Number((body.split(/\r?\n/, 1)[0].match(/# Web page annotations:\s*(\d+)/) || [])[1] || 0);
+          } catch { /* 读失败留空 */ }
+          return { file: f, count };
+        }),
+      };
+    }
+    if (op === 'read') {
+      const name = safeName(p.file);
+      if (!name) return { ok: false, error: 'op=read 需要 file（纯文件名，.md 结尾）' };
+      const target = join(dir, name);
+      const markdown = readFileSync(target, 'utf8');
+      return { ok: true, op, path: target, bytes: Buffer.byteLength(markdown, 'utf8'), markdown };
+    }
+    // latest：稳定路径优先（不必让 Agent 猜文件名/搜索目录）
+    const latest = join(dir, 'latest.md');
+    if (existsSync(latest)) {
+      const markdown = readFileSync(latest, 'utf8');
+      return { ok: true, op: 'latest', path: latest, bytes: Buffer.byteLength(markdown, 'utf8'), markdown };
+    }
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).sort().reverse() : [];
+    if (!files.length) return { ok: false, op: 'latest', error: `annotations 目录暂无批注文件（${dir}）` };
+    const target = join(dir, files[0]);
+    const markdown = readFileSync(target, 'utf8');
+    return { ok: true, op: 'latest', path: target, bytes: Buffer.byteLength(markdown, 'utf8'), markdown, note: 'latest.md 缺失，回退到最新时间戳文件' };
+  } catch (e) {
+    return { ok: false, op, error: `读取批注失败：${errOf(e)}` };
+  }
+}
+
+/* ─────────────── 本地工具（不经 client 命令通道，直接在宿主读写文件） ─────────────── */
 
 const OUT = {
   schema: { type: 'json' },
@@ -356,6 +436,18 @@ export const BROWSER_TOOL_SPECS = [
       base64: { type: 'string', required: true, description: '文件内容的 base64' },
       mimeType: { type: 'string', description: 'MIME 类型（默认 application/octet-stream）' },
       tab: { type: 'number', description: '目标面板序号（0 起）' },
+    },
+  },
+  {
+    name: 'browser_annotations',
+    action: 'annotations',
+    local: true, // 不经命令通道：直接在宿主读文件（annotations/*.md）
+    timeoutMs: 5000,
+    description: '读取**元素批注内容**（协议 markdown：每条含 URL / Title / 窗口 / Tag / Role / Accessible name / Selector / XPath / Attributes / Rect / Text / HTML 片段 —— 可直接据此定位元素代码）。op=latest（默认）返回**最近一次批注全文**；op=list 列出最近若干次（文件名 + 条数）；op=read 读指定文件（file）。**需要批注内容时用它，不必去搜索批注存放位置。**',
+    parameters: {
+      op: { type: 'string', description: 'latest（默认，最近一次批注全文）| list（最近若干次）| read（需 file）' },
+      file: { type: 'string', description: 'op=read：文件名（如 20261010-152502.md 或 latest.md）' },
+      limit: { type: 'number', description: 'op=list：返回条数（默认 10，上限 50）' },
     },
   },
   {
@@ -581,6 +673,13 @@ export async function registerBrowserTools(ctx, pluginDir, log = () => {}, opts 
           execute: async (args, exec) => {
             // staticParams：规格层固定参数（如 mode:'trusted' / op:'hover'），调用方可覆盖
             const params = { ...(spec.staticParams || {}), ...(args && typeof args === 'object' ? args : {}) };
+            /* ★本地工具（spec.local）：不经 client 命令通道，直接在宿主执行（当前仅 browser_annotations）。
+             * 用途（用户要求）：新会话里 Agent 也要能**直接拿到批注内容**，不必去搜索批注存放位置 ✓。 */
+            if (spec.local) {
+              const r = spec.action === 'annotations' ? annotationsLocal(params, opts) : { ok: false, error: `未知本地工具：${spec.action}` };
+              diag.localCalls = (diag.localCalls || 0) + 1;
+              return { tool: spec.name, action: spec.action, ...r };
+            }
             // R-SCOPE：把**调用方会话**带下去，client 只在「本会话的浏览器面板」上操作（不动别的会话）
             const sessionId = sessionIdOf(exec);
             if (sessionId) params.sessionId = sessionId;

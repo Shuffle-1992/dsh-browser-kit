@@ -468,7 +468,18 @@ function saveMergedImpl(paths, sets, meta) {
     content,
     (n) => ({ at: new Date().toISOString(), file: n, url: m.url ?? urls[0] ?? null, title: m.title ?? null, count, merged: groups.length }),
   );
-  return { ok: true, path: file, bytes: Buffer.byteLength(markdown, 'utf8'), count: renumbered.length };
+  /* ★2026-10-10（用户要求"Agent 能直接获取批注内容，不必去搜索批注存放位置"）：
+   * ①另写一份**稳定路径** `annotations/latest.md`（内容相同）—— Agent 任何时候读固定路径即可拿到最近一次批注；
+   * ②把 markdown 一并返回，供交付通道**内联进上下文**（不再只给路径 ✗）。 */
+  let latestPath = null;
+  try {
+    latestPath = join(dir, 'latest.md');
+    writeFileSync(latestPath, content, 'utf8');
+  } catch (e) {
+    log('warn', `annotations/latest.md 写入失败（不影响本次落盘）：${errOf(e)}`);
+    latestPath = null;
+  }
+  return { ok: true, path: file, latestPath, markdown, bytes: Buffer.byteLength(markdown, 'utf8'), count: renumbered.length };
 }
 
 /** getInjectScript 实现：按 mtime 供源（client 按 mtime 缓存；源文件改动即时生效）。 */
@@ -724,7 +735,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
           const sid = meta && typeof meta === 'object' ? meta.sessionId : null;
           // ⚠️ 必须经动态加载的模块引用（同文件内的静态引用在动态 import 模型下会是 undefined ⇒ 静默不投递 ✗）
           const brief = annotDelivery ? annotDelivery.summarizeSetsForDelivery(sets) : { items: [], windows: [] };
-          state.recordAnnotDelivery(sid, { count: r.count, path: r.path, items: brief.items, windows: brief.windows });
+          state.recordAnnotDelivery(sid, { count: r.count, path: r.path, latestPath: r.latestPath || null, markdown: r.markdown || '', items: brief.items, windows: brief.windows });
         }
       } catch (e) { log('warn', `annot-delivery 登记失败：${errOf(e)}`); }
       return Promise.resolve(r);
@@ -774,7 +785,7 @@ export async function apply(ctx, _config = {}, paths = {}) {
   try {
     const mod = await loadBrowserTools();
     const register = (scope, label) => {
-      mod.registerBrowserTools(scope, paths.pluginDir, log)
+      mod.registerBrowserTools(scope, paths.pluginDir, log, { paths }) // opts.paths：本地工具（browser_annotations）读批注文件用
         .then((diag) => {
           state.tools = { at: new Date().toISOString(), via: label, ...diag };
           log('info', `浏览器工具注册（${label}）：${diag.registered.length} 个（来源 ${diag.defineToolSource || 'n/a'}）`);

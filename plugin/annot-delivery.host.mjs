@@ -91,31 +91,55 @@ const clip = (s, n) => {
 };
 
 /**
- * 生成注入文本：**逐条摘要 + 所属窗口 + 落盘路径 + 读取提示**。
- * @param {{count:number, path:string, windows?:Array, items?:Array}} d
+ * 生成注入文本：**批注全文（内联）+ 落盘路径 + 读取提示**。
+ *
+ * ★2026-10-10 用户要求：「要确保在新会话中引用批注时，Agent 能**直接获取知道批注的内容**，
+ *   而不是去搜索可能的批注存放之类的」⇒ 从"只给摘要+路径"改成 **把协议 markdown 全文内联**进上下文 ✓
+ *   （markdown 里每条都含 URL / Title / Window / Tag / Role / Accessible name / Selector / XPath /
+ *     Attributes / Rect / Text / HTML excerpt ⇒ 元素代码定位信息全在）。
+ *   仅当全文过长（> `INLINE_LIMIT`）时才截断，并明确给出文件路径与稳定路径 `latest.md` ✓。
  */
+export const INLINE_LIMIT = 24000;
+
 export function renderAnnotDelivery(d) {
   const count = Number(d && d.count) || 0;
   const path = String((d && d.path) || '');
+  const latestPath = String((d && d.latestPath) || '');
   const windows = Array.isArray(d && d.windows) ? d.windows : [];
   const items = Array.isArray(d && d.items) ? d.items : [];
+  const markdown = typeof (d && d.markdown) === 'string' ? d.markdown : '';
   const lines = [];
-  lines.push(`[dsh-browser-kit] 用户刚在浏览器里**发送了 ${count} 条元素批注**（已落盘，供你定位元素代码）。`);
-  if (path) lines.push(`批注文件：${path}`);
+  lines.push(`[dsh-browser-kit] 用户刚在浏览器里**发送了 ${count} 条元素批注**。以下是批注内容（含选择器 / XPath / HTML 片段 / 坐标，可直接据此定位元素代码）：`);
   if (windows.length) {
+    lines.push('');
     lines.push(`涉及窗口：${windows.map((w) => `${w.code ? `窗口 ${w.code}` : '窗口'}（${w.count || 0} 条${w.label ? ` · ${clip(w.label, 60)}` : ''}）`).join('；')}`);
   }
-  if (items.length) {
-    const brief = items.slice(0, 12).map((it) => {
+  if (markdown) {
+    lines.push('');
+    if (markdown.length <= INLINE_LIMIT) {
+      lines.push(markdown);
+    } else {
+      // 过长：内联前若干条 + 明确告知其余部分在文件里（仍然不必"搜索"存放位置 ✓）
+      lines.push(markdown.slice(0, INLINE_LIMIT));
+      lines.push('');
+      lines.push(`…（内容较长已截断，完整内容见文件：${path}${latestPath ? `；或固定路径 ${latestPath}` : ''}）`);
+    }
+  } else if (items.length) {
+    // 兜底：没有 markdown 时至少给出逐条摘要（正常路径不会走到这里）
+    lines.push('');
+    lines.push(items.slice(0, 12).map((it) => {
       const idx = it && it.index != null ? `#${it.index}` : '#?';
       const tag = clip((it && it.tag) || '', 20);
       const name = clip((it && it.name) || (it && it.note) || '', 40);
       const win = it && it.code ? `（窗口 ${it.code}）` : '';
       return `${idx} ${tag}${name ? `「${name}」` : ''}${win}`;
-    });
-    lines.push(`条目：${brief.join(' · ')}${items.length > 12 ? ` …共 ${items.length} 条` : ''}`);
+    }).join(' · '));
   }
-  lines.push('细节（选择器 / XPath / HTML 片段 / 坐标）都在上面的文件里；需要就读取它，不必让用户重发。');
+  if (path) {
+    lines.push('');
+    lines.push(`批注文件：${path}${latestPath && latestPath !== path ? `（最近一次批注的固定路径：${latestPath}）` : ''}`);
+  }
+  lines.push('以上即批注内容，无需再去查找批注存放位置；如需重新读取可用工具 browser_annotations（默认返回最近一次批注全文）。');
   return lines.join('\n');
 }
 

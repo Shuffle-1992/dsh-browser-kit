@@ -34,7 +34,9 @@ const tmpPlugin = () => {
 
 test('R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具静默失败）', async (t) => {
   await t.test('每个 spec.action 都存在于 client commandHandlers', () => {
-    const missing = BROWSER_TOOL_SPECS.filter((s) => !CLIENT_ACTIONS.has(s.action)).map((s) => `${s.name}→${s.action}`);
+    // ★本地工具（spec.local，如 browser_annotations）**不经 client 命令通道** ⇒ 不参与该对齐检查
+    //   （它们由宿主直接执行：读批注文件等）；非本地工具仍必须逐字对齐，防"工具静默失败"。
+    const missing = BROWSER_TOOL_SPECS.filter((s) => !s.local && !CLIENT_ACTIONS.has(s.action)).map((s) => `${s.name}→${s.action}`);
     assert.deepEqual(missing, [], `工具规格里的 action 在 client 里不存在：${missing.join(', ')}`);
   });
   await t.test('工具名唯一、统一 browser_ 前缀、超时为正数', () => {
