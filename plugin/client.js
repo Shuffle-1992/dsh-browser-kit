@@ -5773,10 +5773,12 @@ window.__ModuleLoader__.load({
               if (!host) return null;
               return list.find((e) => { try { return new URL(e.origin || '').host === host; } catch { return false; } }) || null;
             };
-            /** 把凭据填进页面登录表单（原生 setter + input/change，兼容受控组件）。 */
-            const fillCredential = async (pane, entry) => {
+            /** 把凭据填进页面登录表单（原生 setter + input/change，兼容受控组件）。
+             *  `opts.onlyIfEmpty`（**自动填充用**）：仅当密码字段为空时才填 —— 绝不复写用户已输入的内容 ✓。 */
+            const fillCredential = async (pane, entry, opts) => {
               try {
                 if (!pane || !entry) return { ok: false, error: '无面板/无条目' };
+                const onlyIfEmpty = !!(opts && opts.onlyIfEmpty);
                 const r = await pane.executeJavaScript(
                   `(function () {
                      var user = ${JSON.stringify(String(entry.username || ''))};
@@ -5797,19 +5799,69 @@ window.__ModuleLoader__.load({
                        var hint = ((e.getAttribute('name') || '') + ' ' + (e.getAttribute('id') || '') + ' ' + (e.getAttribute('autocomplete') || '') + ' ' + (e.getAttribute('placeholder') || '')).toLowerCase();
                        return t === 'email' || t === 'text' || t === 'tel' || /user|account|email|phone|login|name/.test(hint);
                      })[0] || null;
+                     if (${onlyIfEmpty ? 'true' : 'false'}) {
+                       if (!pw || String(pw.value || '').length > 0) return JSON.stringify({ skipped: 'not-empty', hasPassField: !!pw });
+                     }
                      return JSON.stringify({ user: setVal(uEl, user), pass: setVal(pw, pass), hasUserField: !!uEl, hasPassField: !!pw });
                    })()`,
                   true,
                 );
                 let o = {};
                 try { o = typeof r === 'string' ? JSON.parse(r) : (r || {}); } catch { o = {}; }
+                if (o.skipped === 'not-empty') return { ok: true, skipped: true, reason: '密码字段已有内容，不覆盖' };
                 if (!o.hasPassField) return { ok: false, error: '当前页面没找到密码输入框' };
                 return { ok: true, filled: o };
               } catch (e) { return { ok: false, error: msgOf(e) }; }
             };
+            /* ★2026-10-10（用户要求）：**识别到对应域名后自动填写对应表单**（参考 Chrome 自动填充）。
+             * 安全约束（与规范 2 一致，全部可回归检查）：
+             *  · **仅同源**（host 完全相同）才填 ✓；· **仅当密码字段为空**时填（不覆盖用户输入 ✓）；
+             *  · **绝不自动提交**（只 setVal + input/change ✓）；· **不回显明文**：本函数不写任何日志/诊断的值 ✓；
+             *  · 每个 (面板, URL) 只自动填一次 ✓（避免与用户手动编辑打架）；面板内可**关闭**该行为 ✓。
+             * 诊断只记**次数**（`stateRef.credAutofill.count`），绝不含用户名/密码 ✓。 */
+            const CRED_AUTOFILL_KEY = 'dsh-kit-cred-autofill';
+            const credAutofillOn = () => { try { return localStorage.getItem(CRED_AUTOFILL_KEY) !== '0'; } catch { return true; } };
+            const credAutofillSet = (on) => { try { localStorage.setItem(CRED_AUTOFILL_KEY, on ? '1' : '0'); } catch { /* 忽略 */ } };
+            const credAutofillTried = new Set(); // `${paneId}|${url}`
+            const tryAutofillPanes = async () => {
+              try {
+                if (!credAutofillOn()) return;
+                const list = credLoad();
+                if (!list.length) return;
+                let panes = [];
+                try {
+                  const sid = currentSurfaceSession();
+                  panes = sid ? Array.from(document.querySelectorAll(`[data-sidebar-right-session="${sid}"] webview`)) : [];
+                } catch { panes = []; }
+                try { ((agentView && agentView.tabs) || []).forEach((t) => { if (t && t.el) panes.push(t.el); }); } catch { /* 忽略 */ }
+                for (const p of panes) {
+                  const url = credOriginOf(p);
+                  if (!url || url === 'about:blank') continue;
+                  const key = `${paneIdOf(p)}|${url}`;
+                  if (credAutofillTried.has(key)) continue;
+                  const entry = credMatch(list, url);
+                  if (!entry) continue;
+                  credAutofillTried.add(key); // 标记已尝试（无论成功与否，避免每轮重试）
+                  const r = await fillCredential(p, entry, { onlyIfEmpty: true });
+                  if (r && r.ok && !r.skipped) {
+                    stateRef.credAutofill = stateRef.credAutofill || { count: 0, lastAt: null };
+                    stateRef.credAutofill.count += 1;
+                    stateRef.credAutofill.lastAt = new Date().toISOString();
+                    say('info', `已按域名自动填充账号：${entry.username || '(无用户名)'}（仅同源、仅空字段、不自动提交）`);
+                  }
+                }
+              } catch { /* 自动填充失败绝不影响主流程，且不记录任何值 */ }
+            };
             let credMenu = null;
             /** 打开「钥匙」面板（纯客户端弹层；数据不出本机、不进 Agent 上下文）。 */
             const openCredMenu = (btn, pane) => {
+              /* ★2026-10-10 实测坑：插件热更新会**新建实例**，而旧实例留在 DOM 里的面板不会被回收 ✗
+               * ⇒ 出现两个凭据面板、querySelector 取到旧的（看不到新功能，且看起来像"改动没生效"✗）。
+               * 这里先清掉**所有**残留面板（含别的实例/上次会话留下的），再开新的。 */
+              try {
+                const stale = document.querySelectorAll('[data-dsh-browser-kit-cred-menu]');
+                for (const el of Array.from(stale)) { try { el.remove(); } catch { /* 忽略 */ } }
+              } catch { /* 忽略 */ }
               try { if (credMenu) { credMenu.remove(); credMenu = null; return; } } catch { /* 忽略 */ }
               try {
                 const dark = detectUiDark();
@@ -5822,11 +5874,27 @@ window.__ModuleLoader__.load({
                   + `background:${dark ? 'rgba(28,30,36,.99)' : 'rgba(252,252,254,.99)'};`
                   + `color:${dark ? '#e5e7eb' : '#1f2937'};`
                   + `border:1px solid ${dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.10)'};`;
-                const rb = btn.getBoundingClientRect();
-                menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 340, rb.left - 250))}px`;
-                menu.style.top = `${Math.min(window.innerHeight - 260, rb.bottom + 8)}px`;
                 const formEl = btn.closest('form') || document;
                 const curPane = pane || (formEl && formEl.querySelector ? formEl.querySelector('webview') : null);
+                /* ★2026-10-10（用户要求）：弹窗**在浏览器板块内居中**（原先锚在图标左下方 ⇒ 会在左上角 ✗）。
+                 * 取该 pane 的实际 rect 作为容器（设备尺寸/缩放下也正确 ✓）；取不到 rect 时退回窗口居中 ✓。
+                 * 菜单高度是动态的 ⇒ 先 append 量高，再定位（见下方 placeCentered）。 */
+                const placeCentered = () => {
+                  try {
+                    let left = 0; let top = 0; let cw = window.innerWidth; let ch = window.innerHeight;
+                    const pr = curPane && curPane.getBoundingClientRect ? curPane.getBoundingClientRect() : null;
+                    if (pr && pr.width > 80 && pr.height > 80) {
+                      left = Math.max(0, pr.left); top = Math.max(0, pr.top);
+                      cw = Math.min(pr.width, window.innerWidth - left);
+                      ch = Math.min(pr.height, window.innerHeight - top);
+                    }
+                    const mr = menu.getBoundingClientRect();
+                    const x = left + Math.max(8, (cw - mr.width) / 2);
+                    const y = top + Math.max(8, (ch - mr.height) / 2);
+                    menu.style.left = `${Math.round(Math.min(Math.max(8, x), Math.max(8, window.innerWidth - mr.width - 8)))}px`;
+                    menu.style.top = `${Math.round(Math.min(Math.max(8, y), Math.max(8, window.innerHeight - mr.height - 8)))}px`;
+                  } catch { /* 定位失败：保持默认位置 */ }
+                };
                 const origin = credOriginOf(curPane);
                 const mkBtn = (label, fn, primary) => {
                   const b = document.createElement('button');
@@ -5913,6 +5981,20 @@ window.__ModuleLoader__.load({
                   }
                   const box = document.createElement('div');
                   box.style.cssText = `margin-top:8px;padding-top:8px;border-top:1px solid ${dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)'};`;
+                  const afRow = document.createElement('label');
+                  afRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:2px 0 8px;font-size:11px;opacity:.9;cursor:pointer;';
+                  const afBox = document.createElement('input');
+                  afBox.type = 'checkbox';
+                  afBox.checked = credAutofillOn();
+                  afBox.setAttribute('data-dsh-kit-cred-autofill', '');
+                  afBox.addEventListener('change', () => {
+                    credAutofillSet(!!afBox.checked);
+                    say('info', afBox.checked ? '已开启：同源页面自动填充（仅空字段、不自动提交）' : '已关闭自动填充');
+                  });
+                  const afTxt = document.createElement('span');
+                  afTxt.textContent = '识别到相同域名时自动填充（仅空字段，不自动提交）';
+                  afRow.append(afBox, afTxt);
+                  box.append(afRow);
                   const iSite = mkInput('站点（如 https://example.com）');
                   iSite.value = origin || '';
                   const iUser = mkInput('用户名 / 邮箱');
@@ -5945,6 +6027,8 @@ window.__ModuleLoader__.load({
                 menu.addEventListener('keydown', stop, true);
                 document.documentElement.append(menu);
                 credMenu = menu;
+                placeCentered(); // ★居中（append 后才能量到真实高度）
+                try { window.addEventListener('resize', placeCentered); } catch { /* 忽略 */ }
               } catch (e) { say('warn', `账号面板打开失败：${msgOf(e)}`); }
             };
 
@@ -6300,6 +6384,7 @@ window.__ModuleLoader__.load({
             /* v26：会话身份（id）变化 ⇒ 换草稿本（并首次加载：模块初始化时 sidebar 服务可能未就绪） */
             try { draftEnsure(); } catch { /* 忽略 */ } // v26：懒加载 + 会话切换即换草稿本
             try { bindSendHook(); } catch { /* 忽略 */ } // ★发送当下即消费（输入框会被重建 ⇒ 每轮尝试绑定）
+            tryAutofillPanes().catch(() => {}); // ★同源自动填充（仅空字段、不自动提交、不回显明文）
             /* ★v32 自愈：给**已套预设**的面板补挂尺寸跟随（老会话里的面板是升级前套的，
              *  不补挂就永远不跟随分窗宽度 ✗）。observe 幂等（WeakMap 去重），每轮跑很便宜。 */
             try {

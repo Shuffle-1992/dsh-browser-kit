@@ -69,9 +69,29 @@ test("工具栏「钥匙」图标在批注右侧，且标题写明不进 Agent �
 
 test("填充只由用户点击触发（无自动抓取页面密码 / 自动提交）", () => {
   const block = credBlock();
-  assert.match(block, /const fillCredential = async \(pane, entry\) =>/, "必须有显式填充函数");
+  assert.match(block, /const fillCredential = async \(pane, entry, opts\) =>/, "必须有显式填充函数（带 onlyIfEmpty 选项）");
   assert.match(block, /mkBtn\('填充'/, "填充是面板按钮（用户点击）");
   assert.doesNotMatch(block, /addEventListener\('submit'|\.submit\(\)/, "不得自动提交表单");
   assert.doesNotMatch(block, /input\[type="password"\]'\)\.value\s*[,;]/, "不得静默读取页面密码值");
   assert.match(block, /点击密码可显示|点击显示 \/ 隐藏/, "密码默认掩码，点击才显示");
+});
+
+test("居中定位 + 同源自动填充的安全边界（本轮新增）", () => {
+  const block = credBlock();
+  // ①居中：按 pane 的实际 rect 居中（取不到则退回窗口居中），append 后量高再定位
+  assert.match(block, /const placeCentered = \(\) => \{/, "必须有居中式定位");
+  assert.match(block, /curPane && curPane\.getBoundingClientRect/, "以浏览器板块 rect 为容器");
+  assert.match(block, /placeCentered\(\); \/\/ ★居中（append 后才能量到真实高度）/, "append 后立即居中");
+  assert.doesNotMatch(block, /rb\.left - 250/, "不得再锚在图标左下方（会跑到左上角 ✗）");
+  // ②自动填充：仅同源、仅空字段、不自动提交、可开关、不回显明文
+  assert.match(block, /const tryAutofillPanes = async \(\) => \{/, "必须有自动填充驱动");
+  assert.match(block, /const entry = credMatch\(list, url\);/, "必须先按域名匹配（同源）");
+  assert.match(block, /fillCredential\(p, entry, \{ onlyIfEmpty: true \}\)/, "自动填充必须 onlyIfEmpty（不覆盖用户输入）");
+  assert.match(block, /credAutofillTried\.add\(key\)/, "同一 (面板,URL) 只尝试一次");
+  assert.match(block, /if \(!pw \|\| String\(pw\.value \|\| ''\)\.length > 0\) return JSON\.stringify\(\{ skipped: 'not-empty', hasPassField: !!pw \}\);/, "空字段判定必须在页面内做");
+  assert.doesNotMatch(block, /\.submit\(\)|requestSubmit/, "绝不自动提交");
+  assert.match(block, /stateRef\.credAutofill\.count \+= 1;/, "诊断只记次数");
+  assert.doesNotMatch(block, /credAutofill[\s\S]{0,80}(password|username)/, "诊断不得含用户名/密码");
+  assert.match(block, /'识别到相同域名时自动填充（仅空字段，不自动提交）'/, "面板要有开关与说明");
+  assert.match(clientSrc, /tryAutofillPanes\(\)\.catch\(\(\) => \{\}\); \/\/ ★同源自动填充/, "tick 必须驱动自动填充");
 });
