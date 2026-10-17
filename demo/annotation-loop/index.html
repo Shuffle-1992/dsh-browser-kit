@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>批注闭环 Demo · 结算卡</title>
+<style>
+  body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6fa; display: flex; justify-content: center; padding: 40px 0; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.08); width: 360px; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+  .card h2 { margin: 0; font-size: 18px; color: #1f2430; }
+  .row { display: flex; justify-content: space-between; font-size: 14px; color: #3a4150; }
+  .row.total { border-top: 1px solid #e8ebf0; padding-top: 12px; font-weight: 700; color: #1f2430; }
+  button.pay { border: 0; border-radius: 8px; background: #2563eb; color: #fff; padding: 12px 20px; font-size: 15px; cursor: pointer; }
+  .coupon { display: flex; gap: 8px; }
+  .coupon input { flex: 1; border: 1px solid #d7dce4; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: #1f2430; }
+  .coupon button { border: 1px solid #d7dce4; border-radius: 8px; background: #fff; color: #3a4150; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  .hint { font-size: 12px; color: #8a93a3; text-align: center; }
+</style>
+</head>
+<body>
+  <section class="card">
+    <h2>订单结算</h2>
+    <div class="row"><span>机械键盘 K87</span><span>¥ 329.00</span></div>
+    <div class="row"><span>桌面支架</span><span>¥ 89.00</span></div>
+    <div class="row total"><span>合计</span><span>¥ 418.00</span></div>
+    <div class="coupon">
+      <input id="couponInput" placeholder="输入优惠券码">
+      <button id="applyCoupon" type="button">应用</button>
+    </div>
+    <button class="pay" id="payBtn">提交订单</button>
+    <div class="hint" id="statusLine">v3 · MVP-4 自动化自测：snapshot / type / click</div>
+  </section>
+  <script>
+    document.getElementById('applyCoupon').addEventListener('click', function () {
+      var code = document.getElementById('couponInput').value.trim();
+      document.getElementById('statusLine').textContent = code ? ('已应用优惠券：' + code) : '请先输入优惠券码';
+    });
+  </script>
+</body>
+</html>
