@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>批注冒烟页</title>
+</head>
+<body>
+  <h1>批注冒烟</h1>
+  <main id="main">
+    <button id="btn-a" class="primary" aria-label="保存表单" style="padding: 8px 16px;">保存</button>
+    <section class="pricing" style="display: flex; gap: 16px; margin-top: 24px;">
+      <div class="card" style="width: 120px; height: 80px; background: #eeeeee;">卡片一</div>
+      <div class="card" style="width: 120px; height: 80px; background: #dddddd;">卡片二</div>
+      <div class="card" style="width: 120px; height: 80px; background: #cccccc;">卡片三</div>
+    </section>
+    <input id="pwd" type="password" placeholder="密码" style="margin-top: 24px;">
+    <div id="click-log" style="margin-top: 24px;"></div>
+  </main>
+
+  <script>
+    // 页面自身点击处理器：批注层的 capture 拦截若失效，这里会出现记录（冒烟断言用）
+    document.addEventListener("click", function (event) {
+      var log = document.getElementById("click-log");
+      var item = document.createElement("div");
+      item.className = "page-click";
+      item.textContent = (event.target.id || event.target.tagName) + "@" + event.clientX + "," + event.clientY;
+      log.append(item);
+    });
+  </script>
+</body>
+</html>
