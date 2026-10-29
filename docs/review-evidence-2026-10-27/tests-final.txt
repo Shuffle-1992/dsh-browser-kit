@@ -1,0 +1,1756 @@
+
+> dsh-browser-kit@0.2.0 test
+> node --test --test-concurrency=1 --test-reporter=tap
+
+TAP version 13
+# Subtest: v33：消费成功后不得把 saved 模型留在 stateRef.chip
+ok 1 - v33：消费成功后不得把 saved 模型留在 stateRef.chip
+  ---
+  duration_ms: 2.0045
+  type: 'test'
+  ...
+# Subtest: v33：渲染器忽略已挂到消息行上的 saved 模型（纵深防御）
+ok 2 - v33：渲染器忽略已挂到消息行上的 saved 模型（纵深防御）
+  ---
+  duration_ms: 0.1968
+  type: 'test'
+  ...
+# Subtest: 交付文本必须含：条数 + **批注全文内联** + 落盘路径 + 窗口归属（用户要求：直接拿到内容，不必去找存放位置）
+ok 3 - 交付文本必须含：条数 + **批注全文内联** + 落盘路径 + 窗口归属（用户要求：直接拿到内容，不必去找存放位置）
+  ---
+  duration_ms: 1.0707
+  type: 'test'
+  ...
+# Subtest: 交付文本：超长时截断并明确指路（仍不必『搜索』）
+ok 4 - 交付文本：超长时截断并明确指路（仍不必『搜索』）
+  ---
+  duration_ms: 0.3459
+  type: 'test'
+  ...
+# Subtest: summarizeSetsForDelivery：只统计本次新提交（dirty===false 的跳过），并按窗口聚合
+ok 5 - summarizeSetsForDelivery：只统计本次新提交（dirty===false 的跳过），并按窗口聚合
+  ---
+  duration_ms: 0.8241
+  type: 'test'
+  ...
+# Subtest: 宿主：saveMerged 成功后登记待投递，并把 sessionId 带进 meta
+ok 6 - 宿主：saveMerged 成功后登记待投递，并把 sessionId 带进 meta
+  ---
+  duration_ms: 0.6628
+  type: 'test'
+  ...
+# Subtest: 注入点：agent/pre-step，只在 step===1，投递后清除，异常不影响主流程
+ok 7 - 注入点：agent/pre-step，只在 step===1，投递后清除，异常不影响主流程
+  ---
+  duration_ms: 0.557
+  type: 'test'
+  ...
+# Subtest: 激活安全：ctx.on / createUserMessage 不可用时只 warn + 记账
+ok 8 - 激活安全：ctx.on / createUserMessage 不可用时只 warn + 记账
+  ---
+  duration_ms: 0.138
+  type: 'test'
+  ...
+# Subtest: 客户端提供 annot-consume（立即交付 + 端到端可验收）
+ok 9 - 客户端提供 annot-consume（立即交付 + 端到端可验收）
+  ---
+  duration_ms: 0.3084
+  type: 'test'
+  ...
+# Subtest: 新会话也能直接取内容：browser_annotations 本地工具 + 稳定 latest.md
+ok 10 - 新会话也能直接取内容：browser_annotations 本地工具 + 稳定 latest.md
+  ---
+  duration_ms: 0.6233
+  type: 'test'
+  ...
+# Subtest: browser_annotations 有软上限（实测 70KB 全文会把 Agent 上下文一次吃满 ✗）
+ok 11 - browser_annotations 有软上限（实测 70KB 全文会把 Agent 上下文一次吃满 ✗）
+  ---
+  duration_ms: 0.448
+  type: 'test'
+  ...
+# Subtest: 一句话能力说明：每个会话自动注入一次，且与批注交付合并为一条消息
+ok 12 - 一句话能力说明：每个会话自动注入一次，且与批注交付合并为一条消息
+  ---
+  duration_ms: 0.4374
+  type: 'test'
+  ...
+# Subtest: mirrorPlacement：canonical 副本与模块实现逐例一致
+ok 13 - mirrorPlacement：canonical 副本与模块实现逐例一致
+  ---
+  duration_ms: 1.6802
+  type: 'test'
+  ...
+# Subtest: mirrorPlacement：展开态不得把面板顶出屏幕（回归审计发现）
+ok 14 - mirrorPlacement：展开态不得把面板顶出屏幕（回归审计发现）
+  ---
+  duration_ms: 0.8471
+  type: 'test'
+  ...
+# Subtest: mirrorPlacement：上界保护与退化输入
+ok 15 - mirrorPlacement：上界保护与退化输入
+  ---
+  duration_ms: 0.1808
+  type: 'test'
+  ...
+# Subtest: mirrorPlacement：右缘始终等于 视口宽 − 板块右缘 + gap
+ok 16 - mirrorPlacement：右缘始终等于 视口宽 − 板块右缘 + gap
+  ---
+  duration_ms: 0.127
+  type: 'test'
+  ...
+# Subtest: mirrorPlacement：锚点 rect 退化为 0 时回退视口右下角（回归实测 bug）
+ok 17 - mirrorPlacement：锚点 rect 退化为 0 时回退视口右下角（回归实测 bug）
+  ---
+  duration_ms: 0.1728
+  type: 'test'
+  ...
+# Subtest: v34：宿主按「会话窗口在前、自持在后」统一编字母代号
+ok 18 - v34：宿主按「会话窗口在前、自持在后」统一编字母代号
+  ---
+  duration_ms: 1.4887
+  type: 'test'
+  ...
+# Subtest: v34：落盘时逐条写窗口（以创建地真相为准，不能按『谁先同步到』打标）
+ok 19 - v34：落盘时逐条写窗口（以创建地真相为准，不能按『谁先同步到』打标）
+  ---
+  duration_ms: 0.3286
+  type: 'test'
+  ...
+# Subtest: v34：草稿带 _window（面板显示 + 跳页/水合后仍在）
+ok 20 - v34：草稿带 _window（面板显示 + 跳页/水合后仍在）
+  ---
+  duration_ms: 2.7046
+  type: 'test'
+  ...
+# Subtest: v34：批注器接收并显示窗口代号
+ok 21 - v34：批注器接收并显示窗口代号
+  ---
+  duration_ms: 0.2744
+  type: 'test'
+  ...
+# Subtest: v34：协议 Window 行 build↔parse 往返无损
+ok 22 - v34：协议 Window 行 build↔parse 往返无损
+  ---
+  duration_ms: 3.2995
+  type: 'test'
+  ...
+# Subtest: header 与计数：`\# Web page annotations: N`
+ok 23 - header 与计数：`\# Web page annotations: N`
+  ---
+  duration_ms: 1.9329
+  type: 'test'
+  ...
+# Subtest: 全字段 + Note：round-trip 无损
+ok 24 - 全字段 + Note：round-trip 无损
+  ---
+  duration_ms: 2.4884
+  type: 'test'
+  ...
+# Subtest: 无 Note（快速引用等价形态）
+ok 25 - 无 Note（快速引用等价形态）
+  ---
+  duration_ms: 0.8776
+  type: 'test'
+  ...
+# Subtest: stale 标记：Status 行进块、parse 还原 stale=true
+ok 26 - stale 标记：Status 行进块、parse 还原 stale=true
+  ---
+  duration_ms: 0.6419
+  type: 'test'
+  ...
+# Subtest: 字段截断 8000 + [truncated]（围栏字段）
+ok 27 - 字段截断 8000 + [truncated]（围栏字段）
+  ---
+  duration_ms: 0.3294
+  type: 'test'
+  ...
+# Subtest: 字段截断 8000 + [truncated]（行字段，行内截断不破格式）
+ok 28 - 字段截断 8000 + [truncated]（行字段，行内截断不破格式）
+  ---
+  duration_ms: 1.6321
+  type: 'test'
+  ...
+# Subtest: Note 超长：压成单行并行内截断
+ok 29 - Note 超长：压成单行并行内截断
+  ---
+  duration_ms: 0.5947
+  type: 'test'
+  ...
+# Subtest: CRLF 容忍：\\r\\n 与裸 \\r 归一化
+ok 30 - CRLF 容忍：\\r\\n 与裸 \\r 归一化
+  ---
+  duration_ms: 0.3445
+  type: 'test'
+  ...
+# Subtest: visibleContent：协议块前的消息正文保留
+ok 31 - visibleContent：协议块前的消息正文保留
+  ---
+  duration_ms: 0.2955
+  type: 'test'
+  ...
+# Subtest: 空列表 / 无协议块 / 非字符串输入
+ok 32 - 空列表 / 无协议块 / 非字符串输入
+  ---
+  duration_ms: 0.6217
+  type: 'test'
+  ...
+# Subtest: 极简条目（对齐调研文档样例 Annotation 2：无 URL/Title）
+ok 33 - 极简条目（对齐调研文档样例 Annotation 2：无 URL/Title）
+  ---
+  duration_ms: 0.3991
+  type: 'test'
+  ...
+# Subtest: 围栏正文里出现 Note:/Title: 字样不被误读为字段
+ok 34 - 围栏正文里出现 Note:/Title: 字样不被误读为字段
+  ---
+  duration_ms: 0.1948
+  type: 'test'
+  ...
+# Subtest: Attributes 引号与转义无损
+ok 35 - Attributes 引号与转义无损
+  ---
+  duration_ms: 0.3486
+  type: 'test'
+  ...
+# Subtest: Font 字段 parse 还原为 fontSize + fontFamily
+ok 36 - Font 字段 parse 还原为 fontSize + fontFamily
+  ---
+  duration_ms: 0.4084
+  type: 'test'
+  ...
+# Subtest: 手工编辑容忍：无计数头 + 字段缺失 + 索引还原
+ok 37 - 手工编辑容忍：无计数头 + 字段缺失 + 索引还原
+  ---
+  duration_ms: 0.1174
+  type: 'test'
+  ...
+# Subtest: summarizeSets：跨组同 gid 去重保序（多面板同步的重复条目）
+ok 38 - summarizeSets：跨组同 gid 去重保序（多面板同步的重复条目）
+  ---
+  duration_ms: 1.5692
+  type: 'test'
+  ...
+# Subtest: summarizeSets：无 gid 条目不去重（保序保留）
+ok 39 - summarizeSets：无 gid 条目不去重（保序保留）
+  ---
+  duration_ms: 1.1856
+  type: 'test'
+  ...
+# Subtest: summarizeSets：index 升序（含字符串数字容错）
+ok 40 - summarizeSets：index 升序（含字符串数字容错）
+  ---
+  duration_ms: 0.2372
+  type: 'test'
+  ...
+# Subtest: summarizeSets：text 空回退 accessibleName，再空为 ""
+ok 41 - summarizeSets：text 空回退 accessibleName，再空为 ""
+  ---
+  duration_ms: 0.1898
+  type: 'test'
+  ...
+# Subtest: summarizeSets：text 60 字截断（SUMMARY_TEXT_MAX）
+ok 42 - summarizeSets：text 60 字截断（SUMMARY_TEXT_MAX）
+  ---
+  duration_ms: 0.1331
+  type: 'test'
+  ...
+# Subtest: summarizeSets：url 取所属组；空输入安全
+ok 43 - summarizeSets：url 取所属组；空输入安全
+  ---
+  duration_ms: 0.1225
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌 summarizeSets ≡ src/annotations-summary.mjs（多组 fixtures 一致）
+ok 44 - parity：client.js 内嵌 summarizeSets ≡ src/annotations-summary.mjs（多组 fixtures 一致）
+  ---
+  duration_ms: 0.4737
+  type: 'test'
+  ...
+# Subtest: planChipConsume：无 base/sig → idle（基线未建立不误耗）
+ok 45 - planChipConsume：无 base/sig → idle（基线未建立不误耗）
+  ---
+  duration_ms: 1.7661
+  type: 'test'
+  ...
+# Subtest: planChipConsume：顶行键变化（切会话/虚拟化重组）→ reset（胶囊保留待命）
+ok 46 - planChipConsume：顶行键变化（切会话/虚拟化重组）→ reset（胶囊保留待命）
+  ---
+  duration_ms: 0.2893
+  type: 'test'
+  ...
+# Subtest: planChipConsume：同视图行数增长 → consume（用户发出新消息）
+ok 47 - planChipConsume：同视图行数增长 → consume（用户发出新消息）
+  ---
+  duration_ms: 1.6118
+  type: 'test'
+  ...
+# Subtest: planChipConsume：同视图末行变化且行数不减 → consume（虚拟化一进一出）
+ok 48 - planChipConsume：同视图末行变化且行数不减 → consume（虚拟化一进一出）
+  ---
+  duration_ms: 0.308
+  type: 'test'
+  ...
+# Subtest: planChipConsume：同视图行数与末行均不变 → idle（未发送）
+ok 49 - planChipConsume：同视图行数与末行均不变 → idle（未发送）
+  ---
+  duration_ms: 0.2276
+  type: 'test'
+  ...
+# Subtest: planChipConsume：同视图行数减少且末行未变 → idle（删消息/虚拟化收窄，防误耗）
+ok 50 - planChipConsume：同视图行数减少且末行未变 → idle（删消息/虚拟化收窄，防误耗）
+  ---
+  duration_ms: 0.212
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌 planChipConsume ≡ src/annotator-consume.mjs（全分支输出一致）
+ok 51 - parity：client.js 内嵌 planChipConsume ≡ src/annotator-consume.mjs（全分支输出一致）
+  ---
+  duration_ms: 0.4727
+  type: 'test'
+  ...
+# Subtest: 内嵌 builder 与 ESM 协议逐字一致（全 case）
+ok 52 - 内嵌 builder 与 ESM 协议逐字一致（全 case）
+  ---
+  duration_ms: 7.8916
+  type: 'test'
+  ...
+# Subtest: 内嵌 builder 产出可被 ESM parse 无损还原（round-trip 联动）
+ok 53 - 内嵌 builder 产出可被 ESM parse 无损还原（round-trip 联动）
+  ---
+  duration_ms: 8.718
+  type: 'test'
+  ...
+# Subtest: annotator 冒烟：批注流全链路 + 协议 round-trip
+ok 54 - annotator 冒烟：批注流全链路 + 协议 round-trip
+  ---
+  duration_ms: 12776.4708
+  type: 'test'
+  ...
+# Subtest: planPaneSync：新 gid 登记 origins/originUrls
+ok 55 - planPaneSync：新 gid 登记 origins/originUrls
+  ---
+  duration_ms: 2.4226
+  type: 'test'
+  ...
+# Subtest: planPaneSync：双面板去重 + 推送计划（来源不推给自己，附 _originUrl）
+ok 56 - planPaneSync：双面板去重 + 推送计划（来源不推给自己，附 _originUrl）
+  ---
+  duration_ms: 2.4892
+  type: 'test'
+  ...
+# Subtest: planPaneSync：删除日志 → removedGids + 广播目标 + origins 清理
+ok 57 - planPaneSync：删除日志 → removedGids + 广播目标 + origins 清理
+  ---
+  duration_ms: 0.5562
+  type: 'test'
+  ...
+# Subtest: planPaneSync：来源面板消失判定（origin 列表缺该 gid → 删除）
+ok 58 - planPaneSync：来源面板消失判定（origin 列表缺该 gid → 删除）
+  ---
+  duration_ms: 0.2816
+  type: 'test'
+  ...
+# Subtest: planPaneSync：dead 面板不参与推送/广播，其来源消失不判定
+ok 59 - planPaneSync：dead 面板不参与推送/广播，其来源消失不判定
+  ---
+  duration_ms: 0.4275
+  type: 'test'
+  ...
+# Subtest: planPaneSync：单面板 count 正确、无推送（C3 修复语义）
+ok 60 - planPaneSync：单面板 count 正确、无推送（C3 修复语义）
+  ---
+  duration_ms: 0.2467
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌 planPaneSync ≡ src/annotator-sync.mjs（三组 fixtures 输出一致）
+ok 61 - parity：client.js 内嵌 planPaneSync ≡ src/annotator-sync.mjs（三组 fixtures 输出一致）
+  ---
+  duration_ms: 1.0252
+  type: 'test'
+  ...
+# Subtest: T1：批注器版本字面量自洽（client EXPECTED == annotator 声明）
+ok 62 - T1：批注器版本字面量自洽（client EXPECTED == annotator 声明）
+  ---
+  duration_ms: 1.5705
+  type: 'test'
+  ...
+# Subtest: T2：面板定位历史包袱（死接口/死指标）不得复活
+ok 63 - T2：面板定位历史包袱（死接口/死指标）不得复活
+  ---
+  duration_ms: 1.1073
+  type: 'test'
+  ...
+# Subtest: T3：宿主镜像绑定的稳定属性都在批注器里真实存在
+ok 64 - T3：宿主镜像绑定的稳定属性都在批注器里真实存在
+  ---
+  duration_ms: 0.417
+  type: 'test'
+  ...
+# Subtest: T6：1s 空闲 tick 的跨进程调用有预算（回潮即变红）
+ok 65 - T6：1s 空闲 tick 的跨进程调用有预算（回潮即变红）
+  ---
+  duration_ms: 0.3741
+  type: 'test'
+  ...
+# Subtest: T7：会话复位单一来源（各收尾路径都走 resetAnnotState）
+ok 66 - T7：会话复位单一来源（各收尾路径都走 resetAnnotState）
+  ---
+  duration_ms: 0.4887
+  type: 'test'
+  ...
+# Subtest: v23：镜像同步由「必定在跑」的主 2s tick 驱动（不能只留在 1s idle tick）
+ok 67 - v23：镜像同步由「必定在跑」的主 2s tick 驱动（不能只留在 1s idle tick）
+  ---
+  duration_ms: 2.1417
+  type: 'test'
+  ...
+# Subtest: v23：1s idle tick 里的批注块必须在「自持窗口存在」这道门之前
+ok 68 - v23：1s idle tick 里的批注块必须在「自持窗口存在」这道门之前
+  ---
+  duration_ms: 0.6906
+  type: 'test'
+  ...
+# Subtest: v23：镜像失败必须可查（不再静默）
+ok 69 - v23：镜像失败必须可查（不再静默）
+  ---
+  duration_ms: 0.6721
+  type: 'test'
+  ...
+# Subtest: v23：boot 期不得调用作用域外的 startAgentViewIdleTick（保持注释警示）
+ok 70 - v23：boot 期不得调用作用域外的 startAgentViewIdleTick（保持注释警示）
+  ---
+  duration_ms: 0.3009
+  type: 'test'
+  ...
+# Subtest: v26：提交/消费 = 清空页面批注与草稿（v24 的『保留』语义已被用户否决）
+ok 71 - v26：提交/消费 = 清空页面批注与草稿（v24 的『保留』语义已被用户否决）
+  ---
+  duration_ms: 1.3434
+  type: 'test'
+  ...
+# Subtest: v24：再次提交只发「新增/改过」的条目
+ok 72 - v24：再次提交只发「新增/改过」的条目
+  ---
+  duration_ms: 0.1841
+  type: 'test'
+  ...
+# Subtest: v24：批注器提供 dirty/markSubmitted/三态徽标
+ok 73 - v24：批注器提供 dirty/markSubmitted/三态徽标
+  ---
+  duration_ms: 0.3687
+  type: 'test'
+  ...
+# Subtest: v24：**关闭/取消**也不再清空（丢弃只能走面板「清除」）
+ok 74 - v24：**关闭/取消**也不再清空（丢弃只能走面板「清除」）
+  ---
+  duration_ms: 0.2239
+  type: 'test'
+  ...
+# Subtest: v24：提交标记随跨面板同步一起传（否则重注入后重复提交/徽标回蓝）
+ok 75 - v24：提交标记随跨面板同步一起传（否则重注入后重复提交/徽标回蓝）
+  ---
+  duration_ms: 0.3622
+  type: 'test'
+  ...
+# Subtest: v24：序号延续依赖「记录不清空 + nextIndex 取 max+1」
+ok 76 - v24：序号延续依赖「记录不清空 + nextIndex 取 max+1」
+  ---
+  duration_ms: 0.1944
+  type: 'test'
+  ...
+# Subtest: v25：提示条有兜底回收（不依赖被移除的胶囊发 mouseleave）
+ok 77 - v25：提示条有兜底回收（不依赖被移除的胶囊发 mouseleave）
+  ---
+  duration_ms: 1.9047
+  type: 'test'
+  ...
+# Subtest: v25/v28：批注按 DSH 会话隔离（换会话即清空，编号从 1 起）
+ok 78 - v25/v28：批注按 DSH 会话隔离（换会话即清空，编号从 1 起）
+  ---
+  duration_ms: 0.6366
+  type: 'test'
+  ...
+# Subtest: ① 左键放行：只有右键才拦截采集，left-click 不再被拦
+ok 79 - ① 左键放行：只有右键才拦截采集，left-click 不再被拦
+  ---
+  duration_ms: 0.9683
+  type: 'test'
+  ...
+# Subtest: ② 关闭批注后发送仍能消费：面板集合不依赖会话活跃 + 落盘失败不消费
+ok 80 - ② 关闭批注后发送仍能消费：面板集合不依赖会话活跃 + 落盘失败不消费
+  ---
+  duration_ms: 0.956
+  type: 'test'
+  ...
+# Subtest: ③ 快捷检查项：多选、灰/主题色、可与手写意见共存并合成进 Note
+ok 81 - ③ 快捷检查项：多选、灰/主题色、可与手写意见共存并合成进 Note
+  ---
+  duration_ms: 0.4112
+  type: 'test'
+  ...
+# Subtest: v38：发出去的消息行必须挂上批注胶囊（无行键 ⇒ 待挂态等新行，不再永久跳过）
+ok 82 - v38：发出去的消息行必须挂上批注胶囊（无行键 ⇒ 待挂态等新行，不再永久跳过）
+  ---
+  duration_ms: 0.6984
+  type: 'test'
+  ...
+# Subtest: v38：三处身份/作用域缺口（自持窗口批注不进草稿也不挂胶囊）都已修
+ok 83 - v38：三处身份/作用域缺口（自持窗口批注不进草稿也不挂胶囊）都已修
+  ---
+  duration_ms: 0.2452
+  type: 'test'
+  ...
+# Subtest: P43 parity：client 内嵌 faceUnwrap 与 src 正典逐例同结果
+ok 84 - P43 parity：client 内嵌 faceUnwrap 与 src 正典逐例同结果
+  ---
+  duration_ms: 1.9467
+  type: 'test'
+  ...
+# Subtest: P43 根因钉死：HID 桥分发不再用「业务键当信封谓词」
+ok 85 - P43 根因钉死：HID 桥分发不再用「业务键当信封谓词」
+  ---
+  duration_ms: 3.116
+  type: 'test'
+  ...
+# Subtest: P43 现场形状：外层 ok:true + 内层 timeout —— 剥出内层才算对
+ok 86 - P43 现场形状：外层 ok:true + 内层 timeout —— 剥出内层才算对
+  ---
+  duration_ms: 0.1537
+  type: 'test'
+  ...
+# Subtest: R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具静默失败）
+    # Subtest: 每个 spec.action 都存在于 client commandHandlers
+    ok 1 - 每个 spec.action 都存在于 client commandHandlers
+      ---
+      duration_ms: 0.9979
+      type: 'test'
+      ...
+    # Subtest: 工具名唯一、统一 browser_ 前缀、超时为正数
+    ok 2 - 工具名唯一、统一 browser_ 前缀、超时为正数
+      ---
+      duration_ms: 0.2272
+      type: 'test'
+      ...
+    # Subtest: 参数名不得占用命令信封键（action/id）——P47-D 参数撞信封
+    ok 3 - 参数名不得占用命令信封键（action/id）——P47-D 参数撞信封
+      ---
+      duration_ms: 0.1593
+      type: 'test'
+      ...
+    # Subtest: dynamicSource（页内观察器）文件真实存在且导出 __dshKitConsole 契约
+    ok 4 - dynamicSource（页内观察器）文件真实存在且导出 __dshKitConsole 契约
+      ---
+      duration_ms: 0.4156
+      type: 'test'
+      ...
+    # Subtest: R-INPUT 工具面：点击/输入默认走可信事件，交互族齐备
+    ok 5 - R-INPUT 工具面：点击/输入默认走可信事件，交互族齐备
+      ---
+      duration_ms: 0.2011
+      type: 'test'
+      ...
+    # Subtest: R-OWN 工具面：自持窗口工具存在 + 页面级工具都带 target 参数
+    ok 6 - R-OWN 工具面：自持窗口工具存在 + 页面级工具都带 target 参数
+      ---
+      duration_ms: 0.8187
+      type: 'test'
+      ...
+    1..6
+ok 87 - R-TOOL 规格表与 client 命令表**逐字对齐**（防漂移 = 工具静默失败）
+  ---
+  duration_ms: 4.1236
+  type: 'test'
+  ...
+# Subtest: R-TOOL 命令通道传输层
+    # Subtest: writeCommandImpl 原子写：JSON 可解析且含 id/action
+    ok 1 - writeCommandImpl 原子写：JSON 可解析且含 id/action
+      ---
+      duration_ms: 3.4166
+      type: 'test'
+      ...
+    # Subtest: readCommandResultImpl：尾部扫、跳过坏行、忽略别的 id、缺失返回 null
+    ok 2 - readCommandResultImpl：尾部扫、跳过坏行、忽略别的 id、缺失返回 null
+      ---
+      duration_ms: 4.3981
+      type: 'test'
+      ...
+    # Subtest: runBrowserCommand：回执到达即返回（模拟 client 消费）
+    ok 3 - runBrowserCommand：回执到达即返回（模拟 client 消费）
+      ---
+      duration_ms: 268.0665
+      type: 'test'
+      ...
+    # Subtest: runBrowserCommand：无人消费 → 结构化超时错误（不抛）
+    ok 4 - runBrowserCommand：无人消费 → 结构化超时错误（不抛）
+      ---
+      duration_ms: 800.453
+      type: 'test'
+      ...
+    # Subtest: 串行队列：并发两条命令不会互相覆盖 command.json
+    ok 5 - 串行队列：并发两条命令不会互相覆盖 command.json
+      ---
+      duration_ms: 528.4255
+      type: 'test'
+      ...
+    1..5
+ok 88 - R-TOOL 命令通道传输层
+  ---
+  duration_ms: 1607.1844
+  type: 'test'
+  ...
+# Subtest: R-TOOL defineTool 解析策略
+    # Subtest: 候选表含 resourcesPath 推导与硬编码兜底
+    ok 1 - 候选表含 resourcesPath 推导与硬编码兜底
+      ---
+      duration_ms: 1.7509
+      type: 'test'
+      ...
+    # Subtest: 本机可从 app.asar 解析到真 defineTool（仅在 DSH/Electron 运行时内可验）
+    ok 2 - 本机可从 app.asar 解析到真 defineTool（仅在 DSH/Electron 运行时内可验） # SKIP 非 DSH 运行时：app.asar 不可读，跳过（实机已由激活日志/工具调用证明）
+      ---
+      duration_ms: 0.6
+      type: 'test'
+      ...
+    1..2
+ok 89 - R-TOOL defineTool 解析策略
+  ---
+  duration_ms: 3.8216
+  type: 'test'
+  ...
+# Subtest: R-TOOL 注册：stub ctx（含未 inject 抛错场景）
+    # Subtest: 正常 ctx：全部工具注册，返回 diag
+    ok 1 - 正常 ctx：全部工具注册，返回 diag
+      ---
+      duration_ms: 10.4279
+      type: 'test'
+      ...
+    # Subtest: execute 链路：工具调用 → 命令通道 → client 回执 → 带 tool/action 的结果
+    ok 2 - execute 链路：工具调用 → 命令通道 → client 回执 → 带 tool/action 的结果
+      ---
+      duration_ms: 275.4665
+      type: 'test'
+      ...
+    # Subtest: 未 inject 的 ctx（读 .tools 抛错）→ 返回 diag 而非抛
+    ok 3 - 未 inject 的 ctx（读 .tools 抛错）→ 返回 diag 而非抛
+      ---
+      duration_ms: 3.5092
+      type: 'test'
+      ...
+    1..3
+ok 90 - R-TOOL 注册：stub ctx（含未 inject 抛错场景）
+  ---
+  duration_ms: 291.1026
+  type: 'test'
+  ...
+# Subtest: cdp smoke：launch/connect/inject/evalJs/consoleStream/screenshot/close 全链路
+ok 91 - cdp smoke：launch/connect/inject/evalJs/consoleStream/screenshot/close 全链路
+  ---
+  duration_ms: 1948.2264
+  type: 'test'
+  ...
+# Subtest: cdp smoke：显式传入的 userDataDir 不被 close() 删除
+ok 92 - cdp smoke：显式传入的 userDataDir 不被 close() 删除
+  ---
+  duration_ms: 1325.6116
+  type: 'test'
+  ...
+# Subtest: P114：已挂过的模型匹配不到原行 ⇒ **绝不跳到别的行**（宁可不显示 ✓）
+ok 93 - P114：已挂过的模型匹配不到原行 ⇒ **绝不跳到别的行**（宁可不显示 ✓）
+  ---
+  duration_ms: 0.8167
+  type: 'test'
+  ...
+# Subtest: 已挂过的模型可用**相对锚**修好（前一行仍在视野 ⇒ 它的下一行 ✓），但不得回退 ✗
+ok 94 - 已挂过的模型可用**相对锚**修好（前一行仍在视野 ⇒ 它的下一行 ✓），但不得回退 ✗
+  ---
+  duration_ms: 0.6865
+  type: 'test'
+  ...
+# Subtest: M-1：未挂过的模型**不得**命中 base 行自身（那是上一条消息 ✗）
+ok 95 - M-1：未挂过的模型**不得**命中 base 行自身（那是上一条消息 ✗）
+  ---
+  duration_ms: 0.1345
+  type: 'test'
+  ...
+# Subtest: 未挂过的模型：相对锚 / 模糊锚 / 首条消息 / attachIdx / pendingAttach 五条兜底各自生效 ✓
+ok 96 - 未挂过的模型：相对锚 / 模糊锚 / 首条消息 / attachIdx / pendingAttach 五条兜底各自生效 ✓
+  ---
+  duration_ms: 0.1909
+  type: 'test'
+  ...
+# Subtest: fuzzyFindKeyOf：前缀双向匹配 + 空键安全 ✓
+ok 97 - fuzzyFindKeyOf：前缀双向匹配 + 空键安全 ✓
+  ---
+  duration_ms: 0.1291
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌副本与正典逐例同结果（A1 模式 ✓）
+ok 98 - parity：client.js 内嵌副本与正典逐例同结果（A1 模式 ✓）
+  ---
+  duration_ms: 2.6224
+  type: 'test'
+  ...
+# Subtest: 行为①：无租约 / 租约过期 ⇒ 抢占（谁都可能成为唯一持有者 ✓）
+ok 99 - 行为①：无租约 / 租约过期 ⇒ 抢占（谁都可能成为唯一持有者 ✓）
+  ---
+  duration_ms: 1.4382
+  type: 'test'
+  ...
+# Subtest: 行为②：自己的租约 ⇒ 续租（心跳刷新 ✓）
+ok 100 - 行为②：自己的租约 ⇒ 续租（心跳刷新 ✓）
+  ---
+  duration_ms: 0.1638
+  type: 'test'
+  ...
+# Subtest: 行为③：自己是持有者但 busy 超时 ⇒ **让位**（卡死自愈 ✓）
+ok 101 - 行为③：自己是持有者但 busy 超时 ⇒ **让位**（卡死自愈 ✓）
+  ---
+  duration_ms: 0.1554
+  type: 'test'
+  ...
+# Subtest: 行为：坏值/存储异常都不抛（坏 JSON 按无租约 ✓；store 抛错 ⇒ 退回都轮询 ✓）
+ok 102 - 行为：坏值/存储异常都不抛（坏 JSON 按无租约 ✓；store 抛错 ⇒ 退回都轮询 ✓）
+  ---
+  duration_ms: 0.1888
+  type: 'test'
+  ...
+# Subtest: 常量自洽 + 键名一致（两端不漂移 ✓）
+ok 103 - 常量自洽 + 键名一致（两端不漂移 ✓）
+  ---
+  duration_ms: 2.2148
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌副本与正典逐例同结果（注入假 localStorage ✓）
+ok 104 - parity：client.js 内嵌副本与正典逐例同结果（注入假 localStorage ✓）
+  ---
+  duration_ms: 3.3103
+  type: 'test'
+  ...
+# Subtest: 行为：客户端上限 = clamp(宿主期限 − 余量, 2000, 80000)
+ok 105 - 行为：客户端上限 = clamp(宿主期限 − 余量, 2000, 80000)
+  ---
+  duration_ms: 0.7309
+  type: 'test'
+  ...
+# Subtest: 行为：非法/缺失输入退回默认期限（绝不抛 ✗）
+ok 106 - 行为：非法/缺失输入退回默认期限（绝不抛 ✗）
+  ---
+  duration_ms: 0.1408
+  type: 'test'
+  ...
+# Subtest: 不变量：全部 27 个工具的宿主超时都满足「客户端上限 < 宿主期限」（否则真实原因被吞 ✗）
+ok 107 - 不变量：全部 27 个工具的宿主超时都满足「客户端上限 < 宿主期限」（否则真实原因被吞 ✗）
+  ---
+  duration_ms: 1.8139
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌副本与正典逐例同结果（A1 模式 ✓）
+ok 108 - parity：client.js 内嵌副本与正典逐例同结果（A1 模式 ✓）
+  ---
+  duration_ms: 2.5957
+  type: 'test'
+  ...
+# Subtest: 常量自洽（改一处就够 ✓，防止两处硬编码漂移 ✗）
+ok 109 - 常量自洽（改一处就够 ✓，防止两处硬编码漂移 ✗）
+  ---
+  duration_ms: 0.5634
+  type: 'test'
+  ...
+# Subtest: 注入后 install 生效：console.log 仍调用原函数且产生条目
+ok 110 - 注入后 install 生效：console.log 仍调用原函数且产生条目
+  ---
+  duration_ms: 3.2177
+  type: 'test'
+  ...
+# Subtest: dump：level / limit / since / filter（子串与正则）/ net 过滤
+ok 111 - dump：level / limit / since / filter（子串与正则）/ net 过滤
+  ---
+  duration_ms: 1.3699
+  type: 'test'
+  ...
+# Subtest: dump({net:true}) 只回 fetch/xhr 条目
+ok 112 - dump({net:true}) 只回 fetch/xhr 条目
+  ---
+  duration_ms: 5.7171
+  type: 'test'
+  ...
+# Subtest: 循环引用 / BigInt / 抛错 getter / Symbol 的参数不抛异常且条目仍生成
+ok 113 - 循环引用 / BigInt / 抛错 getter / Symbol 的参数不抛异常且条目仍生成
+  ---
+  duration_ms: 15.9624
+  type: 'test'
+  ...
+# Subtest: text/args 截断：超长文本 ≤500、单参 ≤300、参数最多 5 项
+ok 114 - text/args 截断：超长文本 ≤500、单参 ≤300、参数最多 5 项
+  ---
+  duration_ms: 0.8802
+  type: 'test'
+  ...
+# Subtest: dump({filter:{re:RegExp}}) 跨 realm 正则对象也能识别
+ok 115 - dump({filter:{re:RegExp}}) 跨 realm 正则对象也能识别
+  ---
+  duration_ms: 0.7784
+  type: 'test'
+  ...
+# Subtest: uncaught 与 unhandledrejection 被抓到
+ok 116 - uncaught 与 unhandledrejection 被抓到
+  ---
+  duration_ms: 1.0069
+  type: 'test'
+  ...
+# Subtest: fetch 成功与失败各产生一条 kind:fetch 条目，durationMs 为数字
+ok 117 - fetch 成功与失败各产生一条 kind:fetch 条目，durationMs 为数字
+  ---
+  duration_ms: 3.4592
+  type: 'test'
+  ...
+# Subtest: XMLHttpRequest 被 hook：记录 method/url/status/durationMs 且不改行为
+ok 118 - XMLHttpRequest 被 hook：记录 method/url/status/durationMs 且不改行为
+  ---
+  duration_ms: 0.9456
+  type: 'test'
+  ...
+# Subtest: clear() 返回清空条数、stats() 计数正确、mark() 产生锚点
+ok 119 - clear() 返回清空条数、stats() 计数正确、mark() 产生锚点
+  ---
+  duration_ms: 0.9198
+  type: 'test'
+  ...
+# Subtest: 环形缓冲上限：塞入 520 条后长度 = 500 且 dropped = 20
+ok 120 - 环形缓冲上限：塞入 520 条后长度 = 500 且 dropped = 20
+  ---
+  duration_ms: 3.4035
+  type: 'test'
+  ...
+# Subtest: 幂等：连续注入两次，第二次返回 exists 且 hook 不叠加
+ok 121 - 幂等：连续注入两次，第二次返回 exists 且 hook 不叠加
+  ---
+  duration_ms: 0.731
+  type: 'test'
+  ...
+# Subtest: uninstall()：console.log 不再产生条目，且原始函数仍是桩自身
+ok 122 - uninstall()：console.log 不再产生条目，且原始函数仍是桩自身
+  ---
+  duration_ms: 0.7823
+  type: 'test'
+  ...
+# Subtest: uninstall() 还原 fetch 与 XHR 原型方法（仍是桩自身）
+ok 123 - uninstall() 还原 fetch 与 XHR 原型方法（仍是桩自身）
+  ---
+  duration_ms: 0.672
+  type: 'test'
+  ...
+# Subtest: 凭据只存 GUI localStorage：不落工作区、不写文件
+ok 124 - 凭据只存 GUI localStorage：不落工作区、不写文件
+  ---
+  duration_ms: 1.5579
+  type: 'test'
+  ...
+# Subtest: 凭据不调用任何 host 服务 ⇒ 无法进入落盘产物
+ok 125 - 凭据不调用任何 host 服务 ⇒ 无法进入落盘产物
+  ---
+  duration_ms: 0.3066
+  type: 'test'
+  ...
+# Subtest: 凭据不进 kit-status（命令通道可读的诊断不得包含凭据）
+ok 126 - 凭据不进 kit-status（命令通道可读的诊断不得包含凭据）
+  ---
+  duration_ms: 0.2318
+  type: 'test'
+  ...
+# Subtest: 凭据不进批注与交付管线（markdown / 注入消息都不含凭据）
+ok 127 - 凭据不进批注与交付管线（markdown / 注入消息都不含凭据）
+  ---
+  duration_ms: 0.1979
+  type: 'test'
+  ...
+# Subtest: 工具栏「钥匙」图标在批注右侧，且标题写明不进 Agent 上下文
+ok 128 - 工具栏「钥匙」图标在批注右侧，且标题写明不进 Agent 上下文
+  ---
+  duration_ms: 0.6132
+  type: 'test'
+  ...
+# Subtest: 填充只由用户点击触发（无自动抓取页面密码 / 自动提交）
+ok 129 - 填充只由用户点击触发（无自动抓取页面密码 / 自动提交）
+  ---
+  duration_ms: 0.3169
+  type: 'test'
+  ...
+# Subtest: 居中定位 + 同源自动填充的安全边界（本轮新增）
+ok 130 - 居中定位 + 同源自动填充的安全边界（本轮新增）
+  ---
+  duration_ms: 0.5118
+  type: 'test'
+  ...
+# Subtest: 可管理已保存账号：编辑（就地更新，保留 id）与删除（二次确认防误触）
+ok 131 - 可管理已保存账号：编辑（就地更新，保留 id）与删除（二次确认防误触）
+  ---
+  duration_ms: 0.4053
+  type: 'test'
+  ...
+# Subtest: 面板是全量管理器：列出**所有**已保存条目（不止当前站点）+ 计数 + 搜索 + 本页仅标记
+ok 132 - 面板是全量管理器：列出**所有**已保存条目（不止当前站点）+ 计数 + 搜索 + 本页仅标记
+  ---
+  duration_ms: 0.3526
+  type: 'test'
+  ...
+# Subtest: Chrome 式两级视图：站点列表 → 点进详情（查看/编辑/保存/删除）
+ok 133 - Chrome 式两级视图：站点列表 → 点进详情（查看/编辑/保存/删除）
+  ---
+  duration_ms: 0.4759
+  type: 'test'
+  ...
+# Subtest: v32：存在 refit 助手，且用 ResizeObserver 观察宿主容器
+ok 134 - v32：存在 refit 助手，且用 ResizeObserver 观察宿主容器
+  ---
+  duration_ms: 1.8647
+  type: 'test'
+  ...
+# Subtest: v32：refit 只重算缩放，不重设视口尺寸；未套预设的面板不动
+ok 135 - v32：refit 只重算缩放，不重设视口尺寸；未套预设的面板不动
+  ---
+  duration_ms: 0.282
+  type: 'test'
+  ...
+# Subtest: v32：套用预设时挂观察者，重置时摘掉
+ok 136 - v32：套用预设时挂观察者，重置时摘掉
+  ---
+  duration_ms: 0.3989
+  type: 'test'
+  ...
+# Subtest: v32：tick 自愈补挂（升级前已套预设的面板也要跟随）
+ok 137 - v32：tick 自愈补挂（升级前已套预设的面板也要跟随）
+  ---
+  duration_ms: 0.3438
+  type: 'test'
+  ...
+# Subtest: v32：kit-status 暴露 deviceFit 现场
+ok 138 - v32：kit-status 暴露 deviceFit 现场
+  ---
+  duration_ms: 0.2908
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：根包与 plugin 包都声明 engines.dsh，值一致且不覆盖 engines.node
+ok 139 - 0.2.1 兼容：根包与 plugin 包都声明 engines.dsh，值一致且不覆盖 engines.node
+  ---
+  duration_ms: 1.2478
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：区间在官方 includePrerelease 语义下覆盖当前版本与目标版本
+ok 140 - 0.2.1 兼容：区间在官方 includePrerelease 语义下覆盖当前版本与目标版本
+  ---
+  duration_ms: 1.4178
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：defineTool 候选覆盖「无 dsh/ 前缀」等布局变体 + profile/本地回退
+ok 141 - 0.2.1 兼容：defineTool 候选覆盖「无 dsh/ 前缀」等布局变体 + profile/本地回退
+  ---
+  duration_ms: 4.6211
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：槽位注册全部走安全注入器（缺槽位只降级、不炸插件）且记账
+ok 142 - 0.2.1 兼容：槽位注册全部走安全注入器（缺槽位只降级、不炸插件）且记账
+  ---
+  duration_ms: 3.2918
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：宿主探测报告含 compat（运行时版本 / 声明的区间 / defineTool 来源）
+ok 143 - 0.2.1 兼容：宿主探测报告含 compat（运行时版本 / 声明的区间 / defineTool 来源）
+  ---
+  duration_ms: 0.4101
+  type: 'test'
+  ...
+# Subtest: 0.2.1 兼容：工具注册是异步的 ⇒ 注册落地后必须再刷一次 compat（否则 defineToolSource 恒为 null ✗）
+ok 144 - 0.2.1 兼容：工具注册是异步的 ⇒ 注册落地后必须再刷一次 compat（否则 defineToolSource 恒为 null ✗）
+  ---
+  duration_ms: 0.3047
+  type: 'test'
+  ...
+# Subtest: 0.2.1：工具卡声明 presentCall/presentResult（宿主展示契约）＋ 取值必须认 block.call 包裹形状
+ok 145 - 0.2.1：工具卡声明 presentCall/presentResult（宿主展示契约）＋ 取值必须认 block.call 包裹形状
+  ---
+  duration_ms: 2.25
+  type: 'test'
+  ...
+# Subtest: A1 自愈：截图前台可见性丢失时（热重载后布局态丢失 ✗）要 open→expand→选回原标签，用毕还原
+ok 146 - A1 自愈：截图前台可见性丢失时（热重载后布局态丢失 ✗）要 open→expand→选回原标签，用毕还原
+  ---
+  duration_ms: 2.8305
+  type: 'test'
+  ...
+# Subtest: B3/R-2/R-3：官方 Dock 座位（探测式 priority）+ HID 泵实例围栏 + 2s tick 单飞
+ok 147 - B3/R-2/R-3：官方 Dock 座位（探测式 priority）+ HID 泵实例围栏 + 2s tick 单飞
+  ---
+  duration_ms: 3.4414
+  type: 'test'
+  ...
+# Subtest: R-7/R-8/R-9：截图三通道记账 + 回执探测带原因 + 配置页不留假开关
+ok 148 - R-7/R-8/R-9：截图三通道记账 + 回执探测带原因 + 配置页不留假开关
+  ---
+  duration_ms: 3.0165
+  type: 'test'
+  ...
+# Subtest: 预览磁盘兜底：face 两端都有 shotDataUrl + 宿主围栏 + 渲染器内存优先/磁盘兜底
+ok 149 - 预览磁盘兜底：face 两端都有 shotDataUrl + 宿主围栏 + 渲染器内存优先/磁盘兜底
+  ---
+  duration_ms: 2.8295
+  type: 'test'
+  ...
+# Subtest: U-2/U-5：会话 id 唯一口径（交付与工具同源）＋ 凭据保存失败必须如实回执
+ok 150 - U-2/U-5：会话 id 唯一口径（交付与工具同源）＋ 凭据保存失败必须如实回执
+  ---
+  duration_ms: 3.093
+  type: 'test'
+  ...
+# Subtest: 胶囊不跳行：已挂过的模型失配后**不得**改挂到别的行（否则没批注的消息被挂上 N 条 ✗）
+ok 151 - 胶囊不跳行：已挂过的模型失配后**不得**改挂到别的行（否则没批注的消息被挂上 N 条 ✗）
+  ---
+  duration_ms: 1.9252
+  type: 'test'
+  ...
+# Subtest: 通道超时契约：宿主下发自身期限、客户端**先于**宿主回执（否则真实原因被吞成"无回执" ✗）
+ok 152 - 通道超时契约：宿主下发自身期限、客户端**先于**宿主回执（否则真实原因被吞成"无回执" ✗）
+  ---
+  duration_ms: 2.4289
+  type: 'test'
+  ...
+# Subtest: 命令轮询器不得引用作用域外标识符（曾因 `c` 未定义 ⇒ 全部工具无回执 ✗，而旧钉子还把这个错钉住了 ✗✗）
+ok 153 - 命令轮询器不得引用作用域外标识符（曾因 `c` 未定义 ⇒ 全部工具无回执 ✗，而旧钉子还把这个错钉住了 ✗✗）
+  ---
+  duration_ms: 2.5831
+  type: 'test'
+  ...
+# Subtest: M-3：两端 face 方法表**结构**对拍（名字/参数/可选参数 ✓ —— 散文签名不比对 ✗）
+ok 154 - M-3：两端 face 方法表**结构**对拍（名字/参数/可选参数 ✓ —— 散文签名不比对 ✗）
+  ---
+  duration_ms: 3.792
+  type: 'test'
+  ...
+# Subtest: test\\helpers\\chrome.mjs
+ok 26 - test\\helpers\\chrome.mjs
+  ---
+  duration_ms: 54.3057
+  type: 'test'
+  ...
+# Subtest: test\\helpers\\sandbox.mjs
+ok 27 - test\\helpers\\sandbox.mjs
+  ---
+  duration_ms: 48.9581
+  type: 'test'
+  ...
+# Subtest: hid fixture 冒烟：evaluate 兜底注入 + 配对帧 + 镜像不消费
+ok 157 - hid fixture 冒烟：evaluate 兜底注入 + 配对帧 + 镜像不消费
+  ---
+  duration_ms: 2265.5882
+  type: 'test'
+  ...
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 a1 0c 00
+# [HID] [RX] hid reportId=0x00 0c 4b
+# [HID] [CLOSE] hid
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 01
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 00
+# [HID] [TX] hid reportId=0x00 01
+# [HID] [TX] hid reportId=0x00 02
+# [HID] [TX] hid reportId=0x00 03
+# [HID] [TX] hid reportId=0x00 04
+# [HID] [TX] hid reportId=0x00 05
+# [HID] [TX] hid reportId=0x00 06
+# [HID] [TX] hid reportId=0x00 07
+# [HID] [TX] hid reportId=0x00 08
+# [HID] [TX] hid reportId=0x00 09
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 aa
+# Subtest: HID：EVENT/OPEN/TX/RX/CLOSE 顺序、hex/ascii/len、设备描述符、reportId
+ok 158 - HID：EVENT/OPEN/TX/RX/CLOSE 顺序、hex/ascii/len、设备描述符、reportId
+  ---
+  duration_ms: 9.7312
+  type: 'test'
+  ...
+# Subtest: 版本契约：version/1、__DSH_KIT_OBSERVER_VERSION、entries 只读视图
+ok 159 - 版本契约：version/1、__DSH_KIT_OBSERVER_VERSION、entries 只读视图
+  ---
+  duration_ms: 3.2179
+  type: 'test'
+  ...
+# Subtest: ring 上限：config({max}) 裁剪旧条目，seq 单调
+ok 160 - ring 上限：config({max}) 裁剪旧条目，seq 单调
+  ---
+  duration_ms: 2.6342
+  type: 'test'
+  ...
+# [HID] [TX] hid reportId=0x00 bb
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 a1 0c
+# [HID] [TX] hid reportId=0x00 0c 00
+# [HID] [TX] hid reportId=0x00 a1 0c op=READ_PRESET\#12
+# [HID] [TX] hid reportId=0x00 a1 0c op=READ_PRESET\#12
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 de ad
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 01
+# [HID] [TX] hid reportId=0x00 02
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# Subtest: dump/filter 分支：dir/api/op/device/since/limit
+ok 161 - dump/filter 分支：dir/api/op/device/since/limit
+  ---
+  duration_ms: 32.9419
+  type: 'test'
+  ...
+# Subtest: registerDecoder：命中填充 op/note，追溯 + 新条目即时生效，异常隔离
+ok 162 - registerDecoder：命中填充 op/note，追溯 + 新条目即时生效，异常隔离
+  ---
+  duration_ms: 2.0978
+  type: 'test'
+  ...
+# Subtest: export()：JSONL 可解析、字段齐全、不含 bytes 本体
+ok 163 - export()：JSONL 可解析、字段齐全、不含 bytes 本体
+  ---
+  duration_ms: 1.5017
+  type: 'test'
+  ...
+# Subtest: clear()：清空 ring，seq 保持单调
+ok 164 - clear()：清空 ring，seq 保持单调
+  ---
+  duration_ms: 1.8168
+  type: 'test'
+  ...
+# Subtest: config({consoleChannel})：默认 debug 输出 [HID]，off 静默；hex 预览 32 字节截断
+ok 165 - config({consoleChannel})：默认 debug 输出 [HID]，off 静默；hex 预览 32 字节截断
+  ---
+  duration_ms: 1.3822
+  type: 'test'
+  ...
+# [HID] [EVENT] hid op=getDevices
+# [HID] [OPEN] hid
+# [HID] [TX] hid reportId=0x00 01
+# [HID] [EVENT] hid op=getDevices
+# [HID] [TX] hid reportId=0x00 02
+# [HID] [EVENT] serial op=getPorts
+# [HID] [OPEN] serial
+# [HID] [TX] serial 48 45 4c 4c 4f
+# [HID] [RX] serial 01 02
+# [HID] [EVENT] usb op=getDevices
+# [HID] [TX] usb 11 22
+# [HID] [RX] usb de ad
+# [HID] [TX] usb 01
+# [HID] [RX] usb 09
+# Subtest: detach()：方法还原、navigator 描述符还原、全局清除、镜像移除
+ok 166 - detach()：方法还原、navigator 描述符还原、全局清除、镜像移除
+  ---
+  duration_ms: 23.5839
+  type: 'test'
+  ...
+# Subtest: 重注入防重：旧实例先 detach，TX 不重复计数
+ok 167 - 重注入防重：旧实例先 detach，TX 不重复计数
+  ---
+  duration_ms: 1.6891
+  type: 'test'
+  ...
+# Subtest: Serial：write TX 全量 + data 事件镜像（best-effort）
+ok 168 - Serial：write TX 全量 + data 事件镜像（best-effort）
+  ---
+  duration_ms: 1.4057
+  type: 'test'
+  ...
+# Subtest: USB：transferOut/In 与 controlTransfer 的 TX/RX 及 ctrl note
+ok 169 - USB：transferOut/In 与 controlTransfer 的 TX/RX 及 ctrl note
+  ---
+  duration_ms: 1.7222
+  type: 'test'
+  ...
+# Subtest: 无任何设备 API 的页面：observer 安装与 dump 均安全
+ok 170 - 无任何设备 API 的页面：observer 安装与 dump 均安全
+  ---
+  duration_ms: 0.8255
+  type: 'test'
+  ...
+# [HID] [EVENT] hid op=connect
+# Subtest: connect 事件镜像：autoConnect 广播被记录并采集设备
+ok 171 - connect 事件镜像：autoConnect 广播被记录并采集设备
+  ---
+  duration_ms: 25.3694
+  type: 'test'
+  ...
+# Subtest: 注入串与观察层共用 readSource 冒烟：observer 源码可重复 eval 于同一沙箱
+ok 172 - 注入串与观察层共用 readSource 冒烟：observer 源码可重复 eval 于同一沙箱
+  ---
+  duration_ms: 2.5919
+  type: 'test'
+  ...
+# Subtest: client.js 共享会话静态契约（P25 成员先入册 / P26 编号下限不双加）
+    # Subtest: P26：joinFloorIndex 存在，且不再把 sessionMaxIndex()+1 当下限
+    ok 1 - P26：joinFloorIndex 存在，且不再把 sessionMaxIndex()+1 当下限
+      ---
+      duration_ms: 0.7686
+      type: 'test'
+      ...
+    # Subtest: P25：joinPane 内成员入册（push）先于 startPaneInSession
+    ok 2 - P25：joinPane 内成员入册（push）先于 startPaneInSession
+      ---
+      duration_ms: 0.3311
+      type: 'test'
+      ...
+    # Subtest: 自动加入与退出记忆：leftIds 存在且自动加入检查它；会话结束清空
+    ok 3 - 自动加入与退出记忆：leftIds 存在且自动加入检查它；会话结束清空
+      ---
+      duration_ms: 1.2766
+      type: 'test'
+      ...
+    # Subtest: 面板身份按 webContentsId 比对（重渲染换节点不失配）
+    ok 4 - 面板身份按 webContentsId 比对（重渲染换节点不失配）
+      ---
+      duration_ms: 0.1426
+      type: 'test'
+      ...
+    # Subtest: 1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉
+    ok 5 - 1.6.2：版本锁同步 + 提交提示写输入框 + 清除按钮 + 同页门控（防串窗）+ 评审采纳回归钉
+      ---
+      duration_ms: 1.2144
+      type: 'test'
+      ...
+    # Subtest: P29：REMOTE_CONTRIBUTION 必须声明 saveMerged（face 装配缺口回归钉）+ gui-eval 诊断
+    ok 6 - P29：REMOTE_CONTRIBUTION 必须声明 saveMerged（face 装配缺口回归钉）+ gui-eval 诊断
+      ---
+      duration_ms: 0.2691
+      type: 'test'
+      ...
+    # Subtest: 胶囊（ZCode 式）：输入框卡片内侧 + 会话指纹门控（P31 跨会话不泄漏）
+    ok 7 - 胶囊（ZCode 式）：输入框卡片内侧 + 会话指纹门控（P31 跨会话不泄漏）
+      ---
+      duration_ms: 0.4897
+      type: 'test'
+      ...
+    # Subtest: 会话内消息胶囊（2026-10-05 用户需求钉）：发送检测、hover 提示（v26：发送即消费清空）
+    ok 8 - 会话内消息胶囊（2026-10-05 用户需求钉）：发送检测、hover 提示（v26：发送即消费清空）
+      ---
+      duration_ms: 1.7879
+      type: 'test'
+      ...
+    # Subtest: W3：client descriptors ↔ wire FACE_METHOD_TABLE 逐字对账（P29 防复发）
+    ok 9 - W3：client descriptors ↔ wire FACE_METHOD_TABLE 逐字对账（P29 防复发）
+      ---
+      duration_ms: 2.3285
+      type: 'test'
+      ...
+    # Subtest: A6：命令处理器映射键唯一性 + 全量动作清单（C2/F2 复发钉）+ guest-eval document 参数遮蔽（P23 回归钉）
+    ok 10 - A6：命令处理器映射键唯一性 + 全量动作清单（C2/F2 复发钉）+ guest-eval document 参数遮蔽（P23 回归钉）
+      ---
+      duration_ms: 0.6977
+      type: 'test'
+      ...
+    # Subtest: R-INPUT：可信输入层（sendInputEvent）四要素不被回退（2026-10-10 实测解锁）
+    ok 11 - R-INPUT：可信输入层（sendInputEvent）四要素不被回退（2026-10-10 实测解锁）
+      ---
+      duration_ms: 1.0414
+      type: 'test'
+      ...
+    # Subtest: R-OWN v2：分辨率预设 / 右下角小窗 / 登录态复用 / 截图（2026-10-10 用户需求）
+    ok 12 - R-OWN v2：分辨率预设 / 右下角小窗 / 登录态复用 / 截图（2026-10-10 用户需求）
+      ---
+      duration_ms: 9.5431
+      type: 'test'
+      ...
+    # Subtest: R-OWN v12/v13：批注面板可见带 + 固定尺寸 + 页面 CSS 隔离（1.6.4）
+    ok 13 - R-OWN v12/v13：批注面板可见带 + 固定尺寸 + 页面 CSS 隔离（1.6.4）
+      ---
+      duration_ms: 1.8327
+      type: 'test'
+      ...
+    # Subtest: R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）
+    ok 14 - R-SCOPE：自动化只作用于本会话窗口（用户需求 2026-10-10）
+      ---
+      duration_ms: 1.0897
+      type: 'test'
+      ...
+    # Subtest: R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）
+    ok 15 - R-GLOW：Agent 操作光效——打点集合 + 分发器统一打点 + 可控命令（用户需求 2026-10-09）
+      ---
+      duration_ms: 0.4851
+      type: 'test'
+      ...
+    # Subtest: 发送前防呆横条（待实施会话实机验收；规格 .local/feature-send-guard.md）
+    ok 16 - 发送前防呆横条（待实施会话实机验收；规格 .local/feature-send-guard.md）
+      ---
+      duration_ms: 0.3992
+      type: 'test'
+      ...
+    1..16
+ok 173 - client.js 共享会话静态契约（P25 成员先入册 / P26 编号下限不双加）
+  ---
+  duration_ms: 27.1963
+  type: 'test'
+  ...
+# Subtest: slugify：Windows 非法字符 / 空白折叠 / 中文保留 / 修剪截断 / 空回退
+    # Subtest: 非法字符 \\ / : * ? " < > | 被替换剔除（连续非法段折叠为一个 -）
+    ok 1 - 非法字符 \\ / : * ? " < > | 被替换剔除（连续非法段折叠为一个 -）
+      ---
+      duration_ms: 0.813
+      type: 'test'
+      ...
+    # Subtest: 换行/制表与空白折叠为 -
+    ok 2 - 换行/制表与空白折叠为 -
+      ---
+      duration_ms: 0.1127
+      type: 'test'
+      ...
+    # Subtest: 中文保留
+    ok 3 - 中文保留
+      ---
+      duration_ms: 0.1682
+      type: 'test'
+      ...
+    # Subtest: 首尾 -. 修剪
+    ok 4 - 首尾 -. 修剪
+      ---
+      duration_ms: 0.1025
+      type: 'test'
+      ...
+    # Subtest: 截断 40 字
+    ok 5 - 截断 40 字
+      ---
+      duration_ms: 0.1726
+      type: 'test'
+      ...
+    # Subtest: 空/纯非法输入回退 page
+    ok 6 - 空/纯非法输入回退 page
+      ---
+      duration_ms: 0.1293
+      type: 'test'
+      ...
+    1..6
+ok 174 - slugify：Windows 非法字符 / 空白折叠 / 中文保留 / 修剪截断 / 空回退
+  ---
+  duration_ms: 2.5826
+  type: 'test'
+  ...
+# Subtest: tsStamp：固定 Date 断言 YYYYMMDD-HHmmss（P7：不比较当前时刻）
+    # Subtest: 固定本地时间
+    ok 1 - 固定本地时间
+      ---
+      duration_ms: 0.9329
+      type: 'test'
+      ...
+    # Subtest: 个位补零
+    ok 2 - 个位补零
+      ---
+      duration_ms: 0.1434
+      type: 'test'
+      ...
+    # Subtest: 缺省入参：形状为 8 位数字-6 位数字
+    ok 3 - 缺省入参：形状为 8 位数字-6 位数字
+      ---
+      duration_ms: 0.2563
+      type: 'test'
+      ...
+    1..3
+ok 175 - tsStamp：固定 Date 断言 YYYYMMDD-HHmmss（P7：不比较当前时刻）
+  ---
+  duration_ms: 1.6843
+  type: 'test'
+  ...
+# Subtest: saveShotImpl：PNG 落盘 + index.jsonl / 边界与防线
+    # Subtest: 合法 dataURL（600B）→ 文件 + 索引行，返回 {ok,path,bytes}
+    ok 1 - 合法 dataURL（600B）→ 文件 + 索引行，返回 {ok,path,bytes}
+      ---
+      duration_ms: 4.6317
+      type: 'test'
+      ...
+    # Subtest: 恰好 500 字节（边界）→ 成功
+    ok 2 - 恰好 500 字节（边界）→ 成功
+      ---
+      duration_ms: 2.0085
+      type: 'test'
+      ...
+    # Subtest: PNG < 500 字节 → 拒绝且不落盘（1×1 假成功防线，P17）
+    ok 3 - PNG < 500 字节 → 拒绝且不落盘（1×1 假成功防线，P17）
+      ---
+      duration_ms: 0.768
+      type: 'test'
+      ...
+    # Subtest: 非 image/png 的 dataURL → 拒绝
+    ok 4 - 非 image/png 的 dataURL → 拒绝
+      ---
+      duration_ms: 0.6372
+      type: 'test'
+      ...
+    # Subtest: base64 解码为空 → 拒绝
+    ok 5 - base64 解码为空 → 拒绝
+      ---
+      duration_ms: 0.5795
+      type: 'test'
+      ...
+    # Subtest: meta 缺失/非对象不抛：文件名回退 slug=page，索引 url/title 为 null
+    ok 6 - meta 缺失/非对象不抛：文件名回退 slug=page，索引 url/title 为 null
+      ---
+      duration_ms: 12.0265
+      type: 'test'
+      ...
+    1..6
+ok 176 - saveShotImpl：PNG 落盘 + index.jsonl / 边界与防线
+  ---
+  duration_ms: 21.2607
+  type: 'test'
+  ...
+# Subtest: saveAnnotationsImpl：批注落盘 + 索引 count 解析 / 空输入拒绝
+    # Subtest: 正常 markdown（meta 缺席）→ 文件 + 索引行（count=3，url/title null）
+    ok 1 - 正常 markdown（meta 缺席）→ 文件 + 索引行（count=3，url/title null）
+      ---
+      duration_ms: 3.2494
+      type: 'test'
+      ...
+    # Subtest: meta 携带 url/title → 进索引；count 取首行 N
+    ok 2 - meta 携带 url/title → 进索引；count 取首行 N
+      ---
+      duration_ms: 3.7125
+      type: 'test'
+      ...
+    # Subtest: markdown 自带结尾换行时不追加第二个换行
+    ok 3 - markdown 自带结尾换行时不追加第二个换行
+      ---
+      duration_ms: 2.6597
+      type: 'test'
+      ...
+    # Subtest: 空串/纯空白/非字符串 → ok:false
+    ok 4 - 空串/纯空白/非字符串 → ok:false
+      ---
+      duration_ms: 0.6509
+      type: 'test'
+      ...
+    1..4
+ok 177 - saveAnnotationsImpl：批注落盘 + 索引 count 解析 / 空输入拒绝
+  ---
+  duration_ms: 10.7992
+  type: 'test'
+  ...
+# Subtest: takeCommandImpl：取走即删 / BOM 剥除（P18 回归）/ 非法 JSON
+    # Subtest: 文件不存在 → {ok:true, command:null}
+    ok 1 - 文件不存在 → {ok:true, command:null}
+      ---
+      duration_ms: 1.2801
+      type: 'test'
+      ...
+    # Subtest: 合法 JSON → 返回对象且文件已被删除
+    ok 2 - 合法 JSON → 返回对象且文件已被删除
+      ---
+      duration_ms: 2.7425
+      type: 'test'
+      ...
+    # Subtest: 带 BOM 的合法 JSON → 正常解析（P18 回归）
+    ok 3 - 带 BOM 的合法 JSON → 正常解析（P18 回归）
+      ---
+      duration_ms: 2.6905
+      type: 'test'
+      ...
+    # Subtest: 非法 JSON → {ok:false, error 含「解析失败」} 且文件已删
+    ok 4 - 非法 JSON → {ok:false, error 含「解析失败」} 且文件已删
+      ---
+      duration_ms: 2.8257
+      type: 'test'
+      ...
+    1..4
+ok 178 - takeCommandImpl：取走即删 / BOM 剥除（P18 回归）/ 非法 JSON
+  ---
+  duration_ms: 10.0337
+  type: 'test'
+  ...
+# Subtest: commandResultImpl：追加 JSONL（at/id/result），undefined 落 null
+ok 179 - commandResultImpl：追加 JSONL（at/id/result），undefined 落 null
+  ---
+  duration_ms: 3.3316
+  type: 'test'
+  ...
+# Subtest: saveMergedImpl：跨组合并 + 按创建时间重编号 + 索引 merged 计数
+ok 180 - saveMergedImpl：跨组合并 + 按创建时间重编号 + 索引 merged 计数
+  ---
+  duration_ms: 5.9211
+  type: 'test'
+  ...
+# Subtest: shapeOf/extractApi：jiti 互操作形状与候选链
+    # Subtest: jiti 互操作形 {default:{}, "module.exports":{webContents}} → 命中 module.exports
+    ok 1 - jiti 互操作形 {default:{}, "module.exports":{webContents}} → 命中 module.exports
+      ---
+      duration_ms: 0.2431
+      type: 'test'
+      ...
+    # Subtest: {default:{app:{}}} → 命中 default
+    ok 2 - {default:{app:{}}} → 命中 default
+      ---
+      duration_ms: 0.0792
+      type: 'test'
+      ...
+    # Subtest: 双层 default 嵌套 → 命中 default.default
+    ok 3 - 双层 default 嵌套 → 命中 default.default
+      ---
+      duration_ms: 0.0679
+      type: 'test'
+      ...
+    # Subtest: 全空形状 → null；shapeOf 记录 keys/defaultKeys/moduleExportsKeys
+    ok 4 - 全空形状 → null；shapeOf 记录 keys/defaultKeys/moduleExportsKeys
+      ---
+      duration_ms: 0.0925
+      type: 'test'
+      ...
+    1..4
+ok 181 - shapeOf/extractApi：jiti 互操作形状与候选链
+  ---
+  duration_ms: 1.4166
+  type: 'test'
+  ...
+# Subtest: dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩展名
+ok 182 - dedupeFile：无冲突原样返回；冲突追加 -2/-3 序号；保留扩展名
+  ---
+  duration_ms: 2.5076
+  type: 'test'
+  ...
+# Subtest: wire TYPERT 清单形状（不触网）
+    # Subtest: package/service 固定，invocations 恰 18 个（10 face + 1 预览读回 + 5 HID 桥 + shim 供给 + trace）且 id 形如 pkg\#face/method
+    ok 1 - package/service 固定，invocations 恰 18 个（10 face + 1 预览读回 + 5 HID 桥 + shim 供给 + trace）且 id 形如 pkg\#face/method
+      ---
+      duration_ms: 0.2023
+      type: 'test'
+      ...
+    # Subtest: 每个参数 codec.mode 均为 strict
+    ok 2 - 每个参数 codec.mode 均为 strict
+      ---
+      duration_ms: 0.2604
+      type: 'test'
+      ...
+    # Subtest: saveAnnotations 的 meta 参数带 acceptsUndefined:true；必选参数不带
+    ok 3 - saveAnnotations 的 meta 参数带 acceptsUndefined:true；必选参数不带
+      ---
+      duration_ms: 0.1255
+      type: 'test'
+      ...
+    1..3
+ok 183 - wire TYPERT 清单形状（不触网）
+  ---
+  duration_ms: 0.9291
+  type: 'test'
+  ...
+# Subtest: writeArtifact：mkdir/dedupe/写入/索引行 一体化
+ok 184 - writeArtifact：mkdir/dedupe/写入/索引行 一体化
+  ---
+  duration_ms: 3.9539
+  type: 'test'
+  ...
+# Subtest: getStatsImpl / clearArtifactsImpl：统计回环 / kind 白名单 / 一键清空
+ok 185 - getStatsImpl / clearArtifactsImpl：统计回环 / kind 白名单 / 一键清空
+  ---
+  duration_ms: 4.2715
+  type: 'test'
+  ...
+# Subtest: deleteAnnotationsImpl：撤回回环 / 越界拒绝 / 缺文件 / 空 path
+    # Subtest: 正常撤回：saveAnnotations → delete → 文件消失 + 索引行清掉
+    ok 1 - 正常撤回：saveAnnotations → delete → 文件消失 + 索引行清掉
+      ---
+      duration_ms: 2.8269
+      type: 'test'
+      ...
+    # Subtest: 越界拒绝：annotations/ 之外一律不删（安全线）
+    ok 2 - 越界拒绝：annotations/ 之外一律不删（安全线）
+      ---
+      duration_ms: 0.6896
+      type: 'test'
+      ...
+    # Subtest: annotations/ 内不存在的文件 → ok:false 文件不存在
+    ok 3 - annotations/ 内不存在的文件 → ok:false 文件不存在
+      ---
+      duration_ms: 0.5987
+      type: 'test'
+      ...
+    # Subtest: 空 path → ok:false
+    ok 4 - 空 path → ok:false
+      ---
+      duration_ms: 0.5172
+      type: 'test'
+      ...
+    1..4
+ok 186 - deleteAnnotationsImpl：撤回回环 / 越界拒绝 / 缺文件 / 空 path
+  ---
+  duration_ms: 5.0447
+  type: 'test'
+  ...
+# Subtest: shot-view 正典：baseName 兼容 win/posix/尾斜杠/空值
+ok 187 - shot-view 正典：baseName 兼容 win/posix/尾斜杠/空值
+  ---
+  duration_ms: 0.8343
+  type: 'test'
+  ...
+# Subtest: shot-view 正典：shotNameOf 三重兜底（meta → 文本 .png → JSON）
+ok 188 - shot-view 正典：shotNameOf 三重兜底（meta → 文本 .png → JSON）
+  ---
+  duration_ms: 0.3432
+  type: 'test'
+  ...
+# Subtest: shot-view 正典：humanBytes 人读且空值安全
+ok 189 - shot-view 正典：humanBytes 人读且空值安全
+  ---
+  duration_ms: 0.1444
+  type: 'test'
+  ...
+# Subtest: shot-view 正典：createShotStore 双闸（条数 + 总字节）先到先出
+ok 190 - shot-view 正典：createShotStore 双闸（条数 + 总字节）先到先出
+  ---
+  duration_ms: 0.8317
+  type: 'test'
+  ...
+# Subtest: shot-view parity：client 内嵌副本与 src 正典逐例一致
+ok 191 - shot-view parity：client 内嵌副本与 src 正典逐例一致
+  ---
+  duration_ms: 1.0541
+  type: 'test'
+  ...
+# Subtest: C2 解耦：宿主带 ?ts= 动态加载 src/tool-presentation.mjs（不复制一份 ✗、不丢查询参数 ✗）
+ok 192 - C2 解耦：宿主带 ?ts= 动态加载 src/tool-presentation.mjs（不复制一份 ✗、不丢查询参数 ✗）
+  ---
+  duration_ms: 0.4488
+  type: 'test'
+  ...
+# Subtest: 规范常量存在且写明「默认小窗静默操作 / 非必要不展开 / 用 screenshot 看全貌」
+ok 193 - 规范常量存在且写明「默认小窗静默操作 / 非必要不展开 / 用 screenshot 看全貌」
+  ---
+  duration_ms: 0.8237
+  type: 'test'
+  ...
+# Subtest: browser_agent_window 的工具描述开头就是该规范（模型每次可见）
+ok 194 - browser_agent_window 的工具描述开头就是该规范（模型每次可见）
+  ---
+  duration_ms: 0.1862
+  type: 'test'
+  ...
+# Subtest: op=expand 必须声明 reason 参数
+ok 195 - op=expand 必须声明 reason 参数
+  ---
+  duration_ms: 0.1691
+  type: 'test'
+  ...
+# Subtest: 展开时把规范回显进工具结果（未带 reason = 违规提示）
+ok 196 - 展开时把规范回显进工具结果（未带 reason = 违规提示）
+  ---
+  duration_ms: 0.1546
+  type: 'test'
+  ...
+# Subtest: 文档三处齐备（规范文件 / README 章节 / 评估文档引用）
+ok 197 - 文档三处齐备（规范文件 / README 章节 / 评估文档引用）
+  ---
+  duration_ms: 0.2462
+  type: 'test'
+  ...
+# Subtest: 行为：只放行 http/https 与 about:blank ✓
+ok 198 - 行为：只放行 http/https 与 about:blank ✓
+  ---
+  duration_ms: 0.8693
+  type: 'test'
+  ...
+# Subtest: 行为：带**凭据**的 URL 一律拒绝（凭据不进日志/上下文 ✓）
+ok 199 - 行为：带**凭据**的 URL 一律拒绝（凭据不进日志/上下文 ✓）
+  ---
+  duration_ms: 0.2088
+  type: 'test'
+  ...
+# Subtest: 行为：空值/畸形串拒绝且不抛 ✓
+ok 200 - 行为：空值/畸形串拒绝且不抛 ✓
+  ---
+  duration_ms: 0.1831
+  type: 'test'
+  ...
+# Subtest: parity：client.js 内嵌副本与正典逐例同结果 ✓（自持窗口用的是同一道判定 ✓）
+ok 201 - parity：client.js 内嵌副本与正典逐例同结果 ✓（自持窗口用的是同一道判定 ✓）
+  ---
+  duration_ms: 3.3832
+  type: 'test'
+  ...
+# Subtest: E1：导航只有**一处**实现（loadURL 单点 ✓ —— 两条路径分叉曾导致策略漏网 ✗）
+ok 202 - E1：导航只有**一处**实现（loadURL 单点 ✓ —— 两条路径分叉曾导致策略漏网 ✗）
+  ---
+  duration_ms: 3.1314
+  type: 'test'
+  ...
+# Subtest: ESM：createVirtualHidWorld 基本行为
+ok 203 - ESM：createVirtualHidWorld 基本行为
+  ---
+  duration_ms: 3.0824
+  type: 'test'
+  ...
+# Subtest: ESM：未 open 时 sendReport 抛 InvalidStateError
+ok 204 - ESM：未 open 时 sendReport 抛 InvalidStateError
+  ---
+  duration_ms: 1.0949
+  type: 'test'
+  ...
+# Subtest: ESM：simulateInput 以 inputreport 事件广播（DataView + device）
+ok 205 - ESM：simulateInput 以 inputreport 事件广播（DataView + device）
+  ---
+  duration_ms: 56.0746
+  type: 'test'
+  ...
+# Subtest: ESM：autoConnect 在下一个宏任务广播 connect
+ok 206 - ESM：autoConnect 在下一个宏任务广播 connect
+  ---
+  duration_ms: 30.517
+  type: 'test'
+  ...
+# Subtest: IIFE 注入串：vm 沙箱中安装 navigator.hid 并暴露 __dshKitVirtualHid
+ok 207 - IIFE 注入串：vm 沙箱中安装 navigator.hid 并暴露 __dshKitVirtualHid
+  ---
+  duration_ms: 16.0588
+  type: 'test'
+  ...
+# Subtest: IIFE 注入串：autoInstall=false 时仅注册、由页面显式 install
+ok 208 - IIFE 注入串：autoInstall=false 时仅注册、由页面显式 install
+  ---
+  duration_ms: 3.5322
+  type: 'test'
+  ...
+# Subtest: IIFE 注入串：注入时机先于页面脚本（模拟 document_start）
+ok 209 - IIFE 注入串：注入时机先于页面脚本（模拟 document_start）
+  ---
+  duration_ms: 2.489
+  type: 'test'
+  ...
+# Subtest: P43 投递链：桥数据 → inputreport（DataView / reportId 单列 / 载荷不含 report id）
+ok 210 - P43 投递链：桥数据 → inputreport（DataView / reportId 单列 / 载荷不含 report id）
+  ---
+  duration_ms: 75.2693
+  type: 'test'
+  ...
+# Subtest: P43 防御：client 若回归成返回外层信封，shim 仍能剥开并投递
+ok 211 - P43 防御：client 若回归成返回外层信封，shim 仍能剥开并投递
+  ---
+  duration_ms: 60.2463
+  type: 'test'
+  ...
+# Subtest: P43 单飞：读泵不堆积——连续多轮读，未决请求数始终 ≤ 1
+ok 212 - P43 单飞：读泵不堆积——连续多轮读，未决请求数始终 ≤ 1
+  ---
+  duration_ms: 201.2735
+  type: 'test'
+  ...
+# Subtest: R-SHARE 重注入：旧实例改用新句柄写、旧监听器仍收事件（无需刷新页面）
+ok 213 - R-SHARE 重注入：旧实例改用新句柄写、旧监听器仍收事件（无需刷新页面）
+  ---
+  duration_ms: 217.0426
+  type: 'test'
+  ...
+1..213
+# tests 279
+# suites 0
+# pass 278
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 33745.5447
+EXIT_CODE=0

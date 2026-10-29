@@ -1,0 +1,318 @@
+/**
+ * dsh-browser-kit — annot-delivery.host.mjs
+ *
+ * ★交付通道（2026-10-10 用户实测：「在另一个会话的自持浏览器批注了发送，Agent 没有收到批注内容」）
+ *
+ * ## 为什么需要它
+ * 批注落盘一直是成功的（2026-10-30 起为 `annotations/<sessionId>/<时间戳>.md`，按会话隔离），
+ * 现在已经能稳定投递进上下文；消息上方会显示「批注 N 条」可展开卡片 ——
+ * 但**胶囊是 DOM 装饰，模型看不到** ✗；而历史上唯一能把批注送进 Agent 上下文的通道，是把
+ * 「已提交 N 条元素批注：<path>」**写进用户输入框**，该通道已按用户明确要求「不要带文字」删除 ✗
+ * ⇒ 结果：批注存了、界面显示了、**Agent 一无所知** ✗。
+ *
+ * ## 本模块做什么
+ * 用 DSH 官方注入点 **`agent/pre-step`**（waterfall：可替换/追加进入该步的消息）在**轮首**追加一条
+ * user 消息，内容 = 批注摘要（逐条索引/标签/可访问名/所属窗口）+ 落盘文件绝对路径 + 读取提示。
+ *  · **不碰用户输入框** ✓（满足「不要带文字」）
+ *  · **不改用户消息** ✓（只往 decision.messages 追加）
+ *  · **一次性** ✓（投递后清除，不刷屏）
+ *  · **只在 step===1 注入** ✓（非首步插入可能把 tool_use 与 tool_result 拆开 ⇒ INVALID_REQUEST；
+ *    而"用户发送批注"必然开启新的一轮，其首步即 step 1）
+ *  ⚠️ 上述"只在 step===1"**已于 2026-10-10 放开**（用户实测：「发送出去后备注没带出去…**终止后**批注才加到
+ *    对话里」⇒ 交付等到下一轮才生效 = 体感"Agent 没读到" ✗）。现在**任一步的步首**都可投递，安全性依据：
+ *    步首追加时上一步的 tool/result 已落 surface ⇒ 不会把 tool_use 与它的 tool_result 分开；且只追加不改动 ✓。
+ *
+ * ## 激活安全
+ * `ctx.on` 不可用 / `createUserMessage` 解析不到 ⇒ 只 warn 并记入诊断（`kit-status.annotDelivery`），
+ * **绝不抛**（与 browser-tools.host.mjs 同款纪律；宿主半边任何异常都会影响插件激活）。
+ */
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+/* ★评审 U-2：会话 id 的唯一口径（正典，纯函数 ✓）—— 与工具侧 `browser-tools.host.mjs` 的 `sessionIdOf` 共用，
+ * 避免"工具能定位会话、批注却投递不到"的错位 ✗（原先这里只认 session.id/sessionId 两个候选 ✗）。 */
+import { sessionIdOfAgent } from '../src/session-id.mjs';
+import { renderCompactDelivery } from '../src/annot-compact.mjs';
+
+/** 注入消息的 source.kind（归属标记；便于在会话日志里辨认来源） */
+export const SOURCE_KIND = 'dsh-browser-kit';
+
+/** ★2026-10-11（用户问："怎么一句话让 agent 知道这个插件怎么操作浏览器功能"）：
+ *  **一句话能力说明** —— 每个会话自动注入一次，用户不必每次交代 ✓。
+ *  写作纪律：只讲**入口 + 硬规则 + 交付方式**，不堆细节（细节都在各工具 description 里）。 */
+export const BROWSER_PRIMER =
+  '[dsh-browser-kit] 浏览器能力（一句话）：页面级用 browser_open / navigate / snapshot / find / click / type / press / eval，'
+  + '自持窗口用 browser_agent_window（**默认小窗静默**；看全貌用 op=screenshot；非必要不展开，展开需 reason），'
+  + '批注全文用 browser_annotations；用户在页面**右键**加的批注会在其消息发出后**自动出现在你的上下文**里 —— 不必向用户索要。';
+
+/* ─────────────── 官方 createUserMessage 解析（双策略，镜像 dsh-tools 那条链） ─────────────── */
+
+const DSH_LLM_REL = ['dsh', 'node_modules', '@deepseek-ai', 'dsh-llm', 'lib', 'index.js'];
+export const CREATE_MSG_PROBE = [];
+
+/** 绝对路径候选（顺序即优先级；dsh-llm 随 DSH 出货，位于 app.asar 内）。 */
+export function dshLlmCandidates() {
+  const out = [];
+  const env = process.env.DBK_DSH_LLM;
+  if (typeof env === 'string' && env) out.push({ source: 'env:DBK_DSH_LLM', path: env });
+  const res = typeof process.resourcesPath === 'string' ? process.resourcesPath : '';
+  if (res) {
+    out.push({ source: 'resourcesPath/app.asar', path: join(res, 'app.asar', ...DSH_LLM_REL) });
+    out.push({ source: 'resourcesPath/app.asar.unpacked', path: join(res, 'app.asar.unpacked', ...DSH_LLM_REL) });
+  }
+  out.push({ source: 'abs:D:/DeepSeek/resources/app.asar', path: join('D:/DeepSeek/resources/app.asar', ...DSH_LLM_REL) });
+  out.push({ source: 'abs:D:/DeepSeek/resources/app.asar.unpacked', path: join('D:/DeepSeek/resources/app.asar.unpacked', ...DSH_LLM_REL) });
+  return out;
+}
+
+const acceptCreateUserMessage = (mod) => {
+  if (!mod) return null;
+  if (typeof mod.createUserMessage === 'function') return mod.createUserMessage;
+  if (mod.default && typeof mod.default.createUserMessage === 'function') return mod.default.createUserMessage;
+  return null;
+};
+
+/** 解析官方 createUserMessage；全失败返回 null（调用方降级 warn，不抛）。 */
+export async function loadCreateUserMessage() {
+  try {
+    const fn = acceptCreateUserMessage(await import('@deepseek-ai/dsh-llm'));
+    if (fn) { CREATE_MSG_PROBE.push({ source: 'bare', strategy: 'import', ok: true }); return { createUserMessage: fn, source: 'bare|import' }; }
+    CREATE_MSG_PROBE.push({ source: 'bare', strategy: 'import', ok: false, error: '导入成功但无 createUserMessage 导出' });
+  } catch (e) {
+    CREATE_MSG_PROBE.push({ source: 'bare', strategy: 'import', ok: false, error: String((e && e.message) || e) });
+  }
+  const require = createRequire(import.meta.url);
+  for (const cand of dshLlmCandidates()) {
+    try {
+      const fn = acceptCreateUserMessage(await import(pathToFileURL(cand.path).href));
+      if (fn) { CREATE_MSG_PROBE.push({ source: cand.source, strategy: 'import', ok: true, path: cand.path }); return { createUserMessage: fn, source: `${cand.source}|import` }; }
+    } catch (e) {
+      CREATE_MSG_PROBE.push({ source: cand.source, strategy: 'import', ok: false, path: cand.path, error: String((e && e.message) || e) });
+    }
+    try {
+      const fn = acceptCreateUserMessage(require(cand.path));
+      if (fn) { CREATE_MSG_PROBE.push({ source: cand.source, strategy: 'require', ok: true, path: cand.path }); return { createUserMessage: fn, source: `${cand.source}|require` }; }
+    } catch (e) {
+      CREATE_MSG_PROBE.push({ source: cand.source, strategy: 'require', ok: false, path: cand.path, error: String((e && e.message) || e) });
+    }
+  }
+  return { createUserMessage: null, source: null };
+}
+
+/* ─────────────── 摘要文本 ─────────────── */
+
+const clip = (s, n) => {
+  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+};
+
+/**
+ * 生成注入文本：**批注全文（内联）+ 落盘路径 + 读取提示**。
+ *
+ * ★2026-10-10 用户要求：「要确保在新会话中引用批注时，Agent 能**直接获取知道批注的内容**，
+ *   而不是去搜索可能的批注存放之类的」⇒ 从"只给摘要+路径"改成 **把协议 markdown 全文内联**进上下文 ✓
+ *   （markdown 里每条都含 URL / Title / Window / Tag / Role / Accessible name / Selector / XPath /
+ *     Attributes / Rect / Text / HTML excerpt ⇒ 元素代码定位信息全在）。
+ *   仅当全文过长（> `INLINE_LIMIT`）时才截断，并明确给出文件路径与稳定路径 `latest.md` ✓。
+ */
+export const INLINE_LIMIT = 24000;
+
+export function renderAnnotDelivery(d) {
+  /* ★2026-10-28（用户实测："几条批注就要 100KB" ✗）：**不再内联协议全文** ✗ ——
+   * 改由正典 `src/annot-compact.mjs` 渲染**精简摘要**（序号/标签/可读名/窗口/意见/短选择器 ✓，
+   * 省掉 XPath / HTML 片段 / 属性 / 样式 / Rect / Nearby context ✗），并有总预算 ✓。
+   * 完整记录仍落在 `plugin/.data/annotations/*.md` ✓，Agent 需要细节时用 browser_annotations ✓。 */
+  return renderCompactDelivery(d);
+}
+
+/* ─────────────── 投递登记 + pre-step 注入 ─────────────── */
+
+/** 从 saveMerged 的 sets 里抽摘要（sets: [{url,title,owner,annotations:[…]}, …]）。
+ *  ⚠️ 同一条批注会被跨窗口同步复制进**多个**面板 ⇒ 每个 set 里都有同一个 gid ✗ ⇒ **必须按 gid 去重**。
+ *  实测（2026-10-10）：不去重时交付文本写成「窗口 B（3 条）」且条目重复 3 次 ✗，而落盘侧本来就按 gid 去重
+ *  ⇒ 两处口径必须一致（否则 Agent 会以为有 3 条不同批注）。 */
+export function summarizeSetsForDelivery(sets) {
+  const items = [];
+  const byWin = new Map();
+  const seenGids = new Set();
+  for (const s of Array.isArray(sets) ? sets : []) {
+    for (const a of (s && s.annotations) || []) {
+      if (!a || a.dirty === false) continue; // 只报"这次新提交的"
+      const gid = a.gid ? String(a.gid) : null;
+      if (gid) {
+        if (seenGids.has(gid)) continue; // 跨面板同步副本：同一条只报一次
+        seenGids.add(gid);
+      }
+      const code = String((a.windowCode || '') || '');
+      const label = String((a.window || (s && s.owner)) || '');
+      items.push({
+        index: Number(a.index) || 0,
+        tag: (a.element && (a.element.tagName || '')) || '',
+        name: (a.element && (a.element.accessibleName || a.element.text || '')) || '',
+        note: a.note || '',
+        code,
+        window: label,
+        sel: (a.element && (a.element.selector || '')) || '', // ★精简投递用：短选择器（正典里再压缩 ✓）
+      });
+      const key = code || label || '?';
+      const prev = byWin.get(key) || { code, label, count: 0 };
+      prev.count += 1;
+      byWin.set(key, prev);
+    }
+  }
+  return { items, windows: Array.from(byWin.values()) };
+}
+
+/**
+ * 注册交付通道。返回诊断对象（供 kit-status 暴露）。
+ * @param {object} ctx DSH 插件上下文
+ * @param {object} state 宿主共享状态（我们会挂 `annotDeliveries`）
+ * @param {(msg:string)=>void} log
+ */
+/**
+ * 注册批注交付（agent/pre-step 注入 ✓）。
+ *
+ * ★2026-10-27（审查报告 F10 ✗）：新增可选 deps —— 仅用于**测试注入**消息工厂 ✓
+ * （真实运行时仍走 loadCreateUserMessage() 解析 DSH 的官方实现 ✓；测试里给一个可控替身即可
+ *  验证"工厂失败不丢批注 / 构造成功才消费" ✓）。
+ * @param {{createUserMessage?: Function}} [deps]
+ */
+export function registerAnnotDelivery(ctx, state, log, onChange, deps) {
+  const diag = (state.annotDelivery = {
+    registered: false,
+    reason: null,
+    createUserMessageSource: null,
+    pending: 0,
+    injected: 0,
+    lastInjectedAt: null,
+    lastSessionId: null,
+    lastRecordedAt: null,
+    primedSessions: 0, // ★已注入「一句话能力说明」的会话数
+    lastDeliveryCount: 0,
+    lastError: null,
+    skipped: {},
+  });
+  /* ★2026-10-27（审查报告 F10 ✗ 修复）：待投递批注改为**按会话的有界队列** ✓ ——
+   * 旧实现 `pending.set(sid, {...})` 直接覆盖 ✗ ⇒ 同一步内连续两次提交只剩最后一批（丢批注 ✗）。
+   * 队列上限 8 批（超出丢最旧并计数 ✓）；每批带**幂等 id** ✓，便于"只消费确实投递成功的那些" ✓。 */
+  const PENDING_MAX_PER_SESSION = 8;
+  const pending = new Map(); // sessionId → Array<delivery>（有界队列 ✓）
+  let deliverySeq = 0;
+  const pendingCountOf = () => {
+    let n = 0;
+    for (const list of pending.values()) n += list.length;
+    return n;
+  };
+  const primedSessions = new Set(); // ★已注入过「能力说明」的会话（每会话一次）
+  state.annotDeliveries = pending;
+  const touch = () => { try { if (typeof onChange === 'function') onChange(); } catch { /* 诊断写失败不影响投递 */ } };
+
+  /** saveMerged 成功后登记一次待投递（由 host.impl 调用）。 */
+  state.recordAnnotDelivery = (sessionId, info) => {
+    try {
+      const sid = String(sessionId || '');
+      if (!sid) { diag.skipped.noSession = (diag.skipped.noSession || 0) + 1; touch(); return false; }
+      deliverySeq += 1;
+      const delivery = {
+        at: new Date().toISOString(),
+        id: `ad-${Date.now().toString(36)}-${deliverySeq.toString(36)}`, // 幂等标识 ✓
+        ...info,
+      };
+      const list = pending.get(sid) || [];
+      list.push(delivery);
+      while (list.length > PENDING_MAX_PER_SESSION) {
+        list.shift();
+        diag.skipped.dropped = (diag.skipped.dropped || 0) + 1; // 有界丢弃必须可诊断 ✓
+      }
+      pending.set(sid, list);
+      diag.pending = pendingCountOf();
+      diag.pendingSessions = pending.size;
+      diag.lastRecordedAt = new Date().toISOString();
+      touch(); // 立即落报告 ⇒ 诊断可查（否则报告停留在上一次写入的旧值 ✗，实测踩过）
+      return true;
+    } catch (e) { diag.lastError = String((e && e.message) || e); return false; }
+  };
+
+  let createUserMessage = null;
+  const injectedFactory = deps && typeof deps.createUserMessage === 'function' ? deps.createUserMessage : null;
+  const wire = async () => {
+    const found = injectedFactory
+      ? { createUserMessage: injectedFactory, source: 'injected(test-seam)' }
+      : await loadCreateUserMessage();
+    createUserMessage = found.createUserMessage;
+    diag.createUserMessageSource = found.source;
+    if (!createUserMessage) {
+      diag.reason = 'createUserMessage 解析失败：批注交付退化为"仅落盘"（工具结果/kit-status 仍可见）';
+      log('warn', `[annot-delivery] ${diag.reason}`);
+      return;
+    }
+    if (typeof (ctx && ctx.on) !== 'function') {
+      diag.reason = 'ctx.on 不可用：无法注入 agent/pre-step';
+      log('warn', `[annot-delivery] ${diag.reason}`);
+      return;
+    }
+    try {
+      ctx.on('agent/pre-step', async (payload, next) => {
+        const decision = await next();
+        try {
+          if (!decision || decision.kind === 'reject') return decision;
+          /* ★2026-10-10（用户实测："Agent 也没读到；终止后批注才进对话"）：**不再限定 step===1**。
+           * 原先只在轮首注入 ✗ ⇒ 消费发生在回合进行中时，交付要等到**下一轮**才生效（体感=没读到 ✗）。
+           * 安全性依据（与 dsh-context-pilot 的 mid-step 注入同款）：在**步首**追加一条 user 消息时，
+           * 上一步的 tool/result 已落在 surface 里 ⇒ 不会把 tool_use 与它的 tool_result 分开
+           * （那才是 INVALID_REQUEST 的成因）；且我们是**追加到末尾**，不改动既有消息 ✓。 */
+          /* ★评审 U-2：与工具侧**同一口径** ✓（正典 src/session-id.mjs；原先这里只认 2 个候选 ✗） */
+          const sid = sessionIdOfAgent(payload && payload.agent, null);
+          if (!sid) return decision;
+          /* ★2026-10-11（用户问："怎么一句话让 agent 知道这个插件怎么操作浏览器功能"）：
+           * **每个会话自动注入一次「浏览器能力一句话说明」** —— 用户不必每次交代 ✓。
+           * 与"批注交付"合并进同一条消息（同一 step 里最多加一条 ✓，避免刷屏）。 */
+          const parts = [];
+          if (!primedSessions.has(String(sid))) {
+            primedSessions.add(String(sid));
+            diag.primedSessions = primedSessions.size;
+            parts.push(BROWSER_PRIMER);
+          }
+          /* ★2026-10-27（F10 ✗ 修复）：先把**整批**取出来但**先不消费** ✓ ——
+           * 旧的 `pending.delete(sid)` 在 `createUserMessage` **之前** ✗ ⇒ 工厂一抛错，这批批注就永久丢失 ✗
+           * （报告用"工厂失败后 pending 变 0、注入仍 0"复现 ✓）。现在只有消息**构造成功**后才按 id 消费 ✓。 */
+          const queued = pending.get(String(sid)) || [];
+          const batch = queued.slice();
+          if (batch.length) {
+            for (const d of batch) parts.push(renderAnnotDelivery(d));
+            diag.lastDeliveryCount = batch.reduce((n, d) => n + (Number(d && d.count) || 0), 0);
+          }
+          if (!parts.length) return decision;
+          const text = parts.join('\n\n');
+          const message = createUserMessage({
+            content: [{ type: 'text', text }],
+            source: { kind: SOURCE_KIND, form: 'snapshot', sections: [{ name: SOURCE_KIND, text }] },
+          });
+          if (!message) throw new Error('createUserMessage 返回空（不消费待投递批注 ✓）');
+          if (batch.length) {
+            const consumedIds = new Set(batch.map((d) => d.id));
+            const rest = (pending.get(String(sid)) || []).filter((d) => !consumedIds.has(d.id));
+            if (rest.length) pending.set(String(sid), rest); else pending.delete(String(sid));
+            diag.pending = pendingCountOf();
+            diag.pendingSessions = pending.size;
+          }
+          diag.injected += 1;
+          diag.lastInjectedAt = new Date().toISOString();
+          diag.lastSessionId = String(sid);
+          log('info', `[annot-delivery] 已注入会话 ${String(sid).slice(-6)}（能力说明 ${primedSessions.has(String(sid)) ? '已含' : '无'} / 批注 ${parts.length > 1 ? '含' : '无'}）`);
+          return { ...decision, messages: [...((decision && decision.messages) || []), message] };
+        } catch (e) {
+          diag.lastError = String((e && e.message) || e); // 绝不因为注入失败影响主流程
+          return decision;
+        }
+      }, { prepend: false });
+      diag.registered = true;
+      log('info', `[annot-delivery] 已注册 agent/pre-step 注入（createUserMessage 来源 ${found.source}）`);
+    } catch (e) {
+      diag.reason = `ctx.on 注册失败：${String((e && e.message) || e)}`;
+      log('warn', `[annot-delivery] ${diag.reason}`);
+    }
+  };
+  wire().catch((e) => { diag.reason = String((e && e.message) || e); });
+  return diag;
+}

@@ -1,0 +1,1 @@
+fatal: unable to access 'https://github.com/Shuffle-1992/dsh-browser-kit.git/': schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)

@@ -1,0 +1,2696 @@
+[
+  {
+    "id": "dsh-browser-kit@0.2.0",
+    "name": "dsh-browser-kit",
+    "version": "0.2.0",
+    "size": 2864584,
+    "unpackedSize": 9596818,
+    "shasum": "3b5560ee7780e5dc53b32ed31410bab072ced256",
+    "integrity": "sha512-ngh4EYUhmQRNbzvJQ4SyMUEHaj/nIH9AxmTbgbPNtkKH2t7H2qNwyohG25JNv8u2fP8xlK/roTimmGx3uJi9Jg==",
+    "filename": "dsh-browser-kit-0.2.0.tgz",
+    "files": [
+      {
+        "path": "LICENSE",
+        "size": 11358,
+        "mode": 420
+      },
+      {
+        "path": "NOTICE.md",
+        "size": 2634,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 8734,
+        "mode": 420
+      },
+      {
+        "path": "docs/api-scout.md",
+        "size": 24834,
+        "mode": 420
+      },
+      {
+        "path": "docs/browser-annotation-and-screenshot-research.md",
+        "size": 42650,
+        "mode": 420
+      },
+      {
+        "path": "docs/browser-capability-assessment.md",
+        "size": 89776,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-01.md",
+        "size": 9889,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-02-mvp0.md",
+        "size": 7278,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-03-mvp1.md",
+        "size": 3418,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-04-mvp2.md",
+        "size": 4440,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-05-mvp3.md",
+        "size": 3775,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-06-plugin-tests.md",
+        "size": 2950,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-07-mvp4.md",
+        "size": 4333,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-08-shared-session.md",
+        "size": 7519,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-09-shared-session-autosync.md",
+        "size": 3505,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-10-input-hint-clear-button.md",
+        "size": 2700,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-11-samepage-gating.md",
+        "size": 2195,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-12-annot-chip.md",
+        "size": 3866,
+        "mode": 420
+      },
+      {
+        "path": "docs/delivery-13-review-round.md",
+        "size": 4196,
+        "mode": 420
+      },
+      {
+        "path": "docs/dev-onboarding.md",
+        "size": 3911,
+        "mode": 420
+      },
+      {
+        "path": "docs/DSH-0.2.1-COMPAT-REVIEW-v2.md",
+        "size": 27048,
+        "mode": 420
+      },
+      {
+        "path": "docs/DSH-0.2.1-COMPAT-REVIEW.md",
+        "size": 11067,
+        "mode": 420
+      },
+      {
+        "path": "docs/feature-reference.md",
+        "size": 18833,
+        "mode": 420
+      },
+      {
+        "path": "docs/market-index.md",
+        "size": 38708,
+        "mode": 420
+      },
+      {
+        "path": "docs/market-launch-checklist.md",
+        "size": 1046,
+        "mode": 420
+      },
+      {
+        "path": "docs/mvp0-probe-state.md",
+        "size": 4051,
+        "mode": 420
+      },
+      {
+        "path": "docs/mvp3-loop-state.md",
+        "size": 2834,
+        "mode": 420
+      },
+      {
+        "path": "docs/pitfalls.md",
+        "size": 124098,
+        "mode": 420
+      },
+      {
+        "path": "docs/refactor-report.md",
+        "size": 29086,
+        "mode": 420
+      },
+      {
+        "path": "docs/references.md",
+        "size": 721,
+        "mode": 420
+      },
+      {
+        "path": "docs/repo-structure.md",
+        "size": 6190,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-0.2.1-rc.2.md",
+        "size": 53089,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-evidence-2026-10-27/baseline.json",
+        "size": 17839,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-evidence-2026-10-27/browser-smoke-unrestricted.txt",
+        "size": 994,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-evidence-2026-10-27/pack-dry-run.json",
+        "size": 0,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-evidence-2026-10-27/tests-serial.txt",
+        "size": 67401,
+        "mode": 420
+      },
+      {
+        "path": "docs/review-report-20261006.md",
+        "size": 23856,
+        "mode": 420
+      },
+      {
+        "path": "docs/status.md",
+        "size": 4615,
+        "mode": 420
+      },
+      {
+        "path": "docs/tasks/zcode-task-01-portable-layer.md",
+        "size": 8697,
+        "mode": 420
+      },
+      {
+        "path": "docs/tasks/zcode-task-02-plugin-tests.md",
+        "size": 4310,
+        "mode": 420
+      },
+      {
+        "path": "docs/tool-usage-rules.md",
+        "size": 4289,
+        "mode": 420
+      },
+      {
+        "path": "docs/ver-delta-0.2.1-rc.2.md",
+        "size": 45102,
+        "mode": 420
+      },
+      {
+        "path": "docs/zcode-audit-mech.md",
+        "size": 15456,
+        "mode": 420
+      },
+      {
+        "path": "docs/zcode-audit-tests.md",
+        "size": 24181,
+        "mode": 420
+      },
+      {
+        "path": "docs/zcode-decouple-plan.md",
+        "size": 17409,
+        "mode": 420
+      },
+      {
+        "path": "docs/zcode-review-deep.md",
+        "size": 30927,
+        "mode": 420
+      },
+      {
+        "path": "market/build-index.cjs",
+        "size": 10476,
+        "mode": 420
+      },
+      {
+        "path": "market/index.json",
+        "size": 3026,
+        "mode": 420
+      },
+      {
+        "path": "market/README.md",
+        "size": 2183,
+        "mode": 420
+      },
+      {
+        "path": "market/verify-index.cjs",
+        "size": 20328,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1183,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/alive-check.cjs",
+        "size": 1907,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/arm-probe.cjs",
+        "size": 2962,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-browser.cjs",
+        "size": 3297,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-dsh.cjs",
+        "size": 3024,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-explore.cjs",
+        "size": 2028,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-explore2.cjs",
+        "size": 2093,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-explore3.cjs",
+        "size": 2371,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-extract.cjs",
+        "size": 1187,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-compaction__lib__types__types.js",
+        "size": 517,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-compaction__README.md",
+        "size": 14149,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-compaction-basic__lib__index.js",
+        "size": 49452,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-compaction-basic__README.md",
+        "size": 22525,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-token-meter__lib__index.js",
+        "size": 31507,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/asar-out/__dsh__node_modules__@deepseek-ai__dsh-token-meter__README.md",
+        "size": 14455,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/auto-e2e.cjs",
+        "size": 3215,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/cmd-tmp.json",
+        "size": 545,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/cmd.cjs",
+        "size": 1786,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/command-results.jsonl",
+        "size": 1172602,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/compare.cjs",
+        "size": 2053,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/deep2.cjs",
+        "size": 2344,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/event-probe.cjs",
+        "size": 2888,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/fin-check.cjs",
+        "size": 2848,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/final-flow.cjs",
+        "size": 3035,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/final2.cjs",
+        "size": 3237,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/format-commands.cjs",
+        "size": 1765,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/fw-verify.cjs",
+        "size": 4411,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/handles-poll.cjs",
+        "size": 1912,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/hid-monitor.log",
+        "size": 547,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/hid-path.txt",
+        "size": 88,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/mig-test.cjs",
+        "size": 3692,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/monitor-hid.cjs",
+        "size": 2409,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/monitor-hid2.cjs",
+        "size": 3690,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/monitor-long.cjs",
+        "size": 2626,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/monitor-long.mjs",
+        "size": 2626,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/p-active.json",
+        "size": 162,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/p-agentview.json",
+        "size": 16,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/p-press.json",
+        "size": 27,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/pagesim.cjs",
+        "size": 3574,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/post-comment.cjs",
+        "size": 2303,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/post-discussion.cjs",
+        "size": 1071,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-accept.cjs",
+        "size": 3885,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-addrw.cjs",
+        "size": 2124,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-agent-glow.cjs",
+        "size": 2986,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-annot-own.cjs",
+        "size": 2495,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-b1.cjs",
+        "size": 1811,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-b3.cjs",
+        "size": 1858,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-badge-dump.cjs",
+        "size": 2334,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-badge-observer.cjs",
+        "size": 2763,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-badges.cjs",
+        "size": 2073,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-border.cjs",
+        "size": 2648,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-boxstate.cjs",
+        "size": 1893,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-browser-close.cjs",
+        "size": 2005,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-browser-cmds.cjs",
+        "size": 1835,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-browser-cycle.cjs",
+        "size": 2324,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-btnbg.cjs",
+        "size": 2247,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-btndup.cjs",
+        "size": 2261,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-capability.cjs",
+        "size": 3747,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-capture-guard.cjs",
+        "size": 2001,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-chain.cjs",
+        "size": 4535,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-chain2.cjs",
+        "size": 4594,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-chain3.cjs",
+        "size": 5049,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-chipbug.cjs",
+        "size": 1855,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-clean2.cjs",
+        "size": 2767,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-cleanall.cjs",
+        "size": 2256,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-cleanup.cjs",
+        "size": 2374,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-clipboard.cjs",
+        "size": 2078,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-clipboard2.cjs",
+        "size": 3422,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-compare.cjs",
+        "size": 2299,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-compat.cjs",
+        "size": 1732,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-delivery.cjs",
+        "size": 2281,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-diag.cjs",
+        "size": 2413,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-dom.cjs",
+        "size": 2732,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-dom2.cjs",
+        "size": 1965,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-dup.cjs",
+        "size": 3204,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-e2e.cjs",
+        "size": 2911,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-error-catch.cjs",
+        "size": 1838,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-errs.cjs",
+        "size": 2199,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-final-own.cjs",
+        "size": 2822,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-final.cjs",
+        "size": 2476,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-find.cjs",
+        "size": 2600,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-flicker.cjs",
+        "size": 2503,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-flicker2.cjs",
+        "size": 2748,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-flow.cjs",
+        "size": 3820,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-force-reinject.cjs",
+        "size": 3346,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-host-write.mjs",
+        "size": 455,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-host.cjs",
+        "size": 1886,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-imgdom.cjs",
+        "size": 2660,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-insert.cjs",
+        "size": 3736,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-isolation.cjs",
+        "size": 2645,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-lease.cjs",
+        "size": 2783,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-lease2.cjs",
+        "size": 2501,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-lease3.cjs",
+        "size": 2065,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-live.cjs",
+        "size": 2303,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-live2.cjs",
+        "size": 2083,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-loginwhere.cjs",
+        "size": 2003,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-mirror-diag.cjs",
+        "size": 1433,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-mirror-gone.cjs",
+        "size": 3743,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-no-owned.cjs",
+        "size": 3779,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-occlusion.cjs",
+        "size": 2866,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-own-v2.cjs",
+        "size": 3776,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-own-v3.cjs",
+        "size": 2734,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-own-verify.cjs",
+        "size": 4262,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-panelsize.cjs",
+        "size": 2438,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-panelsize2.cjs",
+        "size": 2825,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-per-pane.cjs",
+        "size": 2109,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-phase5.cjs",
+        "size": 3390,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-postclose.cjs",
+        "size": 1932,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-preload.cjs",
+        "size": 2258,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-proxy.cjs",
+        "size": 546,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-readonly.cjs",
+        "size": 2187,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-reinject.cjs",
+        "size": 2693,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-reinject2.cjs",
+        "size": 2875,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-repin.cjs",
+        "size": 2658,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-report.json",
+        "size": 6327,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-restore.cjs",
+        "size": 2185,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-rmimg.cjs",
+        "size": 2984,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-scan-dom.cjs",
+        "size": 2283,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-scope-guard.cjs",
+        "size": 2849,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-scroll.cjs",
+        "size": 2791,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-sendinput.cjs",
+        "size": 2488,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-shot2k.cjs",
+        "size": 1780,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-shotview.cjs",
+        "size": 2136,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-site.cjs",
+        "size": 4373,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-state.cjs",
+        "size": 3162,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-styletick.cjs",
+        "size": 2216,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-theme.cjs",
+        "size": 3238,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-theme2.cjs",
+        "size": 2357,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-theme3.cjs",
+        "size": 2055,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-tick.cjs",
+        "size": 1468,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-ui-v4.cjs",
+        "size": 4507,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v6.cjs",
+        "size": 5470,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v6b.cjs",
+        "size": 2973,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v7.cjs",
+        "size": 5044,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v8.cjs",
+        "size": 4382,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v9.cjs",
+        "size": 3974,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v10.cjs",
+        "size": 2877,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v11.cjs",
+        "size": 2986,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v11clean.cjs",
+        "size": 3177,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v12.cjs",
+        "size": 3953,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v12b.cjs",
+        "size": 3199,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v13.cjs",
+        "size": 4656,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v14.cjs",
+        "size": 3399,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v15.cjs",
+        "size": 4101,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v15b.cjs",
+        "size": 3389,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v16.cjs",
+        "size": 4874,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v16b.cjs",
+        "size": 2426,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v17.cjs",
+        "size": 4199,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v17b.cjs",
+        "size": 3708,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v18.cjs",
+        "size": 3572,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v18b.cjs",
+        "size": 4296,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v19.cjs",
+        "size": 4787,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v20.cjs",
+        "size": 4438,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v20b.cjs",
+        "size": 2706,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v21.cjs",
+        "size": 3594,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v21b.cjs",
+        "size": 3239,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v22.cjs",
+        "size": 4445,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v22b.cjs",
+        "size": 3544,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v22c.cjs",
+        "size": 3025,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v22d.cjs",
+        "size": 4121,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v23.cjs",
+        "size": 7552,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v24-continue.cjs",
+        "size": 4687,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v24-final.cjs",
+        "size": 4348,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v24-seq.cjs",
+        "size": 3291,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v24.cjs",
+        "size": 3506,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v25-tip.cjs",
+        "size": 3074,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v26.cjs",
+        "size": 4190,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v27-nav.cjs",
+        "size": 3124,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v27b.cjs",
+        "size": 3735,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v27c.cjs",
+        "size": 2847,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v28.cjs",
+        "size": 3195,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v29.cjs",
+        "size": 2483,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v30.cjs",
+        "size": 2949,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v31.cjs",
+        "size": 3079,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v32-fit.cjs",
+        "size": 2902,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v32b.cjs",
+        "size": 4723,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v32c.cjs",
+        "size": 1737,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v33.cjs",
+        "size": 3010,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34-diag.cjs",
+        "size": 2028,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34.cjs",
+        "size": 3354,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34b.cjs",
+        "size": 3316,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34c.cjs",
+        "size": 3360,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34d.cjs",
+        "size": 1825,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v34e.cjs",
+        "size": 3098,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v37-closed.cjs",
+        "size": 3294,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-v37.cjs",
+        "size": 7013,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/probe-webview-api.cjs",
+        "size": 3339,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/reboot-flow.cjs",
+        "size": 4169,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/recreate-repo.ps1",
+        "size": 1699,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/recreate2.ps1",
+        "size": 2027,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/refresh-check.cjs",
+        "size": 3056,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/remove-quote.cjs",
+        "size": 2164,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/shim-deep.cjs",
+        "size": 2735,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/split-tests.cjs",
+        "size": 1284,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/trace-dump.cjs",
+        "size": 1550,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/v_exact.js",
+        "size": 210,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/v_noasync.js",
+        "size": 137,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/v_noawait.js",
+        "size": 149,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/v_nocomment.js",
+        "size": 208,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/ver-delta/ver-delta-021.md",
+        "size": 45102,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/verify-strings.cjs",
+        "size": 1355,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/w1_asyncfn.js",
+        "size": 308,
+        "mode": 420
+      },
+      {
+        "path": "plugin/.data/w2_arrow_nocomment.js",
+        "size": 208,
+        "mode": 420
+      },
+      {
+        "path": "plugin/annot-delivery.host.mjs",
+        "size": 17181,
+        "mode": 420
+      },
+      {
+        "path": "plugin/browser-tools.host.mjs",
+        "size": 55045,
+        "mode": 420
+      },
+      {
+        "path": "plugin/client.js",
+        "size": 518742,
+        "mode": 420
+      },
+      {
+        "path": "plugin/cordis.patch.yml",
+        "size": 243,
+        "mode": 420
+      },
+      {
+        "path": "plugin/entry.mjs",
+        "size": 3764,
+        "mode": 420
+      },
+      {
+        "path": "plugin/host.impl.mjs",
+        "size": 43885,
+        "mode": 420
+      },
+      {
+        "path": "plugin/icon.svg",
+        "size": 1494,
+        "mode": 420
+      },
+      {
+        "path": "plugin/locale/en.json",
+        "size": 385,
+        "mode": 420
+      },
+      {
+        "path": "plugin/locale/zh.json",
+        "size": 352,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/hid-showdevices",
+        "size": 405,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/hid-showdevices.cmd",
+        "size": 333,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/hid-showdevices.ps1",
+        "size": 837,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-copy",
+        "size": 401,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-copy.cmd",
+        "size": 331,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-copy.ps1",
+        "size": 829,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-verify",
+        "size": 405,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-verify.cmd",
+        "size": 333,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.bin/pkg-prebuilds-verify.ps1",
+        "size": 837,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/.package-lock.json",
+        "size": 1520,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/common.gypi",
+        "size": 833,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/except.gypi",
+        "size": 560,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/index.js",
+        "size": 435,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/LICENSE.md",
+        "size": 1150,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/napi-inl.deprecated.h",
+        "size": 6323,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/napi-inl.h",
+        "size": 243635,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/napi.h",
+        "size": 125611,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/node_addon_api.gyp",
+        "size": 1097,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/node_api.gyp",
+        "size": 132,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/noexcept.gypi",
+        "size": 649,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/nothing.c",
+        "size": 0,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/package-support.json",
+        "size": 467,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/package.json",
+        "size": 11032,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/README.md",
+        "size": 4994,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/tools/check-napi.js",
+        "size": 3176,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/tools/clang-format.js",
+        "size": 2002,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/tools/conversion.js",
+        "size": 15001,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-addon-api/tools/README.md",
+        "size": 3217,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/binding-options.js",
+        "size": 64,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/binding.gyp",
+        "size": 7060,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.appveyor.yml",
+        "size": 723,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.builds/freebsd.yml",
+        "size": 632,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.builds/netbsd.yml",
+        "size": 304,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.builds/openbsd.yml",
+        "size": 326,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.cirrus.yml",
+        "size": 1089,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.gitattributes",
+        "size": 104,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.github/workflows/builds.yml",
+        "size": 22310,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.github/workflows/checks.yml",
+        "size": 7705,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/.github/workflows/docs.yaml",
+        "size": 1075,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/android/jni/Android.mk",
+        "size": 349,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/AUTHORS.txt",
+        "size": 425,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/bootstrap",
+        "size": 52,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/BUILD.autotools.md",
+        "size": 3730,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/BUILD.cmake.md",
+        "size": 15945,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/BUILD.md",
+        "size": 5284,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/CMakeLists.txt",
+        "size": 4048,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/configure.ac",
+        "size": 7789,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/dist/hidapi.podspec",
+        "size": 1417,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/documentation/cmake-gui-drop-down.png",
+        "size": 22316,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/documentation/cmake-gui-highlights.png",
+        "size": 77327,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/doxygen/Doxyfile",
+        "size": 121495,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/doxygen/main_page.md",
+        "size": 584,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/HACKING.txt",
+        "size": 830,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/hidapi/hidapi.h",
+        "size": 23874,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/hidtest/CMakeLists.txt",
+        "size": 1345,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/hidtest/Makefile.am",
+        "size": 556,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/hidtest/test.c",
+        "size": 9040,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/CMakeLists.txt",
+        "size": 4081,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/hid.c",
+        "size": 57198,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/hidapi_libusb.h",
+        "size": 1675,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/hidapi_thread_pthread.h",
+        "size": 4467,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/Makefile-manual",
+        "size": 292,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/Makefile.am",
+        "size": 834,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/Makefile.freebsd",
+        "size": 772,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/Makefile.haiku",
+        "size": 784,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/libusb/Makefile.linux",
+        "size": 906,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/LICENSE-bsd.txt",
+        "size": 1534,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/LICENSE-gpl3.txt",
+        "size": 35147,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/LICENSE-orig.txt",
+        "size": 264,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/LICENSE.txt",
+        "size": 530,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/linux/CMakeLists.txt",
+        "size": 1130,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/linux/hid.c",
+        "size": 37841,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/linux/Makefile-manual",
+        "size": 847,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/linux/Makefile.am",
+        "size": 321,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/m4/ax_pthread.m4",
+        "size": 12534,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/m4/pkg.m4",
+        "size": 5221,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/mac/CMakeLists.txt",
+        "size": 1976,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/mac/hid.c",
+        "size": 44671,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/mac/hidapi_darwin.h",
+        "size": 3128,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/mac/Makefile-manual",
+        "size": 472,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/mac/Makefile.am",
+        "size": 239,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/Makefile.am",
+        "size": 1164,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/meson.build",
+        "size": 894,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/netbsd/CMakeLists.txt",
+        "size": 1027,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/netbsd/hid.c",
+        "size": 30189,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/netbsd/README.md",
+        "size": 1219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/pc/hidapi-hidraw.pc.in",
+        "size": 363,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/pc/hidapi-libusb.pc.in",
+        "size": 353,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/pc/hidapi-netbsd.pc.in",
+        "size": 363,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/pc/hidapi.pc.in",
+        "size": 314,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/README.md",
+        "size": 7052,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/src/cmake/hidapi-config.cmake.in",
+        "size": 1858,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/src/CMakeLists.txt",
+        "size": 6986,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/subprojects/hidapi_build_cmake/CMakeLists.txt",
+        "size": 417,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/subprojects/README.md",
+        "size": 155,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/copy_to_bundle.sh",
+        "size": 2579,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/mac_support_cocoa.m",
+        "size": 2332,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/mac_support.h",
+        "size": 266,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile-manual",
+        "size": 337,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile.am",
+        "size": 1114,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile.freebsd",
+        "size": 617,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile.linux",
+        "size": 624,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile.mac",
+        "size": 1072,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/Makefile.mingw",
+        "size": 715,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/test.cpp",
+        "size": 15229,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/TestGUI.app.in/Contents/Info.plist",
+        "size": 816,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/TestGUI.app.in/Contents/PkgInfo",
+        "size": 8,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/TestGUI.app.in/Contents/Resources/English.lproj/InfoPlist.strings",
+        "size": 92,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/TestGUI.app.in/Contents/Resources/Signal11.icns",
+        "size": 21918,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/testgui.sln",
+        "size": 884,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/testgui/testgui.vcproj",
+        "size": 4812,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/udev/69-hid.rules",
+        "size": 1639,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/VERSION",
+        "size": 6,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/CMakeLists.txt",
+        "size": 1608,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hid.c",
+        "size": 46256,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_cfgmgr32.h",
+        "size": 3813,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_descriptor_reconstruct.c",
+        "size": 52873,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_descriptor_reconstruct.h",
+        "size": 7576,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_hidclass.h",
+        "size": 1568,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_hidpi.h",
+        "size": 1906,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_hidsdi.h",
+        "size": 2351,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi_winapi.h",
+        "size": 3434,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi.rc",
+        "size": 972,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi.sln",
+        "size": 2192,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi.vcproj",
+        "size": 4184,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidapi.vcxproj",
+        "size": 11087,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidtest.vcproj",
+        "size": 4159,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/hidtest.vcxproj",
+        "size": 10285,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/Makefile-manual",
+        "size": 190,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/Makefile.am",
+        "size": 344,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/Makefile.mingw",
+        "size": 539,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/pp_data_dump/CMakeLists.txt",
+        "size": 325,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/pp_data_dump/pp_data_dump.c",
+        "size": 14417,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/pp_data_dump/README.md",
+        "size": 6303,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/CMakeLists.txt",
+        "size": 2933,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/17CC_1130_0000_FF01_expected.rpt_desc",
+        "size": 4550,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/17CC_1130_0000_FF01_real.rpt_desc",
+        "size": 15345,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/17CC_1130_0000_FF01.pp_data",
+        "size": 650831,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/045E_02FF_0005_0001_expected.rpt_desc",
+        "size": 713,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/045E_02FF_0005_0001_real.rpt_desc",
+        "size": 3068,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/045E_02FF_0005_0001.pp_data",
+        "size": 22713,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046A_0011_0006_0001_expected.rpt_desc",
+        "size": 402,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046A_0011_0006_0001_real.rpt_desc",
+        "size": 402,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046A_0011_0006_0001.pp_data",
+        "size": 9548,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_0A37_0001_000C_expected.rpt_desc",
+        "size": 939,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_0A37_0001_000C_real.rpt_desc",
+        "size": 2170,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_0A37_0001_000C.pp_data",
+        "size": 28846,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_000C_expected.rpt_desc",
+        "size": 140,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_000C_real.rpt_desc",
+        "size": 1747,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_000C.pp_data",
+        "size": 4910,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_FF00_real.rpt_desc",
+        "size": 1829,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0001_FF00.pp_data",
+        "size": 7197,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_0001_expected.rpt_desc",
+        "size": 457,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_0001_real.rpt_desc",
+        "size": 2917,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_0001.pp_data",
+        "size": 16216,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_FF00_real.rpt_desc",
+        "size": 1830,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0002_FF00.pp_data",
+        "size": 7203,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0006_0001_expected.rpt_desc",
+        "size": 414,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0006_0001_real.rpt_desc",
+        "size": 2876,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_B010_0006_0001.pp_data",
+        "size": 9646,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_000C_expected.rpt_desc",
+        "size": 152,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_000C_real.rpt_desc",
+        "size": 394,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_000C.pp_data",
+        "size": 4596,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_FF00_real.rpt_desc",
+        "size": 448,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0001_FF00.pp_data",
+        "size": 7138,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_0001_expected.rpt_desc",
+        "size": 445,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_0001_real.rpt_desc",
+        "size": 1230,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_0001.pp_data",
+        "size": 16162,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_FF00_real.rpt_desc",
+        "size": 450,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C52F_0002_FF00.pp_data",
+        "size": 7144,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C077_0002_0001_expected.rpt_desc",
+        "size": 280,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C077_0002_0001_real.rpt_desc",
+        "size": 841,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C077_0002_0001.pp_data",
+        "size": 13381,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C283_0004_0001_expected.rpt_desc",
+        "size": 1043,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C283_0004_0001_real.rpt_desc",
+        "size": 1043,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C283_0004_0001.pp_data",
+        "size": 28217,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_000C_expected.rpt_desc",
+        "size": 152,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_000C_real.rpt_desc",
+        "size": 739,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_000C.pp_data",
+        "size": 4596,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_FF00_real.rpt_desc",
+        "size": 840,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0001_FF00.pp_data",
+        "size": 7138,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_0001_expected.rpt_desc",
+        "size": 457,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_0001_real.rpt_desc",
+        "size": 1959,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_0001.pp_data",
+        "size": 16164,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_FF00_expected.rpt_desc",
+        "size": 219,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_FF00_real.rpt_desc",
+        "size": 827,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0002_FF00.pp_data",
+        "size": 7144,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0006_0001_expected.rpt_desc",
+        "size": 402,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0006_0001_real.rpt_desc",
+        "size": 2022,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0006_0001.pp_data",
+        "size": 9580,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0080_0001_expected.rpt_desc",
+        "size": 189,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0080_0001_real.rpt_desc",
+        "size": 868,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/046D_C534_0080_0001.pp_data",
+        "size": 9650,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0001_000C_expected.rpt_desc",
+        "size": 603,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0001_000C_real.rpt_desc",
+        "size": 2230,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0001_000C.pp_data",
+        "size": 20702,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0003_FFA0_expected.rpt_desc",
+        "size": 1433,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0003_FFA0_real.rpt_desc",
+        "size": 5680,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0003_FFA0.pp_data",
+        "size": 69031,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0005_000B_expected.rpt_desc",
+        "size": 994,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0005_000B_real.rpt_desc",
+        "size": 3669,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/047F_C056_0005_000B.pp_data",
+        "size": 24755,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/1532_00A3_0002_0001_expected.rpt_desc",
+        "size": 518,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/1532_00A3_0002_0001_real.rpt_desc",
+        "size": 3872,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/data/1532_00A3_0002_0001.pp_data",
+        "size": 16148,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/hidapi/windows/test/hid_report_reconstructor_test.c",
+        "size": 23480,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/LICENSE-bsd.txt",
+        "size": 1527,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/nodehid.d.ts",
+        "size": 2334,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/nodehid.js",
+        "size": 7734,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/package.json",
+        "size": 1636,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID_hidraw-linux-arm/node-napi-v4.node",
+        "size": 150340,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID_hidraw-linux-arm64/node-napi-v4.node",
+        "size": 229384,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID_hidraw-linux-x64-musl/node-napi-v4.node",
+        "size": 256120,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID_hidraw-linux-x64/node-napi-v4.node",
+        "size": 241736,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-darwin-arm64/node-napi-v4.node",
+        "size": 223008,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-darwin-x64/node-napi-v4.node",
+        "size": 194312,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-linux-arm/node-napi-v4.node",
+        "size": 156136,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-linux-arm64/node-napi-v4.node",
+        "size": 240976,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-linux-x64-musl/node-napi-v4.node",
+        "size": 267552,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-linux-x64/node-napi-v4.node",
+        "size": 257456,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-win32-arm64/node-napi-v4.node",
+        "size": 443392,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-win32-ia32/node-napi-v4.node",
+        "size": 353792,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/prebuilds/HID-win32-x64/node-napi-v4.node",
+        "size": 413696,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/README.md",
+        "size": 28099,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/devices.cc",
+        "size": 4671,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/devices.h",
+        "size": 208,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/exports.cc",
+        "size": 1406,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/HID.cc",
+        "size": 15630,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/HID.h",
+        "size": 1055,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/HIDAsync.cc",
+        "size": 22508,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/HIDAsync.h",
+        "size": 973,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/read.cc",
+        "size": 7439,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/read.h",
+        "size": 526,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/show-devices.js",
+        "size": 288,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/util.cc",
+        "size": 8777,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/node-hid/src/util.h",
+        "size": 6960,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/bin/copy.mjs",
+        "size": 4159,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/bin/verify.mjs",
+        "size": 1132,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/bindings.d.ts",
+        "size": 1123,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/bindings.js",
+        "size": 3483,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/lib/prebuild.js",
+        "size": 1119,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/LICENSE",
+        "size": 1070,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/package.json",
+        "size": 563,
+        "mode": 420
+      },
+      {
+        "path": "plugin/node_modules/pkg-prebuilds/README.md",
+        "size": 4735,
+        "mode": 420
+      },
+      {
+        "path": "plugin/noop.js",
+        "size": 18,
+        "mode": 420
+      },
+      {
+        "path": "plugin/package-lock.json",
+        "size": 1650,
+        "mode": 420
+      },
+      {
+        "path": "plugin/package.json",
+        "size": 1571,
+        "mode": 420
+      },
+      {
+        "path": "plugin/plugin-config.schema.mjs",
+        "size": 5286,
+        "mode": 420
+      },
+      {
+        "path": "plugin/wire.host.mjs",
+        "size": 13485,
+        "mode": 420
+      },
+      {
+        "path": "src/annot-mirror-anchor.mjs",
+        "size": 2497,
+        "mode": 420
+      },
+      {
+        "path": "src/annotations-protocol.js",
+        "size": 10681,
+        "mode": 420
+      },
+      {
+        "path": "src/annotations-summary.mjs",
+        "size": 1321,
+        "mode": 420
+      },
+      {
+        "path": "src/annotator-consume.mjs",
+        "size": 1006,
+        "mode": 420
+      },
+      {
+        "path": "src/annotator-sync.mjs",
+        "size": 3834,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge-envelope.mjs",
+        "size": 1187,
+        "mode": 420
+      },
+      {
+        "path": "src/cdp/drive.mjs",
+        "size": 13430,
+        "mode": 420
+      },
+      {
+        "path": "src/chip-target.mjs",
+        "size": 3817,
+        "mode": 420
+      },
+      {
+        "path": "src/cmd-owner.mjs",
+        "size": 3181,
+        "mode": 420
+      },
+      {
+        "path": "src/command-budget.mjs",
+        "size": 2226,
+        "mode": 420
+      },
+      {
+        "path": "src/console-observer.js",
+        "size": 25149,
+        "mode": 420
+      },
+      {
+        "path": "src/element-annotator.js",
+        "size": 84599,
+        "mode": 420
+      },
+      {
+        "path": "src/hid-bridge.mjs",
+        "size": 8943,
+        "mode": 420
+      },
+      {
+        "path": "src/hid-observer.js",
+        "size": 31371,
+        "mode": 420
+      },
+      {
+        "path": "src/session-id.mjs",
+        "size": 1600,
+        "mode": 420
+      },
+      {
+        "path": "src/shot-view.mjs",
+        "size": 4247,
+        "mode": 420
+      },
+      {
+        "path": "src/tool-presentation.mjs",
+        "size": 3281,
+        "mode": 420
+      },
+      {
+        "path": "src/url-policy.mjs",
+        "size": 1909,
+        "mode": 420
+      },
+      {
+        "path": "src/virtual-hid-device.js",
+        "size": 6656,
+        "mode": 420
+      },
+      {
+        "path": "src/webhid-shim.js",
+        "size": 29906,
+        "mode": 420
+      }
+    ],
+    "entryCount": 536,
+    "bundled": []
+  }
+]

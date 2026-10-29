@@ -1,0 +1,106 @@
+{
+  "format": 1,
+  "title": {
+    "zh": "dsh-browser-kit 插件索引",
+    "en": "dsh-browser-kit plugin index"
+  },
+  "description": {
+    "zh": "本索引发布 dsh-browser-kit：给 DSH Web GUI 增加页面级浏览器操作、元素批注与截图回传能力。",
+    "en": "This index publishes dsh-browser-kit: page-level browser control, element annotation, and screenshot delivery for the DSH Web GUI."
+  },
+  "metadata": {
+    "categories": {
+      "browser": {
+        "title": {
+          "zh": "浏览器",
+          "en": "Browser"
+        }
+      }
+    },
+    "labels": {
+      "annotation": {
+        "title": {
+          "zh": "元素批注",
+          "en": "Annotations"
+        }
+      },
+      "screenshot": {
+        "title": {
+          "zh": "截图回传",
+          "en": "Screenshots"
+        }
+      },
+      "device-emulation": {
+        "title": {
+          "zh": "设备尺寸模拟",
+          "en": "Device emulation"
+        }
+      },
+      "credentials-local": {
+        "title": {
+          "zh": "凭据仅本机",
+          "en": "Local-only credentials"
+        }
+      },
+      "automation": {
+        "title": {
+          "zh": "浏览器自动化",
+          "en": "Browser automation"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-browser-kit",
+      "title": {
+        "zh": "DSH 浏览器增强套件",
+        "en": "DSH Browser Kit"
+      },
+      "description": {
+        "zh": "元素批注（右键选元素、批注随消息交付给 Agent）、截图回传、设备尺寸模拟、凭据管理（仅本机、不进 Agent 上下文）、共享登录态窗口与 Agent 浏览器自动化。",
+        "en": "Element annotation (right-click an element; the annotation reaches the agent with the message), screenshot delivery, device-size emulation, local-only credential management (never enters agent context), shared-login windows, and agent browser automation."
+      },
+      "author": "Keysion Dev",
+      "homepage": "https://github.com/Shuffle-1992/dsh-browser-kit",
+      "repository": {
+        "url": "https://github.com/Shuffle-1992/dsh-browser-kit"
+      },
+      "metadata": {
+        "category": "browser",
+        "keywords": [
+          "dsh-plugin",
+          "deepseek-harness",
+          "cordis",
+          "deepseek",
+          "harness",
+          "browser",
+          "annotation",
+          "playwright-alternative",
+          "plugin"
+        ],
+        "labels": [
+          "annotation",
+          "screenshot",
+          "device-emulation",
+          "credentials-local",
+          "automation"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1792232941,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Shuffle-1992/dsh-browser-kit.git",
+            "commit": "a03538c42bb1679212d5a789f0f4fb465db181c2"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2 <0.3.0-0"
+          }
+        }
+      ]
+    }
+  ]
+}

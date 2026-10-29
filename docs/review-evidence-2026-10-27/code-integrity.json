@@ -1,0 +1,8 @@
+{
+  "initialHead": "7250a79e00239f3863841f2aa2d51e4da50176a6",
+  "currentHead": "92798cd1356c8991896a5ec13d22ca14e1b10155",
+  "checkedFiles": 77,
+  "changedCodeTestMarketFiles": [],
+  "externalChanges": "92798cd moved pitfalls.md and updated documentation references and package files allowlist",
+  "gitActionsByReviewer": "read only; no stage, commit, push"
+}

@@ -1,0 +1,71 @@
+index:   market\index.json
+schema:  plugin market index format 1 (@deepseek-ai/dsh-plugin-market-index)
+PASS  JSON parses
+PASS  root is an object
+PASS  root.format is 1 — 1
+PASS  root.title is LocalizedText containing en
+PASS  root.description is LocalizedText containing en
+PASS  root.plugins is a non-empty array — 1
+PASS  root.metadata is an object when present
+PASS  metadata.categories is an object
+PASS  metadata.categories.browser declares a LocalizedText title
+PASS  metadata.labels is an object
+PASS  metadata.labels.annotation declares a LocalizedText title
+PASS  metadata.labels.screenshot declares a LocalizedText title
+PASS  metadata.labels.device-emulation declares a LocalizedText title
+PASS  metadata.labels.credentials-local declares a LocalizedText title
+PASS  metadata.labels.automation declares a LocalizedText title
+PASS  metadata.sortKeys is an object
+PASS  $.plugins[0] is an object
+PASS  $.plugins[0].name is a valid npm package name — dsh-browser-kit
+PASS  $.plugins[0].name is unique — dsh-browser-kit
+PASS  $.plugins[0].title is LocalizedText containing en
+PASS  $.plugins[0].description is LocalizedText containing en
+PASS  $.plugins[0].author is a non-empty string
+PASS  $.plugins[0].homepage is a non-empty string
+PASS  $.plugins[0].repository.url is a non-empty string
+PASS  $.plugins[0].repository.url is an http(s) URL without credentials, query, or fragment — https://github.com/Shuffle-1992/dsh-browser-kit
+PASS  $.plugins[0].metadata is an object when present
+PASS  $.plugins[0].metadata.category references a declared category — browser
+PASS  $.plugins[0].metadata.keywords is an array of strings
+PASS  $.plugins[0].metadata.labels is an array of strings
+PASS  $.plugins[0].metadata.labels has no duplicate
+PASS  $.plugins[0].metadata.labels references a declared label — annotation
+PASS  $.plugins[0].metadata.labels references a declared label — screenshot
+PASS  $.plugins[0].metadata.labels references a declared label — device-emulation
+PASS  $.plugins[0].metadata.labels references a declared label — credentials-local
+PASS  $.plugins[0].metadata.labels references a declared label — automation
+PASS  $.plugins[0].versions is a non-empty array — 1
+PASS  $.plugins[0].versions[0] is an object
+PASS  $.plugins[0].versions[0].version is an exact SemVer — 0.2.0
+PASS  $.plugins[0].versions[0].version is unique — 0.2.0
+PASS  $.plugins[0].versions[0].publishTimestamp is an integer in [0, 10^11) — 1792232941
+PASS  $.plugins[0].versions[0].source is a valid npm|git source — {"type":"git","url":"https://github.com/Shuffle-1992/dsh-browser-kit.git","commit":"6a928f521eb379c35e72ab8b0e80f68d4de41140"}
+PASS  $.plugins[0].versions[0].engines is an object
+PASS  $.plugins[0].versions[0].engines.dsh is not a workspace: range — >=0.2.0-rc.2 <0.3.0-0
+PASS  $.plugins[0].versions[0].engines.dsh is a non-empty range string (SemVer validity is the official validator's call) — >=0.2.0-rc.2 <0.3.0-0
+PASS  $.plugins[0].versions[0].engines.dsh equals package.json engines.dsh — >=0.2.0-rc.2 <0.3.0-0 vs >=0.2.0-rc.2 <0.3.0-0
+PASS  plugin name equals package.json name — dsh-browser-kit vs dsh-browser-kit
+PASS  listed version equals package.json version — 0.2.0 vs 0.2.0
+PASS  repository.url matches package.json repository — https://github.com/Shuffle-1992/dsh-browser-kit
+PASS  root has no member format 1 drops — none
+PASS  plugin has no member format 1 drops — none
+PASS  version has no member format 1 drops — none
+WARN  license is not a format-1 member — declared only by package.json (license: Apache-2.0)
+INFO  install spec: git+https://github.com/Shuffle-1992/dsh-browser-kit.git#6a928f521eb379c35e72ab8b0e80f68d4de41140
+INFO  remote tips via local origin remote-tracking refs (ls-remote unavailable — weaker evidence)
+INFO  remote tip refs/remotes/origin/HEAD = 7fbab593e437714011d4b5974e1762e0426ab0b9
+INFO  remote tip refs/remotes/origin/main = 7fbab593e437714011d4b5974e1762e0426ab0b9
+INFO  remote tip refs/remotes/origin/master = 2b5a74f0f4dd5035293e5d172aca57518a80cc1b
+PASS  git provenance: dsh-browser-kit@0.2.0 commit is a lowercase 40-hex SHA — 6a928f521eb379c35e72ab8b0e80f68d4de41140
+PASS  git provenance: dsh-browser-kit@0.2.0 commit exists in this repository — 6a928f521eb379c35e72ab8b0e80f68d4de41140
+FAIL  git provenance: dsh-browser-kit@0.2.0 commit is reachable from a remote ref — NOT reachable from any of refs/remotes/origin/HEAD, refs/remotes/origin/main, refs/remotes/origin/master — the index would install a 404
+PASS  official parseMarketIndex accepted the index — dsh-plugin-market-index-0.2.1-rc.2/lib/index.js
+INFO  validator sha256: 14bccdf32d0d5ff7300e7e99562f3ea24e4cddeb6b21ad7662f7813ede4b72a1
+INFO  parsed: format=1 title.en=dsh-browser-kit plugin index plugins=1
+INFO  parsed declarations: categories=1 labels=5 sortKeys=0
+INFO  parsed plugin: dsh-browser-kit versions=0.2.0 category=browser labels=annotation|screenshot|device-emulation|credentials-local|automation
+INFO  official install target: spec=git+https://github.com/Shuffle-1992/dsh-browser-kit.git#6a928f521eb379c35e72ab8b0e80f68d4de41140
+PASS  official result keeps every plugin
+
+FAILED (1): checks=git provenance: dsh-browser-kit@0.2.0 commit is reachable from a remote ref warnings=1

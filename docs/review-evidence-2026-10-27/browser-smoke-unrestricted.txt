@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: annotator 冒烟：批注流全链路 + 协议 round-trip
+ok 1 - annotator 冒烟：批注流全链路 + 协议 round-trip
+  ---
+  duration_ms: 3688.176
+  type: 'test'
+  ...
+# Subtest: cdp smoke：launch/connect/inject/evalJs/consoleStream/screenshot/close 全链路
+ok 2 - cdp smoke：launch/connect/inject/evalJs/consoleStream/screenshot/close 全链路
+  ---
+  duration_ms: 2652.0963
+  type: 'test'
+  ...
+# Subtest: cdp smoke：显式传入的 userDataDir 不被 close() 删除
+ok 3 - cdp smoke：显式传入的 userDataDir 不被 close() 删除
+  ---
+  duration_ms: 2328.931
+  type: 'test'
+  ...
+# Subtest: hid fixture 冒烟：evaluate 兜底注入 + 配对帧 + 镜像不消费
+ok 4 - hid fixture 冒烟：evaluate 兜底注入 + 配对帧 + 镜像不消费
+  ---
+  duration_ms: 2146.3107
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11222.5196
+EXIT_CODE=0

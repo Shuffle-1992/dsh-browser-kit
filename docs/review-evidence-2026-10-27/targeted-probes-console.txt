@@ -1,0 +1,111 @@
+[
+  {
+    "id": "session-owned-window",
+    "reproduced": true,
+    "details": {
+      "requestingSession": "session-B",
+      "denied": null,
+      "selectedOwner": "session-A"
+    }
+  },
+  {
+    "id": "credential-http-downgrade",
+    "reproduced": true,
+    "details": {
+      "savedOrigin": "https://review.example/login",
+      "pageOrigin": "http://review.example/login",
+      "matched": true
+    }
+  },
+  {
+    "id": "gui-eval-credential-channel",
+    "reproduced": true,
+    "details": {
+      "allowedByScopeCheck": true,
+      "returnedSyntheticSentinel": true,
+      "realCredentialsAccessed": false
+    }
+  },
+  {
+    "id": "hid-queue-no-grant",
+    "reproduced": true,
+    "details": {
+      "calls": [
+        "SYNTHETIC_DEVICE_PATH"
+      ],
+      "grantUIInvoked": false,
+      "shimInstalled": false,
+      "replyOk": true,
+      "hardwareTouched": false
+    }
+  },
+  {
+    "id": "watchdog-resets-fresh-command",
+    "reproduced": true,
+    "details": {
+      "commandAgeMs": 100,
+      "timerPeriodMs": 45000,
+      "busyAfterTimerTick": false,
+      "epochAfter": 8
+    }
+  },
+  {
+    "id": "expired-command-still-executable",
+    "reproduced": true,
+    "details": {
+      "hostTimedOut": true,
+      "stillReturnedByTakeCommand": true,
+      "hasExpiry": false
+    }
+  },
+  {
+    "id": "result-byte-limit-not-enforced",
+    "reproduced": true,
+    "details": {
+      "documentedThresholdBytes": 2097152,
+      "bytesAfterRotation": 3145821
+    }
+  },
+  {
+    "id": "root-package-entry",
+    "reproduced": true,
+    "details": {
+      "rootMain": null,
+      "rootExports": null,
+      "rootDependencies": null,
+      "resolutionError": "MODULE_NOT_FOUND",
+      "note": "Manifest/default-entry probe; confirm DSH bundle loader separately."
+    }
+  },
+  {
+    "id": "annotation-pending-overwrite-and-error-loss",
+    "reproduced": true,
+    "details": {
+      "pendingAfterTwoBatches": 1,
+      "firstBatchOverwritten": true,
+      "pendingAfterFactoryFailure": 0,
+      "messagesInjected": 0
+    }
+  },
+  {
+    "id": "guest-mirror-script-execution",
+    "reproduced": true,
+    "details": {
+      "realChromium": true,
+      "exactProductionMirrorFunction": true,
+      "guestReturnReplacedBySyntheticPayload": true,
+      "hostMarker": "EXECUTED",
+      "dshCspValidated": false
+    }
+  },
+  {
+    "id": "autofilled-password-in-element-tool",
+    "reproduced": true,
+    "details": {
+      "realChromium": true,
+      "usedProductionFillAndElementHandler": true,
+      "passwordIncludedInToolResult": true,
+      "realCredentialsAccessed": false
+    }
+  }
+]

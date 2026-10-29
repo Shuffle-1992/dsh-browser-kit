@@ -1,0 +1,152 @@
+[
+  {
+    "file": "market\\verify-index.cjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "market\\build-index.cjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\wire.host.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\webhid-shim.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\plugin-config.schema.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\virtual-hid-device.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\noop.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\url-policy.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\tool-presentation.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\shot-view.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\session-id.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\hid-observer.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\hid-bridge.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\element-annotator.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\console-observer.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\command-budget.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\cmd-owner.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\chip-target.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\cdp\\drive.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\bridge-envelope.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\annotator-sync.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\annotator-consume.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\annotations-summary.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\annotations-protocol.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "src\\annot-mirror-anchor.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\host.impl.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\entry.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\client.js",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\browser-tools.host.mjs",
+    "exitCode": 0,
+    "message": ""
+  },
+  {
+    "file": "plugin\\annot-delivery.host.mjs",
+    "exitCode": 0,
+    "message": ""
+  }
+]

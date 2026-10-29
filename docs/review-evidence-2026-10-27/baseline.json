@@ -1,0 +1,500 @@
+{
+  "head": "7250a79e00239f3863841f2aa2d51e4da50176a6",
+  "branch": "master",
+  "node": "v24.14.1",
+  "npm": "11.11.0",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "D49C736E915ED3275868FB117EC56DD48CD9038A29E0CA8E616B02C9361DEFB7"
+    },
+    {
+      "path": ".zcodeignore",
+      "sha256": "3426215D05709084139224C813F4CE85C368786902E6CA9B1AC2663F6D7B759E"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "CFC7749B96F63BD31C3C42B5C471BF756814053E847C10F3EB003417BC523D30"
+    },
+    {
+      "path": "NOTICE.md",
+      "sha256": "821D793270672B2A6BBB376BE7F97EC3E325408276EE6D672DE7F6E23336229C"
+    },
+    {
+      "path": "README.md",
+      "sha256": "54B470AC9ADBDFF27B8058546E519C0CA1B7DC578B5FA20D8C32199670864E0C"
+    },
+    {
+      "path": "demo/annotation-loop/index.html",
+      "sha256": "441EED8ED150F53D1AA93BA537DE5EB3D0802643BE1BAE5C4E8C615C4EEF670B"
+    },
+    {
+      "path": "docs/DSH-0.2.1-COMPAT-REVIEW-v2.md",
+      "sha256": "0325A7E63F25E5B27A8583F8951931A5250A2B67154C868E6B8CD5A22823C232"
+    },
+    {
+      "path": "docs/DSH-0.2.1-COMPAT-REVIEW.md",
+      "sha256": "37200F8A77F01FC5F59CC28A8F647CF4EE509C74DA91AB346F7F7575B70A9611"
+    },
+    {
+      "path": "docs/api-scout.md",
+      "sha256": "E12E6B2399D7C9687C730CE632E9D7760780A8A9995E9D044E9948B48BF71255"
+    },
+    {
+      "path": "docs/browser-annotation-and-screenshot-research.md",
+      "sha256": "AA7A125BC25F0BD367605898BC82EB218204DEC97EDF96400951E1453F38EDFB"
+    },
+    {
+      "path": "docs/browser-capability-assessment.md",
+      "sha256": "37466D57F9227C96A96C0FFB17B131AD99EF4A4CF8DFF7C6443F2BFDCFCDB8F9"
+    },
+    {
+      "path": "docs/delivery-01.md",
+      "sha256": "297DDC20D25A8B85EC6E1954861D13F694AD65A482245FC11623E07D8F5661E9"
+    },
+    {
+      "path": "docs/delivery-02-mvp0.md",
+      "sha256": "BA9FD0C294FFBA65CB69E552E43AA534BDC8B26D647E23AF113FA3FD65EB5E82"
+    },
+    {
+      "path": "docs/delivery-03-mvp1.md",
+      "sha256": "5B5DD429E06A1CEC2495A9F9B721543EF116101A6712228F258764F56A7A5F1B"
+    },
+    {
+      "path": "docs/delivery-04-mvp2.md",
+      "sha256": "D7999ED1D9ABAF658109157C22C09B47FDA08A89A3935021E914D9B405630340"
+    },
+    {
+      "path": "docs/delivery-05-mvp3.md",
+      "sha256": "7F3E9170997AAC5CFEF36908686D1141C09992BDF969C24C7EA044C3E8C76A15"
+    },
+    {
+      "path": "docs/delivery-06-plugin-tests.md",
+      "sha256": "431A5AA47C7172610815F8B01455007B260BDEAEE5841FF3AD5FE3903990B6A2"
+    },
+    {
+      "path": "docs/delivery-07-mvp4.md",
+      "sha256": "D5363A43366A2E3878A1EA757E5A2253F382A98432A2DE7A206BA5EA7AFEA19B"
+    },
+    {
+      "path": "docs/delivery-08-shared-session.md",
+      "sha256": "DA4EE67D13C9697C4556B452E05B2B6E5A25756FC68AA08791FC9939E66CAAA7"
+    },
+    {
+      "path": "docs/delivery-09-shared-session-autosync.md",
+      "sha256": "BA58B8DE3CE494DB4F38D1414BFCCF2A276D746200C1260EE2DE180B5A7E1F1C"
+    },
+    {
+      "path": "docs/delivery-10-input-hint-clear-button.md",
+      "sha256": "7D4907CED0C4BEABA66A3538D0E0F763FA3C15873AF7C60E7AE25F0F15016BF2"
+    },
+    {
+      "path": "docs/delivery-11-samepage-gating.md",
+      "sha256": "A89CB7B07699EAF1B56250DD9B2DE946E653A768921F3585E30EEAF34226D16F"
+    },
+    {
+      "path": "docs/delivery-12-annot-chip.md",
+      "sha256": "6FA79E3E5EA6BBAE3312B03902504395F79545C223730D6982C65B028CFB26C2"
+    },
+    {
+      "path": "docs/delivery-13-review-round.md",
+      "sha256": "E0453B2B3FE37926693416133F45D6F8272F796FF8981E422C2368F4E1DAEC40"
+    },
+    {
+      "path": "docs/dev-onboarding.md",
+      "sha256": "742C59C1EF9B4BDEC0B2F80421B209E9D6C4AE7BA467085A07BA1C82EC9B8A60"
+    },
+    {
+      "path": "docs/feature-reference.md",
+      "sha256": "E25B058ABA7EF432FF2593D52FB358419B23E41F1CEF36534A9398E3ED009A0C"
+    },
+    {
+      "path": "docs/market-index.md",
+      "sha256": "84FC2830F3F99A06718EEAB4DECB40349969685C3F19408CD621D79E65C7C283"
+    },
+    {
+      "path": "docs/market-launch-checklist.md",
+      "sha256": "7235B89F41498A06FE47A1CDA84B2DFCBD7462D614CCD8CABC6204BF23777837"
+    },
+    {
+      "path": "docs/mvp0-probe-state.md",
+      "sha256": "E57FCC34880B25D36CDB63D09DE4661B79BC54A399CA19FD0310D45E50C76E3E"
+    },
+    {
+      "path": "docs/mvp3-loop-state.md",
+      "sha256": "05F4DBEECF0B49EC9F8E45706C1E12E7684191A7B02452BAA932862DB93A04B9"
+    },
+    {
+      "path": "docs/pitfalls.md",
+      "sha256": "08B6F94F8323C9A89B1872116F41049371166862C49B78C8235DC4BC0AF6AC3B"
+    },
+    {
+      "path": "docs/refactor-report.md",
+      "sha256": "E815733D4E0985D7DB0A8C95A7AC1C33A27FAFFE0EE862D9102E1258E7BFA54A"
+    },
+    {
+      "path": "docs/references.md",
+      "sha256": "7F1458A7EF58D92B9AAAFEA43810A9821E1E20581234EAC66CE7B1CE212A5D07"
+    },
+    {
+      "path": "docs/repo-structure.md",
+      "sha256": "BEB8EACAB7C732E807DFF1446705B6C8D2DBFD99C195F36B077DFF3564916BA0"
+    },
+    {
+      "path": "docs/review-0.2.1-rc.2.md",
+      "sha256": "FB331998A1004F6E92E7AE62EB00A6BF776B6B585DF4D43C5BC9A63DC0769FB5"
+    },
+    {
+      "path": "docs/review-report-20261006.md",
+      "sha256": "1543311FD9198D4589E8B8A945345908E8E5C862AC3012A097B56DAB76BD711A"
+    },
+    {
+      "path": "docs/status.md",
+      "sha256": "50EF29B936CA4FB9A0077FBBB5847BBCEBD5EA99AA15EBB387FBABCD8F005D7B"
+    },
+    {
+      "path": "docs/tasks/zcode-task-01-portable-layer.md",
+      "sha256": "7B8BC806DBB08916B9FA350443FD796441DD4C4AB94C687EE5FA0E07DE78A76D"
+    },
+    {
+      "path": "docs/tasks/zcode-task-02-plugin-tests.md",
+      "sha256": "646B9F71A3E85EB4C8D22AF652CEB31525D2A30D1B714A152C71DAAC5DEC669D"
+    },
+    {
+      "path": "docs/tool-usage-rules.md",
+      "sha256": "F9035A3CBB29638459B22EE83095EDA11174EEF01993D4912EE3FE2EDDD9903F"
+    },
+    {
+      "path": "docs/ver-delta-0.2.1-rc.2.md",
+      "sha256": "93DAD820004101BF11AEACDF27D2CCFE0102313B0D9359B8FE60E57FEB45D087"
+    },
+    {
+      "path": "docs/zcode-audit-mech.md",
+      "sha256": "3FC43D77CEEAF19B58F9B06CD83F34A6762E17EBC195186CBBDBADA10E89B2A7"
+    },
+    {
+      "path": "docs/zcode-audit-tests.md",
+      "sha256": "B65061C493A9B6438D79A959B84FAF882E4637F2B32B4E41CD3FE450A6F30763"
+    },
+    {
+      "path": "docs/zcode-decouple-plan.md",
+      "sha256": "46B457AD64CF14C6EDF34FA6CCFE2CE9AB8AC2BC70867B7300C39D40C19B1B88"
+    },
+    {
+      "path": "docs/zcode-review-deep.md",
+      "sha256": "F8701D164DFD5FCA24256F9C7C52EA794EE270ECA3C79E07F6F2EE03037E2D9D"
+    },
+    {
+      "path": "market/README.md",
+      "sha256": "C3EEDA2DDE0523324CA314F570F549FA1E6BB82F4372541EB8E1E40A1AF2BFD8"
+    },
+    {
+      "path": "market/build-index.cjs",
+      "sha256": "C348421B1CBF68C474A24A3F62D80911B5EC68AEBB18BCE84CFDB0696CF07528"
+    },
+    {
+      "path": "market/index.json",
+      "sha256": "5C2EE9E33A1598269DD79D191819A94C320FFF2C054A318AECBBB5059C622234"
+    },
+    {
+      "path": "market/verify-index.cjs",
+      "sha256": "FD929F89371FDB6F2F2E0CD4993B510C360225745FBF7D236C991991A7D0236D"
+    },
+    {
+      "path": "package.json",
+      "sha256": "390BF771ACBF34AA1BDDA691D729CCE54D4C6080C6F50DE8FF515E9BFCEC4158"
+    },
+    {
+      "path": "plugin/annot-delivery.host.mjs",
+      "sha256": "1354A127F28BEF3778BCBE8A137470ACAE0200AB4CC0C7C254313CFAE4A9AD96"
+    },
+    {
+      "path": "plugin/browser-tools.host.mjs",
+      "sha256": "707B41CC6E49ED9C73E6E023C0AAF80E352763CB83A00C0A93BEE128E1530987"
+    },
+    {
+      "path": "plugin/client.js",
+      "sha256": "CDA107542B2FC90D30B5D64C90926CCB3838352BD027E3D4B1418EC44146A001"
+    },
+    {
+      "path": "plugin/cordis.patch.yml",
+      "sha256": "ABE4908A87BCA74DE673B168D4E8950787FD76E8D08D3BF6F58B914516FA9187"
+    },
+    {
+      "path": "plugin/entry.mjs",
+      "sha256": "4B1F862378BF3A0D6D2FC38D0FB8A094009E58EEA88EEDF8C9EAE7DF507123D3"
+    },
+    {
+      "path": "plugin/host.impl.mjs",
+      "sha256": "413F03001489D981E846394A1DD0C92213048D2033E77676B83FA7648A77B3B2"
+    },
+    {
+      "path": "plugin/icon.svg",
+      "sha256": "7492F2196BD316AB2D8EC7132893A3DD15C513AE756F627EFC83CF808BB81D48"
+    },
+    {
+      "path": "plugin/locale/en.json",
+      "sha256": "5EB0AE7937E9A16491103F929031A2ED1107F5C07B7BA22A404F8B7089B17A2D"
+    },
+    {
+      "path": "plugin/locale/zh.json",
+      "sha256": "D07F20BDE0C33BACA2F374C2822A2EBE1DDD113053BACC3254C9DC687B77E3B5"
+    },
+    {
+      "path": "plugin/noop.js",
+      "sha256": "8A87FF9019AF7924C60C00F891CAA2654EB018392E6FA41CA4A1717BFB548B71"
+    },
+    {
+      "path": "plugin/package-lock.json",
+      "sha256": "492C97F00631CEE77C766A4090E62087C31ED333333AE42A4127ACA17D825242"
+    },
+    {
+      "path": "plugin/package.json",
+      "sha256": "9269D7DDD689ECBB8A9F5B59E50FDF59F7446DDF6AA23B90203516567C6128C1"
+    },
+    {
+      "path": "plugin/plugin-config.schema.mjs",
+      "sha256": "5D0A20B46D2D0ED5D71DE87FA80367C59C7AAE70306D8A7287C7B2E6C595AD7E"
+    },
+    {
+      "path": "plugin/wire.host.mjs",
+      "sha256": "D3FA3D050AD0117AC4E1C44EC39FE413BE0E9642FC006CD837D1D7C873537F75"
+    },
+    {
+      "path": "src/annot-mirror-anchor.mjs",
+      "sha256": "523BD1B3969281929C36ACEA4D4129FFAA94A7C0ED82BEC55673B3E7968DF72E"
+    },
+    {
+      "path": "src/annotations-protocol.js",
+      "sha256": "0128ABDFAC6DCF0C17EF08B751A7A73436D3E1878E9E9818B82722BFAE567FB9"
+    },
+    {
+      "path": "src/annotations-summary.mjs",
+      "sha256": "CADF21333F31C3C06CA4D30F78B7B3F9158A94301C1679E64C5F97A40051DD28"
+    },
+    {
+      "path": "src/annotator-consume.mjs",
+      "sha256": "191E34924C37B1B8FF2171D0D0335F6915E47192EC64EA9F5E6B38C08B8C9FF1"
+    },
+    {
+      "path": "src/annotator-sync.mjs",
+      "sha256": "746EBC5B23EDCEEA1C3A49B3BEDBC98A5D1E6E73374367EC72E76032EC4D8B10"
+    },
+    {
+      "path": "src/bridge-envelope.mjs",
+      "sha256": "1DC09198D5CE1F22B7C658B26ABBDB4DBED29349785CAE55D92B55147FB42DA9"
+    },
+    {
+      "path": "src/cdp/drive.mjs",
+      "sha256": "8676EC0F4E872741D38579CE0BBC3E6B95EDD39923659D175DCD1BEB1831486E"
+    },
+    {
+      "path": "src/chip-target.mjs",
+      "sha256": "E93BA645376C26C910F00E5F75D68643A93956FF9D529C5344DA968385F87D58"
+    },
+    {
+      "path": "src/cmd-owner.mjs",
+      "sha256": "BE34A01292A76E6D8694964E024BFA6F47CF1B2604841DF38116AABC3DFC9D7B"
+    },
+    {
+      "path": "src/command-budget.mjs",
+      "sha256": "FD8BDEA96A6D77AA946B797F72B63D3C955802689C2F7D79A5623E0DD42451C3"
+    },
+    {
+      "path": "src/console-observer.js",
+      "sha256": "A3273838562B5838C90E7BE644F559FBD3D04E7B792F95C5CAC54B8F5B3C6DA1"
+    },
+    {
+      "path": "src/element-annotator.js",
+      "sha256": "197498FBDB3B9777FC4D771BD4A8C762DE4C13ED0256CFAFF6E3BDC7139E310B"
+    },
+    {
+      "path": "src/hid-bridge.mjs",
+      "sha256": "49A610A07AB59EA9110242DD0DF8048F2432595BC4981D56811D849A28DDB650"
+    },
+    {
+      "path": "src/hid-observer.js",
+      "sha256": "BC03BB313A307F09AB2139D04DE61AC0D16980E3356B779C6DA3777A68085CFC"
+    },
+    {
+      "path": "src/session-id.mjs",
+      "sha256": "DC3C44F79DA3114EE10C3C617037FE568530F0D9EB41FC2DC98AF613BB755C0A"
+    },
+    {
+      "path": "src/shot-view.mjs",
+      "sha256": "3659C572C61F948152C4472186613A757867FB9B1A0F0C7D95EFD3F7603AE6BB"
+    },
+    {
+      "path": "src/tool-presentation.mjs",
+      "sha256": "19BC5C127D2AE58E2270D82FB1A8D8839C81634CCFF13A192D6E9F063D4E79EA"
+    },
+    {
+      "path": "src/url-policy.mjs",
+      "sha256": "B67A9736D703E0C1AA1B55A672311C13A8A8821A8F766A50644A6C952F2E9DBC"
+    },
+    {
+      "path": "src/virtual-hid-device.js",
+      "sha256": "4F616270CCE5C4B247DEC912DB2836D52C9D1751D02AB6FC45860C21DEFFB517"
+    },
+    {
+      "path": "src/webhid-shim.js",
+      "sha256": "795D33432BCF10AA6FD89B2266F9A16CB8794E450708285F7F253B6891DEFE5A"
+    },
+    {
+      "path": "test/annot-chip-cleared-after-send.test.mjs",
+      "sha256": "52BC83361217CE1068AC74F6ABB541348FB7417C83A88223C22AD2122E84D129"
+    },
+    {
+      "path": "test/annot-delivery.test.mjs",
+      "sha256": "1DC33E2A08C41606CFF6B94245FE8E14FD1C73DE994F0C7AF73B247A527A4403"
+    },
+    {
+      "path": "test/annot-mirror-anchor.test.mjs",
+      "sha256": "BB97C0A2B1084EDD7897CE44E99884E091156BF1875B416F355DB145840FA6FD"
+    },
+    {
+      "path": "test/annotation-window-info.test.mjs",
+      "sha256": "9359DAC267A60B1F651A482C149C59457ABCDEE052CB71F5BA1B75DF9B698ED0"
+    },
+    {
+      "path": "test/annotations-protocol.test.js",
+      "sha256": "801CC6B48C137E19B6BB19AAF0D994A779F640455CAB2C54B40883526B5847AC"
+    },
+    {
+      "path": "test/annotations-summary.test.mjs",
+      "sha256": "5EB4D286DE5728DF84A8345F38A62A944793A23AC770B9D468B69639245C2C9E"
+    },
+    {
+      "path": "test/annotator-consume.test.mjs",
+      "sha256": "2B37202F4F0B663538F9FAD5815AB9BEF81F33A4AFA4B6500D629C235D2F75BC"
+    },
+    {
+      "path": "test/annotator-protocol-parity.test.js",
+      "sha256": "944DE22B541D47C89219286DE455DB5476AF1186E7BCCB193E350CF54BDABD79"
+    },
+    {
+      "path": "test/annotator-smoke.test.js",
+      "sha256": "39776EA5E47EBCCC1C7B1F5FADBF7D995DEE4FF53394E25FC5B3122C5AA77F05"
+    },
+    {
+      "path": "test/annotator-sync.test.mjs",
+      "sha256": "73357222CC5FCDF0C2B286510A9EE3383B4C9CBD6B78CC0A4810D67C62996E39"
+    },
+    {
+      "path": "test/annotator-v22-guards.test.mjs",
+      "sha256": "8D6BC445AAECA5EF487AFDCC78A8210012D6058DA8B1850A487AC2F2BE8EE9B4"
+    },
+    {
+      "path": "test/annotator-v23-mirror-tick.test.mjs",
+      "sha256": "E49A6A567A3DB16D8B3C9310CF5FA4B91AA520248A4A7403028BB9E3A8367796"
+    },
+    {
+      "path": "test/annotator-v24-keep-annotations.test.mjs",
+      "sha256": "3E41967E08CCEE79E43373958EC238EF22BFB863B67A0E060024B8B39FCEF5B8"
+    },
+    {
+      "path": "test/annotator-v25-scope-and-tip.test.mjs",
+      "sha256": "58F92E2DE39C6B7A5D64DB6F718CAC8DF677D53DEDA34A7A647A4BFDD3EEF9EF"
+    },
+    {
+      "path": "test/annotator-v36-v37.test.mjs",
+      "sha256": "83D4C78DFE9220B9CA4CF296393B0E71C49083C2C17F1851549C3C39E9A419E7"
+    },
+    {
+      "path": "test/bridge-envelope.test.mjs",
+      "sha256": "02CAEB18CF79E1B0B978470574BC9D40493930CB6406DEEC65ED22E7510B7F9E"
+    },
+    {
+      "path": "test/browser-tools-host.test.mjs",
+      "sha256": "5EB1C8BA83F5E013842C493C24D8361F24923CAF2CB4E59E5369DA588CAF8C36"
+    },
+    {
+      "path": "test/cdp-smoke.test.js",
+      "sha256": "BFCA39C423715EF421DF062B335806E6EF0EFC8A7F599627FEF3F1203314156D"
+    },
+    {
+      "path": "test/chip-target.test.mjs",
+      "sha256": "68CF62B158478171C04366CEF03D6FFED289A738C0EC863D9CF5CF46F4D9B51F"
+    },
+    {
+      "path": "test/cmd-owner.test.mjs",
+      "sha256": "0146A266965C140BC8830A6B050D4DEE3837A50C93B555E44845EFCFF04B93DE"
+    },
+    {
+      "path": "test/command-budget.test.mjs",
+      "sha256": "4AFC421B563A81DEB09205BA459E02983379F1FE279766069723CF61A7EAF094"
+    },
+    {
+      "path": "test/console-observer.test.mjs",
+      "sha256": "A73F52315CDFE9E45AA5E7C66BB54507706F48CC0139A95F60AF39FF8539FDF5"
+    },
+    {
+      "path": "test/credential-manager.test.mjs",
+      "sha256": "4FE0142DA0C4C463F04ADCDA0E5E5DB8BEC46FB0CE919106E8BCE584343D28CA"
+    },
+    {
+      "path": "test/device-fit-resize.test.mjs",
+      "sha256": "43A6B4FA00D48BDAB4B126932BEE36D732C056579602DDFA08B4BF435BB4C4C1"
+    },
+    {
+      "path": "test/dsh-021-compat.test.mjs",
+      "sha256": "F908C4FC41808E652A260E9E340EC7D8BFBB51E62512465BB22B55D75240B25A"
+    },
+    {
+      "path": "test/fixtures/hid-docstart-page.html",
+      "sha256": "3826DE2DE14A26A331F5C654419AE53F25ED2C501A14ED34C2D939803089708E"
+    },
+    {
+      "path": "test/fixtures/hid-mock-page.html",
+      "sha256": "6F10A097A0D28D98388370E55C5266B5F207EFD589CEA4B2F91F5CF70E3D8F8D"
+    },
+    {
+      "path": "test/fixtures/page.html",
+      "sha256": "D25E046BD9D1F7F4717B0D00B7537C48977465F6EB9B0895B82F14C99C6C3A51"
+    },
+    {
+      "path": "test/helpers/chrome.mjs",
+      "sha256": "0758413B0138BCA9985F3EBE89C4C80874846D8698B2227626BD7D0C587B8A47"
+    },
+    {
+      "path": "test/helpers/sandbox.mjs",
+      "sha256": "4BB4EFBB7C7C043BB2171BC025AD421258FB26FCE66B8131795F1B51476FF755"
+    },
+    {
+      "path": "test/hid-fixture-smoke.test.js",
+      "sha256": "996993EC7F4CE8D1B68D42FC433B50A575D1DA04F72A67B3CEE3D7EC4E65B644"
+    },
+    {
+      "path": "test/hid-observer.test.js",
+      "sha256": "46F62DE98856735C44C3A5D79FB8C4097EA4C2C5751B3A1659B6F2A4891503CD"
+    },
+    {
+      "path": "test/plugin-client-contract.test.mjs",
+      "sha256": "EBD0448249B6B567CCEF8AFB51D7B38467CF0ECEC07D109709D1D28985B17F80"
+    },
+    {
+      "path": "test/plugin-impl.test.mjs",
+      "sha256": "3A6250974DD8E0BE49B47A686C99CF8E535293791049CF79ED374EC383982FCE"
+    },
+    {
+      "path": "test/shot-view.test.mjs",
+      "sha256": "25879DE27BF4F358D9CC4786BA09FDC5F69B44A7AFD8875FAB52C51CD90C2926"
+    },
+    {
+      "path": "test/tool-usage-rules.test.mjs",
+      "sha256": "D291113DB5ACEED98885B4F9A0D81B1E0400943BC8C643FDDC96ADC5318F86F6"
+    },
+    {
+      "path": "test/url-policy.test.mjs",
+      "sha256": "2485FAF8C4142198A762804B0CE681A7D9FF3AAEE2B4D30416D09765D9F7A378"
+    },
+    {
+      "path": "test/virtual-hid-device.test.js",
+      "sha256": "56B2979BC14743F44AB14EBFA35D877DA38AD271B4CDFC6BA9351A498F0C4980"
+    },
+    {
+      "path": "test/webhid-shim-delivery.test.mjs",
+      "sha256": "C9A73B98327613F73BAE36A30663C7BCF58C4CB2FCC076BC27AD57959FF16550"
+    }
+  ]
+}
